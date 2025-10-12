@@ -36,7 +36,7 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 1.1.2    | [Latency, Throughput, and Scaling](01-principles/1.1.2-latency-throughput-scale.md) |
 | 1.1.3    | [Availability and Reliability](01-principles/1.1.3-availability-reliability.md)     |
 | 1.1.4    | [Data Consistency Models](01-principles/1.1.4-data-consistency-models.md)           |
-| 1.2.1    | System Architecture Styles                                                          |
+| 1.2.1    | [System Architecture Styles](01-principles/1.2.1-system-architecture-styles.md)     |
 | 1.2.2    | Networking Components                                                               |
 | 1.2.3    | API Gateway and Service Mesh                                                        |
 
