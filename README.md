@@ -38,7 +38,7 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 1.1.4    | [Data Consistency Models](01-principles/1.1.4-data-consistency-models.md)           |
 | 1.2.1    | [System Architecture Styles](01-principles/1.2.1-system-architecture-styles.md)     |
 | 1.2.2    | [Networking Components](01-principles/1.2.2-networking-components.md)               |
-| 1.2.3    | API Gateway and Service Mesh                                                        |
+| 1.2.3    | [API Gateway and Service Mesh](01-principles/1.2.3-api-gateway-servicemesh.md)      |
 
 ## Category 2: Components Deep Dive (Folder: [02-components](./02-components))
 
