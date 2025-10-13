@@ -42,19 +42,30 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 ## Category 2: Components Deep Dive (Folder: [02-components](./02-components))
 
-| Topic ID | Concept                                |
-|----------|----------------------------------------|
-| 2.1.1    | RDBMS Deep Dive: SQL & ACID            |
-| 2.1.2    | NoSQL Deep Dive: The BASE Principle    |
-| 2.1.3    | Specialized Databases                  |
-| 2.1.4    | Database Scaling                       |
-| 2.1.5    | Indexing and Query Optimization        |
-| 2.2.1    | Caching Deep Dive                      |
-| 2.2.2    | Consistent Hashing                     |
-| 2.3.1    | Asynchronous Communication             |
-| 2.3.2    | Distributed Transactions & Idempotency |
-| 2.4.1    | Rate Limiting Algorithms               |
-| 2.4.2    | Consensus                              |
+| Topic ID | Concept                                      | Focus                                                                                                     |
+|----------|----------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| 2.0.1    | Foundational Communication Protocols         | TCP vs. UDP, HTTP/S, WebSockets, WebRTC, DASH.                                                            |
+| 2.0.2    | API Communication Styles                     | REST, gRPC, SOAP, GraphQL (Pros, Cons, and Use Cases).                                                    |
+| 2.0.3    | Real-Time: Long Polling vs WebSockets        | Comparison of techniques for maintaining persistent or near-persistent connections for real-time updates. |
+| 2.1.1    | RDBMS Deep Dive: SQL & ACID                  | Transactions, Isolation Levels, ACID vs. BASE.                                                            |
+| 2.1.2    | NoSQL Deep Dive: The BASE Principle          | Document Stores, Key-Value Stores, Column-Family.                                                         |
+| 2.1.3    | Specialized Databases                        | Time-Series, Graph, Geospatial DBs (e.g., Redis Streams, Neo4j).                                          |
+| 2.1.4    | Database Scaling                             | Replication (Master-Slave), Federation, Sharding Strategies.                                              |
+| 2.1.5    | Indexing and Query Optimization              | B-Trees, LSM-Trees, Denormalization Trade-offs.                                                           |
+| 2.1.6    | Data Modeling for Scale (CQRS)               | Denormalization, Data Decomposition, Command-Query Responsibility Segregation (CQRS).                     |
+| 2.2.1    | Caching Deep Dive                            | Cache-Aside, Write-Through, CDN vs. App-Level Cache.                                                      |
+| 2.2.2    | Consistent Hashing                           | Algorithm mechanics, Ring implementation, how it minimizes data movement.                                 |
+| 2.3.1    | Asynchronous Communication                   | Queues vs. Streams, Pub/Sub Models, Backpressure.                                                         |
+| 2.3.2    | Kafka Deep Dive                              | Broker, Producer, Consumer Group, Partitions, Offset Management, Log Compaction.                          |
+| 2.3.3    | Advanced Message Queues (RabbitMQ, SQS, SNS) | Comparison of broker-based vs. managed queues, Dead-Letter Queues (DLQs).                                 |
+| 2.3.4    | Distributed Transactions & Idempotency       | Two-Phase Commit (2PC), Sagas, ensuring atomic operations.                                                |
+| 2.3.5    | Batch vs Stream Processing                   | Detailed look at the Lambda and Kappa Architectures, latency vs. completeness trade-offs.                 |
+| 2.3.6    | Push vs Pull Data Flow                       | Architectural choices in messaging systems (e.g., Kafka (Pull) vs. RabbitMQ (Push)).                      |
+| 2.4.1    | Security Fundamentals                        | Authn/Authz (JWT), TLS/Encryption, Cross-Site Scripting (XSS) & CSRF.                                     |
+| 2.4.2    | Observability                                | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting.                             |
+| 2.5.1    | Rate Limiting Algorithms                     | Token Bucket, Leaky Bucket, Fixed Window counter mechanisms.                                              |
+| 2.5.2    | Consensus                                    | Paxos / Raft, Distributed Locks (ZooKeeper/etcd), solving the concurrency problem.                        |
+| 2.5.3    | Bloom Filters                                | Intuition, Hash Functions, False Positives, use cases (e.g., CDN cache lookups).                          |
 
 ## 🎉 Contributions
 
