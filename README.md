@@ -63,7 +63,7 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 2.3.6    | [Push vs Pull Data Flow](02-components/2.3.6-push-vs-pull-data-flow.md)                                   | Architectural choices in messaging systems (e.g., Kafka (Pull) vs. RabbitMQ (Push)).                      |
 | 2.4.1    | [Security Fundamentals](02-components/2.4.1-security-fundamentals.md)                                     | Authn/Authz (JWT), TLS/Encryption, Cross-Site Scripting (XSS) & CSRF.                                     |
 | 2.4.2    | [Observability](02-components/2.4.2-observability.md)                                                     | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting.                             |
-| 2.5.1    | Rate Limiting Algorithms                                                                                  | Token Bucket, Leaky Bucket, Fixed Window counter mechanisms.                                              |
+| 2.5.1    | [Rate Limiting Algorithms](02-components/2.5.1-rate-limiting-algorithms.md)                               | Token Bucket, Leaky Bucket, Fixed Window counter mechanisms.                                              |
 | 2.5.2    | Consensus                                                                                                 | Paxos / Raft, Distributed Locks (ZooKeeper/etcd), solving the concurrency problem.                        |
 | 2.5.3    | Bloom Filters                                                                                             | Intuition, Hash Functions, False Positives, use cases (e.g., CDN cache lookups).                          |
 
