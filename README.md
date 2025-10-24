@@ -65,8 +65,8 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 2.4.2    | [Observability](02-components/2.4.2-observability.md)                                                     | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting.                             |
 | 2.5.1    | [Rate Limiting Algorithms](02-components/2.5.1-rate-limiting-algorithms.md)                               | Token Bucket, Leaky Bucket, Fixed Window counter mechanisms.                                              |
 | 2.5.2    | [Consensus Algorithms](02-components/2.5.2-consensus-algorithms.md)                                       | Paxos / Raft, Distributed Locks (ZooKeeper/etcd), solving the concurrency problem.                        |
-| 2.5.3    | Distributed Locking                                                                                       |                                                                                                           |
-| 2.5.3    | Bloom Filters                                                                                             | Intuition, Hash Functions, False Positives, use cases (e.g., CDN cache lookups).                          |
+| 2.5.3    | [Distributed Locking](02-components/2.5.3-distributed-locking.md)                                         |                                                                                                           |
+| 2.5.4    | Bloom Filters                                                                                             | Intuition, Hash Functions, False Positives, use cases (e.g., CDN cache lookups).                          |
 
 ## 🎉 Contributions
 
