@@ -65,8 +65,44 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 2.4.2    | [Observability](02-components/2.4.2-observability.md)                                                     | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting.                             |
 | 2.5.1    | [Rate Limiting Algorithms](02-components/2.5.1-rate-limiting-algorithms.md)                               | Token Bucket, Leaky Bucket, Fixed Window counter mechanisms.                                              |
 | 2.5.2    | [Consensus Algorithms](02-components/2.5.2-consensus-algorithms.md)                                       | Paxos / Raft, Distributed Locks (ZooKeeper/etcd), solving the concurrency problem.                        |
-| 2.5.3    | [Distributed Locking](02-components/2.5.3-distributed-locking.md)                                         |                                                                                                           |
+| 2.5.3    | [Distributed Locking](02-components/2.5.3-distributed-locking.md)                                         | $\text{Redis}$ locks, $\text{TTL}$, Fencing Tokens, ensuring mutual exclusion.                            |
 | 2.5.4    | [Bloom Filters](02-components/2.5.4-bloom-filters.md)                                                     | Intuition, Hash Functions, False Positives, use cases (e.g., CDN cache lookups).                          |
+
+## 🗺️ Design Challenges Roadmap (Category 3)
+
+### Easy Challenges (Focus: Core Components, Caching, Databases)
+
+These problems require solid application of scaling fundamentals, hashing, and database choices.
+
+| Problem ID | System Name                                                                                  | Key Concepts Applied                                                                                                              |
+|------------|----------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| 3.1.1      | [**Design a URL Shortener** ($\text{TinyURL}$)](03-challenges/3.1.1-design-url-shortener.md) | Hashing, Base62 Encoding, Read-Heavy Scaling, Sharding Key, $\text{Cache}$ $\text{Aside}$.                                        |
+| 3.1.2      | **Design a Distributed Cache**                                                               | Consistent Hashing, Eviction Policies ($\text{LRU}$), $\text{Write}$-$\text{Through}$/$\text{Write}$-$\text{Back}$, $\text{TTL}$. |
+| 3.1.3      | **Design a Distributed ID Generator**                                                        | SnowFlake Algorithm, $\text{Timestamp}$ $\text{vs.}$ $\text{Sequence}$, $\text{High}$ $\text{Availability}$.                      |
+
+### Medium Challenges (Focus: Asynchrony, Feeds, Microservices, Geo-Spatial)
+
+These problems involve decoupling services, handling fan-out, and managing complex data models.
+
+| Problem ID | System Name                      | Key Concepts Applied                                                                                                                                              |
+|------------|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 3.2.1      | Design a Twitter/X Timeline      | $\text{Fanout}$ $\text{on}$ $\text{Write}$ vs. $\text{Fanout}$ $\text{on}$ $\text{Read}$, $\text{Caching}$ $\text{Hierarchy}$, $\text{Queuing}$ ($\text{Kafka}$). |
+| 3.2.2      | Design a Notification Service    | $\text{Pub}$/$\text{Sub}$ ($\text{SNS}$), $\text{Real}$-$\text{Time}$ ($\text{WebSockets}$), $\text{Batching}$ $\text{Notifications}$, $\text{DLQ}$.              |
+| 3.2.3      | Design a Distributed Web Crawler | $\text{URL}$ $\text{Frontier}$, $\text{Bloom}$ $\text{Filter}$, $\text{Rate}$ $\text{Limiting}$, $\text{Queueing}$.                                               |
+| 3.2.4      | Design a Global Rate Limiter     | $\text{Distributed}$ $\text{Counters}$ ($\text{Redis}$ $\text{Cluster}$), $\text{Leaky}$ $\text{Bucket}$ $\text{Algorithm}$, $\text{API}$ $\text{Gateway}$.       |
+
+### Hard Challenges (Focus: Consistency, Transactions, Consensus, Real-Time Geo)
+
+These problems require advanced pattern usage, strong consistency guarantees, and managing complex real-time state.
+
+| Problem ID | System Name                                                        | Key Concepts Applied                                                                                                                                                                         |
+|------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 3.3.1      | **Design a Live Chat System ($\text{WhatsApp}$ / $\text{Slack}$)** | $\text{WebSockets}$, $\text{Message}$ $\text{Broker}$ ($\text{Kafka}$), $\text{Presence}$ $\text{Service}$, $\text{Multi}$-$\text{Region}$ $\text{Consistency}$.                             |
+| 3.3.2      | **Design Uber/Lyft Ride Matching**                                 | $\text{Geospatial}$ $\text{Indexing}$ ($\text{H3}$/$\text{Geohash}$), $\text{Real}$-$\text{Time}$ $\text{Updates}$ ($\text{WebSockets}$), $\text{Load}$ $\text{Balancing}$ $\text{Drivers}$. |
+| 3.3.3      | **Design an E-commerce Flash Sale**                                | $\text{Distributed}$ $\text{Locking}$, $\text{Soft}$ $\text{Inventory}$ $\text{Reservation}$, $\text{Idempotency}$, $\text{Payment}$ $\text{Sagas}$.                                         |
+| 3.3.4      | **Design a Distributed Database**                                  | $\text{Raft}$/$\text{Paxos}$ $\text{Consensus}$, $\text{Sharding}$, $\text{Replication}$ $\text{Topology}$, $\text{Fault}$ $\text{Tolerance}$.                                               |
+
+---
 
 ## 🎉 Contributions
 
