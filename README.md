@@ -83,7 +83,7 @@ These problems require solid application of scaling fundamentals, hashing, and d
 |------------|----------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
 | 3.1.1      | [**Design a URL Shortener** ($\text{TinyURL}$)](03-challenges/3.1.1-design-url-shortener.md) | Hashing, Base62 Encoding, Read-Heavy Scaling, Sharding Key, $\text{Cache}$ $\text{Aside}$.                                        |
 | 3.1.2      | [**Design a Distributed Cache** ($\text{Redis}$/$\text{Memcached}$)](03-challenges/3.1.2-design-distributed-cache.md) | Consistent Hashing, Eviction Policies ($\text{LRU}$), Replication, Failover, $\text{TTL}$, Cache Stampede Prevention. |
-| 3.1.3      | **Design a Distributed ID Generator**                                                        | SnowFlake Algorithm, $\text{Timestamp}$ $\text{vs.}$ $\text{Sequence}$, $\text{High}$ $\text{Availability}$.                      |
+| 3.1.3      | [**Design a Distributed ID Generator** ($\text{Snowflake}$)](03-challenges/3.1.3-design-distributed-id-generator.md) | 64-bit ID Structure, Worker ID Assignment, Clock Drift Handling, Sequence Management, $\text{etcd}$ Coordination. |
 
 ### Medium Challenges (Focus: Asynchrony, Feeds, Microservices, Geo-Spatial)
 
