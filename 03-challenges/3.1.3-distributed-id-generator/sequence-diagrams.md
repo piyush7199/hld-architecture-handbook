@@ -2,6 +2,8 @@
 
 ## ID Generation Flow (Happy Path)
 
+**Flow:** Client → ID Generator → Check timestamp → Increment sequence → Compose 64-bit ID → Return. Sub-millisecond latency, lock-free.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -29,6 +31,8 @@ sequenceDiagram
 ```
 
 ## Worker ID Assignment (Startup)
+
+**Flow:** Node starts → Register with etcd → Check for existing Worker ID → If none: Find available slot → Create lease → Start heartbeat → Begin generating IDs.
 
 ```mermaid
 sequenceDiagram
@@ -83,6 +87,8 @@ sequenceDiagram
 
 ## Sequence Exhaustion Handling
 
+**Flow:** Generate ID → Sequence reaches 4095 (max) → Wait for next millisecond → Reset sequence to 0 → Resume generation. Adds ~1ms latency occasionally.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -124,6 +130,8 @@ sequenceDiagram
 
 ### Scenario 1: Small Backward Drift (Tolerable)
 
+**Flow:** Detect clock backwards by 3ms (< 5ms threshold) → Wait 3ms for clock to catch up → Resume generation. Minimal service disruption.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -162,6 +170,8 @@ sequenceDiagram
 ```
 
 ### Scenario 2: Large Backward Drift (Critical)
+
+**Flow:** Detect clock backwards by 100ms (> 5ms threshold) → Log error → Alert ops → Refuse to generate IDs. Service interruption to prevent duplicates.
 
 ```mermaid
 sequenceDiagram
@@ -207,6 +217,8 @@ sequenceDiagram
 
 ### Snowflake ID Generation
 
+**Flow:** Fast generation (0.1ms), decentralized, time-sortable. Requires worker ID coordination but no per-ID coordination.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -227,6 +239,8 @@ sequenceDiagram
 
 ### UUID v4 Generation
 
+**Flow:** Pure random generation (0.1ms), no coordination needed, 128-bit. Not sortable, larger storage footprint.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -246,6 +260,8 @@ sequenceDiagram
 ```
 
 ### Database Auto-Increment
+
+**Flow:** DB-coordinated ID generation (50ms latency), single point of failure, simple but doesn't scale. Sequential IDs reveal business metrics.
 
 ```mermaid
 sequenceDiagram
@@ -268,6 +284,8 @@ sequenceDiagram
 ```
 
 ## Failover Scenario: Node Failure
+
+**Flow:** Node 1 fails → Load balancer detects (health check) → Routes traffic to Node 2 → etcd releases Node 1's Worker ID after TTL → Service continues uninterrupted.
 
 ```mermaid
 sequenceDiagram
@@ -324,6 +342,8 @@ sequenceDiagram
 
 ## Multi-Region ID Generation
 
+**Flow:** Global users → GeoDNS routes to nearest region → Regional ID generators operate independently → IDs globally unique (non-overlapping Worker ID ranges).
+
 ```mermaid
 sequenceDiagram
     participant US_App as US Application
@@ -363,6 +383,8 @@ sequenceDiagram
 ```
 
 ## Monitoring & Alerting Flow
+
+**Flow:** ID Generator exports metrics → Prometheus scrapes → Evaluates alert rules (clock drift, duplicate IDs) → Alertmanager notifies ops → Ops investigates.
 
 ```mermaid
 sequenceDiagram
@@ -423,6 +445,8 @@ sequenceDiagram
 
 ## Performance Test Scenario
 
+**Flow:** Load testing to measure throughput and latency. Ramp up to 1M requests/sec, measure P99 latency, verify no duplicates, check CPU/memory usage.
+
 ```mermaid
 sequenceDiagram
     participant LoadTest as Load Testing Tool
@@ -451,6 +475,8 @@ sequenceDiagram
 
 ## Batch ID Generation (Optimization)
 
+**Flow:** Client requests 1000 IDs → Generator produces batch → Returns all at once. Reduces network round-trips, higher throughput.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -477,6 +503,8 @@ sequenceDiagram
 ```
 
 ## Distributed Tracing
+
+**Flow:** Request tagged with trace ID (Jaeger) → Spans track ID generation latency → Full request path traced → Helps debug performance issues.
 
 ```mermaid
 sequenceDiagram
@@ -516,6 +544,8 @@ sequenceDiagram
 
 ## ID Parsing & Debugging
 
+**Flow:** Given an ID → Extract timestamp, worker ID, sequence → Debug when/where ID was generated → Useful for troubleshooting, audit trails.
+
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
@@ -547,6 +577,8 @@ sequenceDiagram
 ```
 
 ## Clock Synchronization (NTP)
+
+**Flow:** ID Generator periodically syncs with NTP servers → Measures drift → Adjusts system clock → Keeps drift <10ms → Critical for preventing clock-related duplicate IDs.
 
 ```mermaid
 sequenceDiagram

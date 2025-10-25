@@ -1,0 +1,274 @@
+# HLD Architecture Handbook - Cursor Rules
+
+## Project Structure
+
+This is a system design learning repository organized into:
+- `01-principles/` - Core theoretical concepts
+- `02-components/` - Deep dive into system components  
+- `03-challenges/` - Real-world design problems with detailed solutions
+
+## Design Challenge Structure
+
+Each design challenge in `03-challenges/` follows this exact structure:
+
+```
+03-challenges/
+├── 3.x.y-problem-name/
+│   ├── 3.x.y-design-problem-name.md    # FULL comprehensive guide (main file)
+│   ├── README.md                        # Identical or similar to main file
+│   ├── hld-diagram.md                   # ONLY Mermaid architecture diagrams with explanations
+│   ├── sequence-diagrams.md             # ONLY Mermaid sequence diagrams with explanations
+│   ├── this-over-that.md                # In-depth discussion of design choices, trade-offs, and alternatives
+│   └── pseudocode.md                    # OPTIONAL: Detailed algorithm implementations (if needed)
+```
+
+### File Content Guidelines
+
+#### Main Challenge File (`3.x.y-design-problem-name.md`):
+- **Complete standalone document** with all content
+- Includes ASCII diagrams inline using triple backticks without language specification
+- Contains full explanations, high-level algorithms (NO detailed pseudocode)
+- **NO programming language code** - only high-level logic descriptions and conceptual explanations
+- **NO detailed pseudocode implementations** - describe algorithms in words, reference `pseudocode.md::function_name()` for implementation
+- Includes "Why This Over That?" sections highlighting key design choices
+- For every major choice (DB, cache, sync/async), explain the rationale with bullet points
+- Links to diagram files, this-over-that.md, and pseudocode.md for detailed implementations
+- Focus on WHAT and WHY, delegate HOW to pseudocode.md
+
+#### README.md:
+- Similar or identical to main challenge file
+- **NO detailed pseudocode implementations** - only basic definitions and implementation descriptions
+- Include links to all supplementary files: hld-diagram.md, sequence-diagrams.md, this-over-that.md, pseudocode.md
+- Reference `pseudocode.md::function_name()` for all algorithm implementations
+
+#### hld-diagram.md:
+- Contains ONLY Mermaid diagrams for:
+  - System architecture
+  - Component design
+  - Data flow
+  - Scaling strategies
+- Each diagram should be in a Mermaid code block
+- **CRITICAL: MUST include flow explanations** above or below EVERY diagram
+- Flow explanations should include:
+  - **Flow Explanation:** heading
+  - Brief description of what the diagram shows
+  - **Key components/steps** enumerated
+  - **Benefits/trade-offs** of the design shown
+  - Example: "**Flow Explanation:** Shows X doing Y. Steps: 1) A→B, 2) C→D. Benefits: Fast, scalable."
+
+#### sequence-diagrams.md:
+- Contains ONLY Mermaid sequence diagrams for:
+  - Request/response flows
+  - Interaction between components
+  - Failure scenarios
+  - Failover processes
+- **CRITICAL: MUST include flow explanations** above or below EVERY diagram
+- Flow explanations should describe:
+  - **Flow:** One-line summary of the sequence
+  - Step-by-step interaction pattern
+  - Performance characteristics (latency, throughput)
+  - When this flow happens (happy path, error scenario, etc.)
+  - Example: "**Flow:** Client → Service → DB → Return. Fast path with cache (~5ms)."
+
+#### this-over-that.md:
+- **NEW FILE** - Deep dive into design decisions
+- Contains in-depth discussion of all major architectural choices:
+  - SQL vs NoSQL (with specific DB comparisons)
+  - Sync vs Async processing
+  - Push vs Pull models
+  - Cache strategies
+  - Consistency models
+- For each choice, document:
+  - **The Problem**: What are we trying to solve?
+  - **Options Considered**: All alternatives with pros/cons tables
+  - **Decision Made**: What we chose and why
+  - **Trade-offs**: What we're sacrificing
+  - **When to Reconsider**: Conditions that would change the decision
+- Include real-world examples (e.g., "Twitter chose X because...")
+
+#### pseudocode.md (REQUIRED for most challenges):
+- Contains detailed algorithm implementations in pseudocode
+- **Main files and README should NEVER contain detailed pseudocode** - they should describe logic in words and reference this file
+- Reference format: `*See pseudocode.md::function_name() for implementation*` or `*See pseudocode.md::ClassName for detailed implementation*`
+- Structure:
+  - Table of Contents at the top
+  - Sections organized by functionality (e.g., "## Base62 Encoding", "## Cache Operations")
+  - Each function documented with:
+    - Purpose/description
+    - Parameters
+    - Return value
+    - Algorithm steps in pseudocode (NO language tags)
+- Include anti-pattern examples (❌ bad vs ✅ good) where relevant
+- Use clear function names: `function_name()`, `ClassName`, `method_name()`
+- Only skip this file if the challenge has NO algorithmic complexity (rare)
+
+## Code Block Formatting Rules
+
+**CRITICAL**: Follow these markdown code block rules exactly:
+
+### For Pseudocode/Algorithms (No Language Tag):
+```
+function example():
+  // pseudocode here
+  return result
+```
+
+### For ASCII Diagrams (No Language Tag):
+```
+┌─────────────┐
+│   Component │
+└─────────────┘
+```
+
+### For SQL Schemas Only (Use Language Tag):
+```sql
+CREATE TABLE example (
+    id BIGINT PRIMARY KEY
+);
+```
+
+**IMPORTANT**: NO other programming language code (Python, Java, Go, etc.) should be used in challenges. Use pseudocode or describe logic in words instead.
+
+### For Mermaid Diagrams (Always Use `mermaid` Tag):
+```mermaid
+graph TB
+    A[Start] --> B[End]
+```
+
+### General Code Block Rules:
+- Use triple backticks for code blocks
+- For pseudocode/algorithms: NO language tag (just ```)
+- For ASCII art/diagrams: NO language tag (just ```)
+- For SQL schemas: USE ```sql tag
+- For Mermaid diagrams: ALWAYS use ```mermaid
+- **NO programming language implementations** (no Python, Java, Go, JavaScript, etc.)
+- Never include line numbers in code content
+- Never indent the triple backticks (always start at column 0)
+
+## Writing Style
+
+### Technical Content:
+- Provide intuitive explanations first, then technical details
+- Use tables for comparisons
+- Include "Why this over that?" explanations
+- Document trade-offs explicitly
+- Use LaTeX math notation: $\text{notation}$ for inline, display for blocks
+
+### Structure:
+1. Problem Statement
+2. Requirements and Scale Estimation  
+3. High-Level Architecture
+4. Detailed Component Design
+5. Bottlenecks and Future Scaling
+6. Common Anti-Patterns (with ❌ and ✅)
+7. Alternative Approaches
+8. Monitoring and Observability
+9. Trade-offs Summary
+
+### Design Patterns:
+- Start with scale estimation and back-of-envelope calculations
+- Always include comparison tables for architectural choices
+- Document both the chosen approach AND alternatives not chosen
+- Include anti-patterns section with bad vs good examples
+- Provide real-world comparison (e.g., "Twitter uses...", "Uber uses...")
+
+## Visual Diagrams
+
+### ASCII Diagrams:
+- Use for simple component layouts
+- Place inline in main document
+- Use box-drawing characters: ┌ ─ ┐ │ └ ┘ ┬ ┴ ├ ┤ ┼
+- No language tag in code block
+
+### Mermaid Diagrams:
+- Use for complex system architecture
+- Place in separate `.md` files (hld-diagram.md, sequence-diagrams.md)
+- Link from main document
+- Always use ```mermaid code blocks
+- Supported types:
+  - `graph TB/LR` for flowcharts
+  - `sequenceDiagram` for interactions
+  - `flowchart TD/LR` for detailed flows
+
+## Examples to Follow
+
+### Good Example Pattern (URL Shortener):
+See `03-challenges/3.1.1-url-shortener/` for reference implementation
+
+### Challenge Categories:
+- **3.1.x** (Easy): Caching, databases, basic scaling
+- **3.2.x** (Medium): Asynchrony, feeds, microservices, geo-spatial  
+- **3.3.x** (Hard): Consistency, transactions, consensus, real-time geo
+
+## Common Mistakes to Avoid
+
+1. ❌ DO NOT use language tags for pseudocode (use plain ```)
+2. ❌ DO NOT use language tags for ASCII diagrams (use plain ```)
+3. ❌ DO NOT create challenge files outside the folder structure
+4. ❌ DO NOT mix diagram content with theory in main file
+5. ❌ DO NOT indent triple backticks (always column 0)
+6. ❌ DO NOT include line numbers in code blocks
+7. ❌ DO NOT create separate README and main file with different content (keep them similar/identical)
+8. ❌ DO NOT include programming language code (Python, Java, Go, etc.) - use pseudocode only
+9. ❌ DO NOT create diagrams without flow explanations - EVERY diagram MUST have explanation
+10. ❌ DO NOT skip the this-over-that.md file - it's critical for understanding design decisions
+11. ❌ DO NOT put detailed pseudocode in main challenge files or README - use pseudocode.md and reference it
+12. ❌ DO NOT forget to verify that pseudocode.md contains ALL functions referenced in main/README files
+13. ❌ DO NOT create pseudocode functions without clear purpose documentation
+14. ❌ DO NOT skip Table of Contents in pseudocode.md - helps navigation
+
+## When Adding New Challenges
+
+1. Create folder: `03-challenges/3.x.y-problem-name/`
+2. Create main file: `3.x.y-design-problem-name.md` (comprehensive, NO detailed pseudocode, NO programming code)
+3. Create `README.md` (similar to main file, NO detailed pseudocode)
+4. Create `hld-diagram.md` (Mermaid diagrams WITH flow explanations for EVERY diagram)
+5. Create `sequence-diagrams.md` (Mermaid diagrams WITH step-by-step flow explanations for EVERY diagram)
+6. Create `this-over-that.md` (in-depth design decision discussions)
+7. Create `pseudocode.md` (REQUIRED for most challenges - contains ALL algorithm implementations)
+8. Follow existing challenge structure exactly (see `03-challenges/3.1.1-url-shortener/` as reference)
+9. Use proper code block formatting (no language for pseudocode/ASCII, SQL for schemas only)
+10. Include "Why This Over That?" sections for every major choice
+11. Include comprehensive sections: requirements, architecture, bottlenecks, anti-patterns, alternatives
+12. NO programming language implementations - only pseudocode in pseudocode.md
+13. Verify ALL referenced functions (`pseudocode.md::function_name()`) exist in pseudocode.md
+14. Add Table of Contents to pseudocode.md for easy navigation
+
+## Mathematical Notation
+
+Use LaTeX for technical notation:
+- Inline: `$\text{notation}$`
+- Display: `$$\text{formula}$$`
+- Examples: `$\text{QPS}$`, `$\text{O}(1)$`, `$2^{10} = 1024$`
+
+## References and Links
+
+- Link to other chapters using relative paths
+- Link to diagram sections within same challenge
+- Cross-reference related topics from 01-principles and 02-components
+- Include "See also" sections for related concepts
+- Reference pseudocode using format: `*See pseudocode.md::function_name() for implementation*`
+- Link to supplementary files at top of main document: hld-diagram.md, sequence-diagrams.md, this-over-that.md, pseudocode.md
+
+## Quality Checklist Before Submitting New Challenge
+
+Before considering a challenge complete, verify:
+
+- [ ] Main file has NO detailed pseudocode (only descriptions + references to pseudocode.md)
+- [ ] README has NO detailed pseudocode (only descriptions + references to pseudocode.md)
+- [ ] ALL diagrams in hld-diagram.md have flow explanations
+- [ ] ALL diagrams in sequence-diagrams.md have flow explanations
+- [ ] this-over-that.md exists and covers all major design decisions
+- [ ] pseudocode.md exists with Table of Contents
+- [ ] ALL functions referenced via `pseudocode.md::function_name()` exist in pseudocode.md
+- [ ] Main file includes: Problem, Requirements, Architecture, Bottlenecks, Anti-Patterns, Alternatives, Monitoring
+- [ ] "Why This Over That?" sections explain major choices (DB, cache, sync/async, etc.)
+- [ ] No programming language code (Python, Java, Go, etc.) anywhere
+- [ ] Proper code block formatting (no language tags for pseudocode/ASCII)
+- [ ] ASCII diagrams use box-drawing characters
+- [ ] Mermaid diagrams use ```mermaid tag
+- [ ] LaTeX notation used for technical symbols ($\text{QPS}$, etc.)
+- [ ] Scale estimation with back-of-envelope calculations
+- [ ] Comparison tables for architectural choices
+- [ ] Real-world examples (e.g., "Twitter uses X because...")
+

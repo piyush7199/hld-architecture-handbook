@@ -9,10 +9,12 @@ provide sub-100ms redirect latency, and support custom aliases, expiration, and 
 
 ---
 
-## 📊 Visual Diagrams
+## 📊 Visual Diagrams & Resources
 
 - **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, component design, data flow, and scaling strategy
 - **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows for URL creation, redirection, analytics, and failure scenarios
+- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and trade-offs
+- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for all core functions
 
 ---
 
@@ -152,41 +154,27 @@ Capacity:
 
 **URL Shortening Service Logic:**
 
-```
-function shorten_url(request):
-  long_url = request.long_url
-  
-  // Handle custom alias
-  if request.custom_alias:
-    short_alias = request.custom_alias
-    
-    // Check availability in cache
-    if cache.exists("url:" + short_alias):
-      return error("Alias already taken")
-    
-    // Attempt atomic insert in database
-    try:
-      db.insert(short_alias, long_url, created_at, expires_at)
-    catch UniqueConstraintViolation:
-      return error("Alias already taken")
-  
-  else:
-    // Generate alias from sequential ID
-    unique_id = id_generator.get_next_id()
-    short_alias = base62_encode(unique_id)
-    
-    // Store in database
-    db.insert(short_alias, long_url, created_at, expires_at)
-  
-  // Cache the mapping (Cache-Aside write)
-  cache.set("url:" + short_alias, long_url, TTL=24_hours)
-  
-  // Return short URL
-  return {
-    short_url: "https://short.ly/" + short_alias,
-    long_url: long_url
-  }
-```
+**Two Paths:**
+
+1. **Custom Alias Path:**
+   - User provides desired alias (e.g., "mylink")
+   - Check availability in cache first (fast check)
+   - Attempt atomic insert in database with alias as primary key
+   - If UniqueConstraintViolation: Return "Alias already taken" error
+   - If success: Cache the mapping
+
+2. **Auto-Generated Alias Path:**
+   - Request unique ID from ID Generator service
+   - Encode ID using Base62 algorithm (converts number to short string)
+   - Example: ID 123456789 → "8M0kX"
+   - Store mapping in database
+   - Cache the mapping
+
+**Both paths end with:**
+- Store mapping in cache with 24-hour TTL (Cache-Aside pattern)
+- Return shortened URL to user
+
+*See `pseudocode.md::shorten_url()` for detailed implementation*
 
 ### 3.3 Redirection Strategy (The Read Path)
 
@@ -215,54 +203,28 @@ The Read Path must prioritize speed and offload the database.
 
 #### Read Path Implementation Logic
 
-```
-function handle_redirect(short_alias):
-  // 1. Check cache first (Redis)
-  long_url = cache.get("url:" + short_alias)
-  
-  if long_url is null:
-    // Cache miss - query database
-    result = db.query("SELECT long_url, expires_at, status FROM urls WHERE short_alias = ?", short_alias)
-    
-    if result is empty:
-      return error_404("URL not found")
-    
-    // Check if expired
-    if result.expires_at < current_time():
-      return error_404("URL expired")
-    
-    // Check status
-    if result.status != "ACTIVE":
-      return error_404("URL not active")
-    
-    long_url = result.long_url
-    
-    // Store in cache (Cache-Aside pattern)
-    cache.set("url:" + short_alias, long_url, TTL=24_hours)
-  
-  // 2. Track analytics asynchronously (non-blocking)
-  async_track_click(short_alias, user_agent, ip, referer)
-  
-  // 3. Redirect to long URL (HTTP 302)
-  return redirect_302(long_url)
+**Redirect Flow (Fast Path):**
 
+1. **Check Cache First (Redis):**
+   - Try to get long_url from cache using key `"url:" + short_alias`
+   - **Cache Hit (85-90%):** Return long_url immediately (~1ms)
 
-function async_track_click(short_alias, user_agent, ip, referer):
-  // Publish to message queue for async processing
-  event = {
-    short_alias: short_alias,
-    timestamp: current_timestamp(),
-    user_agent: user_agent,
-    ip: ip,
-    referer: referer
-  }
-  
-  // Push to Kafka or Redis Stream
-  message_queue.publish("click_events", event)
-  
-  // Increment real-time counter
-  cache.increment("clicks:" + short_alias)
-```
+2. **Cache Miss (10-15%):**
+   - Query database for URL record
+   - Validate: Check if URL exists, not expired, status is ACTIVE
+   - If invalid: Return 404 error
+   - If valid: Store in cache with 24-hour TTL (Cache-Aside pattern)
+
+3. **Track Analytics (Asynchronous, Non-Blocking):**
+   - Publish click event to message queue (Kafka/Redis Stream)
+   - Increment real-time counter in cache
+   - Does not block redirect response
+
+4. **Redirect to Long URL:**
+   - Return HTTP 302 redirect to long_url
+   - Browser follows redirect automatically
+
+*See `pseudocode.md::handle_redirect()` and `pseudocode.md::async_track_click()` for detailed implementation*
 
 #### Cache-Aside Pattern Benefits
 
@@ -296,74 +258,29 @@ function async_track_click(short_alias, user_agent, ip, referer):
 
 ## 5. Common Anti-Patterns
 
+> 📚 **Note:** For detailed pseudocode implementations of anti-patterns and their solutions, see **[3.1.1-design-url-shortener.md](./3.1.1-design-url-shortener.md#5-common-anti-patterns)** and **[pseudocode.md](./pseudocode.md)**.
+
+Below are high-level descriptions of common mistakes and their solutions:
+
 ### Anti-Pattern 1: Not Handling Race Conditions on Custom Aliases
 
 **Problem:**
 
-```
-❌ Race condition: Two users request same custom alias simultaneously
+❌ **Race condition:** Two users request same custom alias simultaneously. Both check availability, both see it's free, both try to insert → conflict!
 
-function create_custom_alias(alias, long_url):
-  // Check if exists
-  if cache.exists("url:" + alias):
-    return "Alias taken"
-  
-  // RACE CONDITION! Another request could insert between check and write
-  db.insert(alias, long_url)
-  cache.set("url:" + alias, long_url)
-```
+**Solution:** ✅ Use database UNIQUE constraint on `short_alias` column. Let database enforce uniqueness atomically. Catch `UniqueConstraintViolation` exception and return "Alias already taken" error.
 
-**Better:**
-
-```
-✅ Use database constraints + exception handling
-
-function create_custom_alias(alias, long_url):
-  try:
-    // Let database enforce uniqueness atomically
-    db.execute("INSERT INTO urls (short_alias, long_url) VALUES (?, ?)", alias, long_url)
-    cache.set("url:" + alias, long_url, TTL=24_hours)
-    return "Success"
-  catch UniqueConstraintViolation:
-    return "Alias already taken"
-```
+*See `pseudocode.md::create_custom_alias()` for implementation*
 
 ---
 
 ### Anti-Pattern 2: Synchronous Analytics Blocking Redirects
 
-**Problem:**
+**Problem:** ❌ Redirect endpoint waits for analytics tracking to complete before responding. User experiences 50ms+ extra latency just to track a click!
 
-```
-❌ Redirect waits for analytics to complete
+**Solution:** ✅ Use asynchronous fire-and-forget tracking. Publish click event to message queue (Kafka/Redis Stream) without waiting. Return redirect immediately. Background workers process analytics asynchronously.
 
-function redirect(short_alias):
-  long_url = get_from_cache_or_db(short_alias)
-  
-  // BLOCKING call! User waits 50ms+ extra
-  analytics_service.track_click(short_alias)
-  
-  return redirect_302(long_url)
-```
-
-**Better:**
-
-```
-✅ Fire and forget - asynchronous tracking
-
-function redirect(short_alias):
-  long_url = get_from_cache_or_db(short_alias)
-  
-  // Non-blocking - fire and forget
-  async_execute(track_click_async(short_alias))
-  
-  return redirect_302(long_url)  // Immediate redirect
-
-function track_click_async(short_alias):
-  // Push to queue (Kafka/Redis Stream)
-  event = {alias: short_alias, timestamp: current_time()}
-  message_queue.publish("click_events", event)
-```
+*See `pseudocode.md::redirect()` and `pseudocode.md::track_click_async()` for implementation*
 
 ---
 
@@ -371,162 +288,42 @@ function track_click_async(short_alias):
 
 > 📊 **See solution diagram:** [Cache Stampede Prevention](./sequence-diagrams.md#cache-stampede-prevention)
 
-**Problem:**
+**Problem:** ❌ When popular URL cache expires, 1,000 concurrent requests all experience cache miss simultaneously. All 1,000 hit database → overwhelms it → cascading failure.
 
-```
-❌ If cache expires, 1000 concurrent requests all hit DB
+**Solution 1:** ✅ **Distributed Locking** - Only first request queries database while acquiring lock. Other 999 requests wait, then read from cache.
 
-function get_url(short_alias):
-  url = cache.get(short_alias)
-  if url is null:
-    // All requests hit DB simultaneously! (Stampede)
-    url = db.query(short_alias)
-    cache.set(short_alias, url, TTL=3600)
-  return url
-```
+**Solution 2:** ✅ **Probabilistic Early Expiration** - For hot keys, refresh cache proactively before TTL expires. If TTL < 5 minutes remaining, 10% chance to async refresh in background. Cache never goes cold.
 
-**Better: Distributed Lock**
-
-```
-✅ Use cache locking - only one request fetches from DB
-
-function get_url(short_alias):
-  url = cache.get(short_alias)
-  
-  if url is null:
-    // Acquire distributed lock
-    lock_key = "lock:url:" + short_alias
-    acquire_lock(lock_key, timeout=10_seconds):
-      // Double-check pattern
-      url = cache.get(short_alias)
-      if url is null:
-        url = db.query(short_alias)
-        cache.set(short_alias, url, TTL=3600)
-    release_lock(lock_key)
-  
-  return url
-```
-
-**Even Better: Probabilistic Early Expiration**
-
-```
-✅ Refresh cache before expiration for hot keys
-
-function get_url(short_alias):
-  url, ttl_remaining = cache.get_with_ttl(short_alias)
-  
-  if url is null:
-    url = fetch_and_cache(short_alias)
-  else if ttl_remaining < 300:  // Less than 5 minutes left
-    // Probabilistically refresh (10% chance)
-    if random() < 0.1:
-      // Async refresh in background
-      async_execute(refresh_cache(short_alias))
-  
-  return url
-```
+*See `pseudocode.md::get_url_with_lock()` and `pseudocode.md::get_url_with_probabilistic_refresh()` for implementations*
 
 ---
 
 ### Anti-Pattern 4: No Rate Limiting on URL Creation
 
-**Problem:**
+**Problem:** ❌ Without rate limiting, attackers can create millions of URLs → exhaust database storage, waste ID space, enable spam/phishing.
 
-```
-❌ Attacker can create millions of URLs
+**Solution:** ✅ Multi-layered rate limiting:
+- **By IP:** 10 URLs/hour for anonymous users
+- **By User ID:** 100 URLs/hour for authenticated users  
+- **By API Key:** Custom limits for enterprise
+- Use Redis INCR with TTL for counters
 
-function shorten(long_url):
-  short_alias = generate_alias()
-  db.insert(short_alias, long_url)
-  return short_alias
-```
-
-**Better:**
-
-```
-✅ Rate limit by IP and user
-
-function shorten(long_url, user_id, client_ip):
-  // Rate limit by IP (anonymous users)
-  ip_count = cache.increment("rate_limit:ip:" + client_ip)
-  cache.expire("rate_limit:ip:" + client_ip, 3600)  // 1 hour
-  
-  if ip_count > 10:  // 10 URLs per hour per IP
-    return error_429("Rate limit exceeded")
-  
-  // Additional per-user limit (authenticated users)
-  if user_id:
-    user_count = cache.increment("rate_limit:user:" + user_id)
-    cache.expire("rate_limit:user:" + user_id, 3600)
-    
-    if user_count > 100:  // 100 per hour for authenticated users
-      return error_429("Rate limit exceeded")
-  
-  short_alias = generate_alias()
-  db.insert(short_alias, long_url)
-  return short_alias
-```
+*See `pseudocode.md::check_rate_limit()` for implementation*
 
 ---
 
 ### Anti-Pattern 5: Not Validating Input URLs
 
-**Problem:**
+**Problem:** ❌ Accepting any string as URL allows XSS (`javascript:alert()`), SSRF (`http://localhost:6379`), and phishing attacks.
 
-```
-❌ Accepts any string as URL
+**Solution:** ✅ Multi-layer validation:
+- **Scheme:** Only allow `http://` and `https://`
+- **Domain:** Block localhost, 127.0.0.1, private networks (192.168.*, 10.*, 172.16-31.*)
+- **Length:** Max 2048 characters
+- **Reachability:** Optional HTTP HEAD request with timeout
+- **Blacklist:** Check against malware/phishing databases
 
-function shorten(long_url):
-  short_alias = generate_alias()
-  db.insert(short_alias, long_url)  // Could be "javascript:alert('xss')"
-  return short_alias
-```
-
-**Better:**
-
-```
-✅ Validate and sanitize URLs
-
-ALLOWED_SCHEMES = ["http", "https"]
-BLOCKED_DOMAINS = ["localhost", "127.0.0.1", "0.0.0.0"]
-
-function validate_url(url):
-  // Check URL format
-  try:
-    parsed = parse_url(url)
-  catch:
-    return false
-  
-  // Validate scheme (XSS protection)
-  if parsed.scheme not in ALLOWED_SCHEMES:
-    return false
-  
-  // Block internal/localhost URLs (SSRF protection)
-  hostname = parsed.hostname
-  if hostname in BLOCKED_DOMAINS or hostname.starts_with("192.168."):
-    return false
-  
-  // Check URL length
-  if length(url) > 2048:
-    return false
-  
-  // Optional: Check if URL is reachable
-  try:
-    response = http_head(url, timeout=5_seconds)
-    return response.status_code < 400
-  catch:
-    return false
-  
-  return true
-
-function shorten(long_url):
-  if not validate_url(long_url):
-    return error_400("Invalid URL")
-  
-  short_alias = generate_alias()
-  db.insert(short_alias, long_url)
-  return short_alias
-```
+*See `pseudocode.md::validate_url()` for implementation*
 
 ---
 
@@ -569,98 +366,39 @@ CREATE TABLE click_events (
   PRIMARY KEY ((short_alias), clicked_at)
 ) WITH CLUSTERING ORDER BY (clicked_at DESC);
 
-// Real-time counters in Redis
-function track_click(short_alias):
-  // Increment Redis counter
-  cache.increment("clicks:" + short_alias)
-  
-  // Async write to analytics DB
-  message_queue.produce("click_events", {
-    alias: short_alias,
-    timestamp: current_time()
-  })
 ```
+
+**Real-time counters:** Store in Redis, async write to analytics DB via message queue.
+
+*See `pseudocode.md::track_click()` for implementation*
 
 ---
 
 ### Anti-Pattern 7: No Cache Fallback Strategy
 
-**Problem:**
+**Problem:** ❌ If Redis is down, entire service fails. Cache operations throw exceptions → service unavailable.
 
-```
-❌ If Redis is down, entire service fails
+**Solution:** ✅ Graceful degradation with try-catch:
+- Wrap all cache operations in try-catch
+- If cache fails: Log error, fall back to database
+- Continue serving requests (slower but available)
+- Don't fail cache.set() - continue without caching
 
-function redirect(short_alias):
-  url = cache.get("url:" + short_alias)
-  if url is null:
-    url = db.query(short_alias)
-    cache.set("url:" + short_alias, url)  // Redis is down - exception!
-  return redirect_302(url)
-```
-
-**Better:**
-
-```
-✅ Graceful degradation
-
-function redirect(short_alias):
-  try:
-    url = cache.get("url:" + short_alias)
-    if url:
-      return redirect_302(url)
-  catch CacheError as e:
-    log_error("Cache error: " + e)
-    // Fall through to database
-  
-  // Cache miss or Redis down - query database
-  url = db.query(short_alias)
-  
-  if url is null:
-    return error_404("URL not found")
-  
-  // Try to cache, but don't fail if Redis is down
-  try:
-    cache.set("url:" + short_alias, url, TTL=24_hours)
-  catch CacheError:
-    // Continue without caching (degraded mode)
-    pass
-  
-  return redirect_302(url)
-```
+*See `pseudocode.md::redirect()` for implementation with fallback*
 
 ---
 
 ### Anti-Pattern 8: Using Sequential IDs Directly as Aliases
 
-**Problem:**
+**Problem:** ❌ Sequential IDs (`1`, `2`, `3`) are predictable → easy to enumerate → reveals usage statistics ("You have 1,234,567 URLs").
 
-```
-❌ Predictable, reveals usage statistics
+**Solution:** ✅ Encode IDs using Base62:
+- Generate sequential ID: `7234891234`
+- Encode with Base62: `aB3xY9`
+- Aliases appear random: `aB3xY9`, `kL9mP2`, `wX8qN5`
+- Harder to enumerate, doesn't reveal total count
 
-function shorten(long_url):
-  id = db.insert(long_url)  // Returns 1, 2, 3, 4...
-  short_alias = string(id)  // "1", "2", "3", "4"...
-  return "https://short.ly/" + short_alias
-
-// Attacker can enumerate: short.ly/1, short.ly/2, short.ly/3...
-// Reveals: "You have 1,234,567 shortened URLs"
-```
-
-**Better:**
-
-```
-✅ Encode IDs to make them non-sequential
-
-function shorten(long_url):
-  id = get_next_id_from_snowflake()  // 7234891234
-  short_alias = base62_encode(id)    // "aB3xY9"
-  
-  db.insert(short_alias, long_url)
-  return "https://short.ly/" + short_alias
-
-// Aliases appear random: aB3xY9, kL9mP2, wX8qN5
-// Harder to enumerate, doesn't reveal usage
-```
+*See `pseudocode.md::base62_encode()` for implementation*
 
 ---
 
@@ -778,19 +516,14 @@ System must rehash with counter: hash(URL2 + "1") → xyz5678
 
 **Solution:**
 
-```
-// Background job (runs every hour)
-function cleanup_expired_links():
-  expired_links = db.query(
-    "SELECT short_alias FROM urls WHERE expires_at < NOW() AND status = 'ACTIVE'"
-  )
-  
-  for each alias in expired_links:
-    db.update("UPDATE urls SET status = 'EXPIRED' WHERE short_alias = ?", alias)
-    cache.delete(alias)  // Remove from cache
-  
-  log_info("Cleaned up " + count(expired_links) + " expired links")
-```
+Background job runs every hour:
+1. Query database for expired links (`expires_at < NOW()`)
+2. For each expired link:
+   - Update status to 'EXPIRED'
+   - Remove from cache
+3. Log cleanup count
+
+*See `pseudocode.md::cleanup_expired_links()` for implementation*
 
 **Alternative: TTL in Database**
 
@@ -805,25 +538,14 @@ function cleanup_expired_links():
 
 **Solution:**
 
-```
-function create_short_url(long_url):
-  // 1. Validate URL format
-  if not is_valid_url(long_url):
-    return error("Invalid URL format")
-  
-  // 2. Check against blacklist
-  if is_blacklisted_domain(long_url):
-    return error("Domain is blacklisted")
-  
-  // 3. Optional: Scan with external service
-  if url_safety_scanner.is_malicious(long_url):
-    return error("URL flagged as malicious")
-  
-  // 4. Create short URL
-  short_alias = generate_alias()
-  save_to_db(short_alias, long_url)
-  return short_alias
-```
+**Validation Steps:**
+1. Validate URL format (scheme, domain, length)
+2. Check against internal blacklist of banned domains
+3. Optional: Scan with external safety service (Google Safe Browsing API)
+4. If valid: Generate alias and save to database
+5. If invalid: Return appropriate error
+
+*See `pseudocode.md::create_short_url()` and `pseudocode.md::validate_url()` for implementation*
 
 ---
 

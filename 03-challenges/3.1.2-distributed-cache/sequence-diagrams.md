@@ -4,6 +4,8 @@
 
 ### Read Flow - Cache Hit
 
+**Flow:** App → Cache → HIT → Return (~1ms). Fast path for 80-90% of requests.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -19,6 +21,8 @@ sequenceDiagram
 ```
 
 ### Read Flow - Cache Miss
+
+**Flow:** App → Cache (MISS) → Query DB → Write to cache with TTL → Return (~50ms). Happens for 10-20% of requests (cold data).
 
 ```mermaid
 sequenceDiagram
@@ -46,6 +50,8 @@ sequenceDiagram
 
 ### Write Flow
 
+**Flow:** App → Update DB → Invalidate cache (delete key). Next read will fetch fresh data from DB. Simple consistency model.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -69,6 +75,8 @@ sequenceDiagram
 
 ## Write-Through Pattern
 
+**Flow:** App → Write to cache → Cache writes to DB (sync) → Return. Cache always consistent with DB. Higher write latency but simple.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -90,6 +98,8 @@ sequenceDiagram
 ```
 
 ## Write-Behind (Write-Back) Pattern
+
+**Flow:** App → Write to cache (instant return) → Async batch write to DB (background). Ultra-fast writes, risk of data loss if cache fails.
 
 ```mermaid
 sequenceDiagram
@@ -130,6 +140,8 @@ sequenceDiagram
 
 ### Problem: Thundering Herd
 
+**Flow:** Popular key expires → 1000 concurrent requests all miss → All query DB → DB overwhelmed. Classic stampede problem.
+
 ```mermaid
 sequenceDiagram
     participant R1 as Request 1
@@ -162,6 +174,8 @@ sequenceDiagram
 ```
 
 ### Solution 1: Single Flight Request
+
+**Flow:** First request acquires lock → Queries DB → Populates cache → Releases lock. Other 999 requests wait, then hit cache. Only 1 DB query!
 
 ```mermaid
 sequenceDiagram
@@ -211,6 +225,8 @@ sequenceDiagram
 
 ### Solution 2: Probabilistic Early Expiration
 
+**Flow:** Check TTL remaining. If <10% left, probabilistically refresh cache in background. Cache never fully expires - always warm.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -247,6 +263,8 @@ sequenceDiagram
 
 ### Before Adding Node
 
+**Flow:** 3 nodes, keys distributed via hash ring. Each node owns ~33% of keys. System working but approaching capacity.
+
 ```mermaid
 sequenceDiagram
     participant Client as Client
@@ -271,6 +289,8 @@ sequenceDiagram
 ```
 
 ### After Adding Node 4
+
+**Flow:** Add Node 4 → Only ~25% of keys remapped (those between Node 3 and Node 4 on ring). 75% of keys stay in place. Minimal disruption!
 
 ```mermaid
 sequenceDiagram
@@ -310,6 +330,8 @@ sequenceDiagram
 
 ### Async Replication (Default)
 
+**Flow:** Client writes to master → Master returns OK immediately → Master replicates to replicas async (1-5ms lag). Fast writes, eventual consistency.
+
 ```mermaid
 sequenceDiagram
     participant Client as Client
@@ -342,6 +364,8 @@ sequenceDiagram
 ```
 
 ### Sync Replication (Optional)
+
+**Flow:** Client writes to master → Master replicates to replicas (wait for ACK) → Master returns OK. Slower writes (~10ms) but strong consistency.
 
 ```mermaid
 sequenceDiagram
@@ -377,6 +401,8 @@ sequenceDiagram
 ## Failover Process
 
 ### Automatic Failover with Sentinel
+
+**Flow:** Master fails → Sentinels detect via heartbeat timeout → Quorum vote → Promote Replica 1 to master → Notify clients. ~5-30s downtime.
 
 ```mermaid
 sequenceDiagram
@@ -429,6 +455,8 @@ sequenceDiagram
 
 ## Redis Cluster Resharding
 
+**Flow:** Add new node → Admin initiates reshard → Cluster moves hash slots from existing nodes to new node → Zero downtime, seamless migration.
+
 ```mermaid
 sequenceDiagram
     participant Admin as Admin
@@ -474,6 +502,8 @@ sequenceDiagram
 
 ### Without Connection Pool (Inefficient)
 
+**Flow:** Each request creates new TCP connection (~3ms handshake) → Query → Close connection. Wasteful! 3ms overhead per request.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -494,6 +524,8 @@ sequenceDiagram
 ```
 
 ### With Connection Pool (Efficient)
+
+**Flow:** Reuse pre-established connections from pool → No handshake overhead → Query → Return connection to pool. ~3x faster!
 
 ```mermaid
 sequenceDiagram
@@ -525,6 +557,8 @@ sequenceDiagram
 
 ### Without Pipelining
 
+**Flow:** 10 commands → 10 round-trips → 10 * 0.5ms = 5ms total. Each command waits for previous to complete.
+
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -541,6 +575,8 @@ sequenceDiagram
 ```
 
 ### With Pipelining
+
+**Flow:** Batch 10 commands together → 1 round-trip → 0.5ms total. 10x faster! All commands sent at once, responses batched.
 
 ```mermaid
 sequenceDiagram
@@ -569,6 +605,8 @@ sequenceDiagram
 ```
 
 ## Monitoring and Alerting Flow
+
+**Flow:** Cache exposes metrics → Prometheus scrapes → Evaluates alert rules → Alertmanager notifies ops → Ops investigates. Proactive monitoring.
 
 ```mermaid
 sequenceDiagram
@@ -609,6 +647,8 @@ sequenceDiagram
 ```
 
 ## Multi-Region Deployment
+
+**Flow:** Client routed to nearest region by GeoDNS → Query regional cache cluster → If miss: Query regional DB replica → Low latency globally.
 
 ```mermaid
 sequenceDiagram
@@ -656,6 +696,8 @@ sequenceDiagram
 ```
 
 ## Cache Warming on Startup
+
+**Flow:** New cache node starts → Fetch top N hot keys from DB → Pre-populate cache → Mark ready. Avoids cold start stampede.
 
 ```mermaid
 sequenceDiagram

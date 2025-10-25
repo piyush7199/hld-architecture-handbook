@@ -8,10 +8,14 @@ minimal data reshuffling when nodes are added or removed.
 
 ---
 
-## 📊 Visual Diagrams
+## 📊 Visual Diagrams & Resources
 
 - **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, consistent hashing, replication, eviction policies, and scaling
 - **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows for cache operations, failover, and monitoring
+- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and trade-offs
+- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for all core functions
+
+> 📚 **Note:** This README contains high-level descriptions. For detailed pseudocode implementations, see **[pseudocode.md](./pseudocode.md)** and **[3.1.2-design-distributed-cache.md](./3.1.2-design-distributed-cache.md)**.
 
 ---
 
@@ -199,35 +203,17 @@ node = cache.get_node('user:123')  // Still likely 'node2'
 
 #### Cache-Aside (Lazy Loading) - Recommended for Distributed Cache
 
-**Flow:**
+**Read Flow:**
+1. Check cache first
+2. **Cache Hit:** Return immediately (fast)
+3. **Cache Miss:** Fetch from database, populate cache with TTL, return data
 
-```
-function get_user(user_id):
-  // 1. Try cache first
-  cache_key = "user:" + user_id
-  user = cache.get(cache_key)
-  
-  if user is not null:
-    return user  // Cache Hit ✅
-  
-  // 2. Cache Miss - fetch from DB
-  user = db.query("SELECT * FROM users WHERE id = ?", user_id)
-  
-  // 3. Populate cache for next time
-  cache.set(cache_key, user, TTL=300)  // 5 minutes
-  
-  return user
+**Write Flow:**
+1. Update database (source of truth)
+2. Invalidate cache (don't update)
+3. Next read will fetch fresh data
 
-
-function update_user(user_id, data):
-  // 1. Update database (source of truth)
-  db.execute("UPDATE users SET ... WHERE id = ?", data, user_id)
-  
-  // 2. Invalidate cache (not update!)
-  cache_key = "user:" + user_id
-  cache.delete(cache_key)
-  // Next read will fetch fresh data from DB
-```
+*See `pseudocode.md::get_from_cache_aside()` and `pseudocode.md::update_with_cache_aside()` for implementation*
 
 **Why Cache-Aside Over Write-Through?**
 
@@ -307,36 +293,13 @@ Node:
 
 **Option 1: Active Expiration (Lazy Delete)**
 
-```
-function get(key):
-  entry = storage.get(key)
-  
-  if entry is null:
-    return null
-  
-  // Check TTL on access
-  if entry.expires_at and current_time() > entry.expires_at:
-    storage.delete(key)  // Lazy delete
-    return null
-  
-  return entry.value
-```
+Check TTL when key is accessed. If expired, delete and return null. Simple, no background process needed.
 
 **Option 2: Passive Expiration (Background Scan)**
 
-```
-function background_ttl_cleaner():
-  while true:
-    // Sample random keys
-    sample = storage.random_sample(100)
-    
-    for each key in sample:
-      entry = storage.get(key)
-      if entry.expires_at and current_time() > entry.expires_at:
-        storage.delete(key)
-    
-    sleep(100_milliseconds)  // Run every 100ms
-```
+Background process samples 100 random keys every 100ms, deletes expired ones. Cleans up unused keys but uses CPU.
+
+*See `pseudocode.md::TTL Management` for detailed implementations*
 
 **Redis Approach: Hybrid**
 
@@ -396,40 +359,13 @@ SingleFlightCache:
       cache.set(key, value, ttl)
       return value
 
-// Usage
-cache = SingleFlightCache()
+**Example:** 10,000 concurrent requests for same user → Only 1 DB query, other 9,999 wait and read from cache.
 
-function get_user(user_id):
-  return cache.get_or_fetch(
-    "user:" + user_id,
-    lambda: db.query("SELECT * FROM users WHERE id = ?", user_id),
-    ttl=300
-  )
-
-// 10,000 concurrent requests for same user:
-// - Only 1 DB query executed
-// - Other 9,999 requests wait for result
-```
+*See `pseudocode.md::SingleFlightCache` for implementation*
 
 #### Solution 2: Probabilistic Early Expiration
 
-```
-function get_with_early_refresh(key, ttl=600):
-  entry = cache.get_with_expiry(key)
-  
-  if entry is null:
-    return fetch_and_cache(key, ttl)
-  
-  value, expires_at = entry
-  time_to_expiry = expires_at - current_time()
-  
-  // Refresh probabilistically before expiry
-  // Higher probability as expiration approaches
-  if time_to_expiry < ttl * 0.1:  // Last 10% of TTL
-    probability = 1 - (time_to_expiry / (ttl * 0.1))
-    if random() < probability:
-      // Asynchronously refresh in background
-      async_execute(refresh_cache(key, ttl))
+Refresh cache proactively before TTL expires. If TTL < 10% remaining, probability increases to trigger async background refresh. Cache never goes cold.
   
   return value
 ```
@@ -516,63 +452,27 @@ Node redirects if wrong slot (MOVED response)
 
 #### Connection Pooling
 
-```
-// ❌ Bad: New connection per request
-function get_user_bad(user_id):
-  connection = create_connection('localhost', 6379)
-  user = connection.get("user:" + user_id)
-  connection.close()
-  return user
+❌ **Bad:** Create new connection per request → TCP handshake overhead (~3ms each)
 
-// ✅ Good: Connection pool (reuse connections)
-pool = create_connection_pool(
-  host='localhost',
-  port=6379,
-  max_connections=50,
-  socket_timeout=1_second
-)
-connection = get_connection_from_pool(pool)
+✅ **Good:** Use connection pool with 50 max connections → Reuse connections → No TCP overhead → 3x faster
 
-function get_user_good(user_id):
-  user = connection.get("user:" + user_id)
-  return user
-```
+*See `pseudocode.md::ConnectionPool` for implementation*
 
 #### Pipelining (Batch Operations)
 
 > 📊 **See pipelining benefits:** [Pipelining Sequence Diagram](./sequence-diagrams.md#pipelining-for-batch-operations)
 
-```
-// ❌ Bad: Round-trip for each operation
-for i from 0 to 999:
-  cache.set("key:" + i, i)
-// 1000 network round-trips (~500ms at 0.5ms each)
+❌ **Bad:** 1000 operations = 1000 network round-trips (~500ms total)
 
-// ✅ Good: Pipeline (batch)
-pipeline = cache.create_pipeline()
-for i from 0 to 999:
-  pipeline.set("key:" + i, i)
-pipeline.execute()
-// 1 network round-trip (~0.5ms)
-```
+✅ **Good:** Pipeline batches 1000 operations into 1 network round-trip (~0.5ms total) → 1000x faster
+
+*See `pseudocode.md::Pipeline` for implementation*
 
 #### Compression for Large Values
 
-```
-function set_compressed(key, value, ttl=null):
-  json_data = serialize_to_json(value)
-  compressed = compress(json_data)
-  cache.set(key, compressed, ttl)
+For values > 1 KB, compress before storing. Example: 10 KB JSON → 1 KB compressed (10x memory savings, worth the CPU cost).
 
-function get_compressed(key):
-  compressed = cache.get(key)
-  if compressed is not null:
-    json_data = decompress(compressed)
-    return deserialize_from_json(json_data)
-  return null
-
-// 10 KB JSON → 1 KB compressed (10x savings)
-```
+*See `pseudocode.md::set_compressed()` and `pseudocode.md::get_compressed()` for implementation*
 
 ---
 

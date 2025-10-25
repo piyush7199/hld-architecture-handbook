@@ -9,10 +9,14 @@ centers while maintaining uniqueness guarantees without requiring coordination b
 
 ---
 
-## 📊 Visual Diagrams
+## 📊 Visual Diagrams & Resources
 
 - **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, Snowflake ID structure, worker ID assignment, capacity analysis, and deployment strategies
 - **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows for ID generation, clock drift handling, failover scenarios, and monitoring
+- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and trade-offs
+- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for all core functions
+
+> 📚 **Note:** This README contains high-level descriptions. For detailed pseudocode implementations, see **[pseudocode.md](./pseudocode.md)** and **[3.1.3-design-distributed-id-generator.md](./3.1.3-design-distributed-id-generator.md)**.
 
 ---
 
@@ -350,52 +354,17 @@ Real-world server clocks drift over time. NTP corrections can cause:
 
 **Strategy 1: Refuse to Generate IDs (Conservative)**
 
-```
-function generate_id():
-  timestamp = current_millis()
-  
-  if timestamp < last_timestamp:
-    offset = last_timestamp - timestamp
-    raise error("Clock moved backwards by " + offset + "ms. " +
-                "Refusing to generate ID to prevent duplicates.")
-  
-  // ... rest of algorithm
-```
+Detect clock backwards, throw error. Safest but causes service interruption.
 
-**Strategy 2: Wait for Clock to Catch Up (Tolerant)**
+**Strategy 2: Wait for Clock to Catch Up (Tolerant) - Recommended**
 
-```
-MAX_BACKWARD_TOLERANCE_MS = 5
-
-function generate_id():
-  timestamp = current_millis()
-  
-  if timestamp < last_timestamp:
-    offset = last_timestamp - timestamp
-    
-    if offset > MAX_BACKWARD_TOLERANCE_MS:
-      raise error("Clock moved backwards by " + offset + "ms")
-    
-    // Small drift - wait for it
-    sleep(offset milliseconds)
-    timestamp = current_millis()
-  
-  // ... rest of algorithm
-```
+If clock moves backwards < 5ms: Wait. If > 5ms: Throw error. Balances safety and availability.
 
 **Strategy 3: Use Last Known Good Timestamp (Aggressive)**
 
-```
-function generate_id():
-  timestamp = current_millis()
-  
-  if timestamp < last_timestamp:
-    // Continue from last known good timestamp
-    timestamp = last_timestamp
-    // WARNING: This might exhaust sequence bits faster
-  
-  // ... rest of algorithm
-```
+Continue from last timestamp. Risk: Might exhaust sequence bits faster. Dangerous.
+
+*See `pseudocode.md::next_id()` for detailed implementations*
 
 #### Clock Synchronization Best Practices
 
@@ -606,31 +575,11 @@ MonitoredSnowflakeGenerator extends SnowflakeIDGenerator:
 
 ### Anti-Pattern 1: Not Handling Clock Backwards
 
-**Problem:**
+**Problem:** ❌ No clock backwards handling → If clock moves backwards, generates duplicate IDs!
 
-```
-❌ No clock backwards handling
+**Solution:** ✅ Always check if `timestamp < last_timestamp`. If yes, throw error or wait.
 
-function generate_id():
-  timestamp = current_millis()
-  // What if timestamp < last_timestamp? DUPLICATES!
-  last_timestamp = timestamp
-  return construct_id(timestamp, worker_id, sequence)
-```
-
-**Better:**
-
-```
-✅ Handle clock backwards
-
-function generate_id():
-  timestamp = current_millis()
-  
-  if timestamp < last_timestamp:
-    raise error("Clock moved backwards")
-  
-  // ... rest of algorithm
-```
+*See `pseudocode.md::next_id()` for implementation*
 
 ---
 
@@ -644,20 +593,9 @@ function generate_id():
 timestamp = system_time_millis()  // Can jump backwards!
 ```
 
-**Better:**
+**Solution:** ✅ Use monotonic clock (never goes backwards) or track last timestamp and use `max(current, last)`.
 
-```
-✅ Use monotonic clock (never goes backwards)
-
-function current_millis():
-  // Use monotonic clock - never goes backwards
-  return monotonic_time_millis()
-
-// Or track last timestamp and use max
-function current_millis_safe():
-  ts = system_time_millis()
-  return max(ts, last_timestamp)
-```
+*See `pseudocode.md::current_time_millis()` for implementation*
 
 ---
 
@@ -708,19 +646,9 @@ id = generator.generate_id()  // < 1ms, no network
 
 ### Batch Generation
 
-```
-function generate_batch(count):
-  // Generate multiple IDs efficiently
-  ids = empty_list
-  acquire_lock():
-    for i from 1 to count:
-      ids.append(generate_id_unlocked())
-  return ids
+Generate multiple IDs at once by holding lock once. Example: Generate 1000 IDs in single lock acquisition → Much faster than 1000 individual calls.
 
-// Usage: Generate 1000 IDs at once
-ids = generator.generate_batch(1000)
-// Much faster than 1000 individual calls
-```
+*See `pseudocode.md::generate_batch()` for implementation*
 
 ### Lock-Free Implementation (Advanced)
 
