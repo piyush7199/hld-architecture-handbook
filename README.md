@@ -22,7 +22,9 @@ The content is organized into three progressive categories:
 | [01-principles](./01-principles) | Core Principles      | Core theoretical concepts: Scale, Availability, CAP Theorem, and foundational architecture styles.                                          |
 | [02-components](./02-components) | Components Deep Dive | In-depth analysis of specialized databases, caching, sharding, messaging, and concurrency control.                                          |
 | [03-challenges](./03-challenges) | Design Challenges    | Real-world design problems (e.g., URL Shortener, Twitter, E-commerce Flash Sale) applying the concepts learned in the first two categories. |
-| README.md                        | (This File)          | The main project index and roadmap.                                                                                                         |
+| README.md                                                            | (This File)                   | The main project index and roadmap.                                                 |
+| [system-design-reference.md](./system-design-reference.md)           | Quick Reference Guide         | Latency numbers, comparison tables, formulas, and decision matrices.                |
+| [resources-and-further-reading.md](./resources-and-further-reading.md) | Learning Resources            | Books, papers, courses, blogs, and tools for continued learning.                    |
 
 ## 🗺️ Learning Roadmap: Core Concepts
 
@@ -30,15 +32,18 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 ### Category 1: Core Principles (Folder: [01-principles](./01-principles))
 
-| Topic ID | Concept                                                                             |
-|----------|-------------------------------------------------------------------------------------|
-| 1.1.1    | [CAP Theorem](01-principles/1.1.1-cap-theorem.md)                                   |
-| 1.1.2    | [Latency, Throughput, and Scaling](01-principles/1.1.2-latency-throughput-scale.md) |
-| 1.1.3    | [Availability and Reliability](01-principles/1.1.3-availability-reliability.md)     |
-| 1.1.4    | [Data Consistency Models](01-principles/1.1.4-data-consistency-models.md)           |
-| 1.2.1    | [System Architecture Styles](01-principles/1.2.1-system-architecture-styles.md)     |
-| 1.2.2    | [Networking Components](01-principles/1.2.2-networking-components.md)               |
-| 1.2.3    | [API Gateway and Service Mesh](01-principles/1.2.3-api-gateway-servicemesh.md)      |
+| Topic ID | Concept                                                                                              |
+|----------|------------------------------------------------------------------------------------------------------|
+| 1.1.1    | [CAP Theorem](01-principles/1.1.1-cap-theorem.md)                                                    |
+| 1.1.2    | [Latency, Throughput, and Scaling](01-principles/1.1.2-latency-throughput-scale.md)                  |
+| 1.1.3    | [Availability and Reliability](01-principles/1.1.3-availability-reliability.md)                      |
+| 1.1.4    | [Data Consistency Models](01-principles/1.1.4-data-consistency-models.md)                            |
+| 1.1.5    | [Back-of-the-Envelope Calculations](01-principles/1.1.5-back-of-envelope-calculations.md)            |
+| 1.1.6    | [Failure Modes and Fault Tolerance](01-principles/1.1.6-failure-modes-fault-tolerance.md)            |
+| 1.2.1    | [System Architecture Styles](01-principles/1.2.1-system-architecture-styles.md)                      |
+| 1.2.2    | [Networking Components](01-principles/1.2.2-networking-components.md)                                |
+| 1.2.3    | [API Gateway and Service Mesh](01-principles/1.2.3-api-gateway-servicemesh.md)                       |
+| 1.2.4    | [Domain-Driven Design (DDD) Basics](01-principles/1.2.4-domain-driven-design.md)                     |
 
 ## Category 2: Components Deep Dive (Folder: [02-components](./02-components))
 
@@ -101,6 +106,15 @@ These problems require advanced pattern usage, strong consistency guarantees, an
 | 3.3.2      | **Design Uber/Lyft Ride Matching**                                 | $\text{Geospatial}$ $\text{Indexing}$ ($\text{H3}$/$\text{Geohash}$), $\text{Real}$-$\text{Time}$ $\text{Updates}$ ($\text{WebSockets}$), $\text{Load}$ $\text{Balancing}$ $\text{Drivers}$. |
 | 3.3.3      | **Design an E-commerce Flash Sale**                                | $\text{Distributed}$ $\text{Locking}$, $\text{Soft}$ $\text{Inventory}$ $\text{Reservation}$, $\text{Idempotency}$, $\text{Payment}$ $\text{Sagas}$.                                         |
 | 3.3.4      | **Design a Distributed Database**                                  | $\text{Raft}$/$\text{Paxos}$ $\text{Consensus}$, $\text{Sharding}$, $\text{Replication}$ $\text{Topology}$, $\text{Fault}$ $\text{Tolerance}$.                                               |
+
+---
+
+---
+
+## 📚 Additional Resources
+
+- **[System Design Reference Guide](./system-design-reference.md):** Quick-lookup tables for latency numbers, database comparisons, caching strategies, and more.
+- **[Resources and Further Reading](./resources-and-further-reading.md):** Curated books, papers, courses, blogs, and tools to deepen your knowledge.
 
 ---
 
