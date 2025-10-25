@@ -17,14 +17,35 @@ highly scalable, reliable, and performant distributed systems.
 
 The content is organized into three progressive categories:
 
-| Folder                           | Category Name        | Focus                                                                                                                                       |
-|----------------------------------|----------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
-| [01-principles](./01-principles) | Core Principles      | Core theoretical concepts: Scale, Availability, CAP Theorem, and foundational architecture styles.                                          |
-| [02-components](./02-components) | Components Deep Dive | In-depth analysis of specialized databases, caching, sharding, messaging, and concurrency control.                                          |
-| [03-challenges](./03-challenges) | Design Challenges    | Real-world design problems (e.g., URL Shortener, Twitter, E-commerce Flash Sale) applying the concepts learned in the first two categories. |
-| README.md                                                            | (This File)                   | The main project index and roadmap.                                                 |
-| [system-design-reference.md](./system-design-reference.md)           | Quick Reference Guide         | Latency numbers, comparison tables, formulas, and decision matrices.                |
-| [resources-and-further-reading.md](./resources-and-further-reading.md) | Learning Resources            | Books, papers, courses, blogs, and tools for continued learning.                    |
+| Folder                                                                 | Category Name         | Focus                                                                                                                                       |
+|------------------------------------------------------------------------|-----------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| [01-principles](./01-principles)                                       | Core Principles       | Core theoretical concepts: Scale, Availability, CAP Theorem, and foundational architecture styles.                                          |
+| [02-components](./02-components)                                       | Components Deep Dive  | In-depth analysis of specialized databases, caching, sharding, messaging, and concurrency control.                                          |
+| [03-challenges](./03-challenges)                                       | Design Challenges     | Real-world design problems (e.g., URL Shortener, Twitter, E-commerce Flash Sale) applying the concepts learned in the first two categories. |
+| README.md                                                              | (This File)           | The main project index and roadmap.                                                                                                         |
+| [system-design-reference.md](./system-design-reference.md)             | Quick Reference Guide | Latency numbers, comparison tables, formulas, and decision matrices.                                                                        |
+| [resources-and-further-reading.md](./resources-and-further-reading.md) | Learning Resources    | Books, papers, courses, blogs, and tools for continued learning.                                                                            |
+
+### 📊 New: Visual Design Challenges Structure
+
+Each completed design challenge (3.1.x) now includes:
+
+```
+03-challenges/
+├── 3.1.x-design-problem.md          # Quick reference overview
+└── 3.1.x-design-problem/            # Detailed structured content
+    ├── README.md                     # Theory, concepts, and explanations with diagram links
+    ├── hld-diagram.md                # High-level design diagrams (Mermaid)
+    └── sequence-diagrams.md          # Detailed sequence flows (Mermaid)
+```
+
+**Benefits:**
+
+- 📊 **Visual Learning:** Interactive Mermaid diagrams for system architecture, data flows, and interactions
+- 📁 **Better Organization:** Separate theory from visual representations
+- 🔗 **Easy Navigation:** Main README links directly to relevant diagram sections
+- 🎨 **Maintainable:** Text-based diagrams that are version-controlled and easily updatable
+- 🚀 **GitHub Native:** Renders beautifully in GitHub without external tools
 
 ## 🗺️ Learning Roadmap: Core Concepts
 
@@ -32,18 +53,18 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 ### Category 1: Core Principles (Folder: [01-principles](./01-principles))
 
-| Topic ID | Concept                                                                                              |
-|----------|------------------------------------------------------------------------------------------------------|
-| 1.1.1    | [CAP Theorem](01-principles/1.1.1-cap-theorem.md)                                                    |
-| 1.1.2    | [Latency, Throughput, and Scaling](01-principles/1.1.2-latency-throughput-scale.md)                  |
-| 1.1.3    | [Availability and Reliability](01-principles/1.1.3-availability-reliability.md)                      |
-| 1.1.4    | [Data Consistency Models](01-principles/1.1.4-data-consistency-models.md)                            |
-| 1.1.5    | [Back-of-the-Envelope Calculations](01-principles/1.1.5-back-of-envelope-calculations.md)            |
-| 1.1.6    | [Failure Modes and Fault Tolerance](01-principles/1.1.6-failure-modes-fault-tolerance.md)            |
-| 1.2.1    | [System Architecture Styles](01-principles/1.2.1-system-architecture-styles.md)                      |
-| 1.2.2    | [Networking Components](01-principles/1.2.2-networking-components.md)                                |
-| 1.2.3    | [API Gateway and Service Mesh](01-principles/1.2.3-api-gateway-servicemesh.md)                       |
-| 1.2.4    | [Domain-Driven Design (DDD) Basics](01-principles/1.2.4-domain-driven-design.md)                     |
+| Topic ID | Concept                                                                                   |
+|----------|-------------------------------------------------------------------------------------------|
+| 1.1.1    | [CAP Theorem](01-principles/1.1.1-cap-theorem.md)                                         |
+| 1.1.2    | [Latency, Throughput, and Scaling](01-principles/1.1.2-latency-throughput-scale.md)       |
+| 1.1.3    | [Availability and Reliability](01-principles/1.1.3-availability-reliability.md)           |
+| 1.1.4    | [Data Consistency Models](01-principles/1.1.4-data-consistency-models.md)                 |
+| 1.1.5    | [Back-of-the-Envelope Calculations](01-principles/1.1.5-back-of-envelope-calculations.md) |
+| 1.1.6    | [Failure Modes and Fault Tolerance](01-principles/1.1.6-failure-modes-fault-tolerance.md) |
+| 1.2.1    | [System Architecture Styles](01-principles/1.2.1-system-architecture-styles.md)           |
+| 1.2.2    | [Networking Components](01-principles/1.2.2-networking-components.md)                     |
+| 1.2.3    | [API Gateway and Service Mesh](01-principles/1.2.3-api-gateway-servicemesh.md)            |
+| 1.2.4    | [Domain-Driven Design (DDD) Basics](01-principles/1.2.4-domain-driven-design.md)          |
 
 ## Category 2: Components Deep Dive (Folder: [02-components](./02-components))
 
@@ -79,11 +100,19 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 These problems require solid application of scaling fundamentals, hashing, and database choices.
 
-| Problem ID | System Name                                                                                  | Key Concepts Applied                                                                                                              |
-|------------|----------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| 3.1.1      | [**Design a URL Shortener** ($\text{TinyURL}$)](03-challenges/3.1.1-design-url-shortener.md) | Hashing, Base62 Encoding, Read-Heavy Scaling, Sharding Key, $\text{Cache}$ $\text{Aside}$.                                        |
-| 3.1.2      | [**Design a Distributed Cache** ($\text{Redis}$/$\text{Memcached}$)](03-challenges/3.1.2-design-distributed-cache.md) | Consistent Hashing, Eviction Policies ($\text{LRU}$), Replication, Failover, $\text{TTL}$, Cache Stampede Prevention. |
-| 3.1.3      | [**Design a Distributed ID Generator** ($\text{Snowflake}$)](03-challenges/3.1.3-design-distributed-id-generator.md) | 64-bit ID Structure, Worker ID Assignment, Clock Drift Handling, Sequence Management, $\text{etcd}$ Coordination. |
+> 📊 **Each challenge includes comprehensive visual diagrams (Mermaid) for system architecture and sequence flows!**
+
+| Problem ID | System Name                                                                                                  | Key Concepts Applied                                                                                                 |
+|------------|--------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| 3.1.1      | **[Design a URL Shortener](03-challenges/3.1.1-url-shortener/)** ($\text{TinyURL}$)                          | Hashing, Base62 Encoding, Read-Heavy Scaling, Sharding Key, $\text{Cache}$ $\text{Aside}$, Multi-region deployment   |
+| 3.1.2      | **[Design a Distributed Cache](03-challenges/3.1.2-distributed-cache/)** ($\text{Redis}$/$\text{Memcached}$) | Consistent Hashing, Eviction Policies ($\text{LRU}$), Replication, Failover, $\text{TTL}$, Cache Stampede Prevention |
+| 3.1.3      | **[Design a Distributed ID Generator](03-challenges/3.1.3-distributed-id-generator/)** ($\text{Snowflake}$)  | 64-bit ID Structure, Worker ID Assignment, Clock Drift Handling, Sequence Management, $\text{etcd}$ Coordination     |
+
+**📊 Each folder contains:**
+
+- **README.md** - Complete theory, concepts, and explanations with diagram links
+- **hld-diagram.md** - System architecture, component design, data flow, scaling strategies
+- **sequence-diagrams.md** - Detailed interaction flows, failure scenarios, failover processes
 
 ### Medium Challenges (Focus: Asynchrony, Feeds, Microservices, Geo-Spatial)
 
@@ -113,8 +142,10 @@ These problems require advanced pattern usage, strong consistency guarantees, an
 
 ## 📚 Additional Resources
 
-- **[System Design Reference Guide](./system-design-reference.md):** Quick-lookup tables for latency numbers, database comparisons, caching strategies, and more.
-- **[Resources and Further Reading](./resources-and-further-reading.md):** Curated books, papers, courses, blogs, and tools to deepen your knowledge.
+- **[System Design Reference Guide](./system-design-reference.md):** Quick-lookup tables for latency numbers, database
+  comparisons, caching strategies, and more.
+- **[Resources and Further Reading](./resources-and-further-reading.md):** Curated books, papers, courses, blogs, and
+  tools to deepen your knowledge.
 
 ---
 
