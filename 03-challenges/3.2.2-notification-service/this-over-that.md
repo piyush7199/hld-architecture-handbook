@@ -1,4 +1,4 @@
-# Design Decisions: Notification Service
+# Notification Service - Design Decisions (This Over That)
 
 This document provides in-depth analysis of all major architectural decisions for the Notification Service, explaining why specific choices were made over alternatives.
 

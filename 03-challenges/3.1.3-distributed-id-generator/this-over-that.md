@@ -1,4 +1,4 @@
-# Distributed ID Generator: Design Decisions - This Over That
+# Distributed ID Generator - Design Decisions (This Over That)
 
 This document provides an in-depth analysis of all major architectural decisions made for the Distributed ID Generator (Snowflake) system design.
 

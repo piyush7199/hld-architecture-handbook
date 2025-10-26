@@ -1,4 +1,4 @@
-024349# Distributed Cache: Design Decisions - This Over That
+# Distributed Cache - Design Decisions (This Over That)
 
 This document provides an in-depth analysis of all major architectural decisions made for the Distributed Cache system design.
 

@@ -1,10 +1,8 @@
 # 3.2.1 Design a Twitter/X Timeline (Microblogging Feed)
 
-## Problem Statement
-
-Design a scalable microblogging timeline system (like Twitter/X) that allows users to post short messages (tweets) and view a personalized feed containing tweets from people they follow. The system must handle 500 million monthly active users, process 200 million tweets per day, serve 10 billion timeline loads per day with sub-200ms latency, and efficiently solve the "Fanout Problem" — distributing one tweet to millions of followers' timelines in near-real-time.
-
----
+> 📚 **Note on Implementation Details:**
+> This document focuses on high-level design concepts and architectural decisions. 
+> For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
 ## 📊 Visual Diagrams & Resources
 
@@ -12,6 +10,12 @@ Design a scalable microblogging timeline system (like Twitter/X) that allows use
 - **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows for posting tweets, timeline loading, fanout processes, and failure scenarios
 - **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and trade-offs
 - **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for fanout strategies, timeline merging, and activity-based fanout
+
+---
+
+## Problem Statement
+
+Design a scalable microblogging timeline system (like Twitter/X) that allows users to post short messages (tweets) and view a personalized feed containing tweets from people they follow. The system must handle 500 million monthly active users, process 200 million tweets per day, serve 10 billion timeline loads per day with sub-200ms latency, and efficiently solve the "Fanout Problem" — distributing one tweet to millions of followers' timelines in near-real-time.
 
 ---
 

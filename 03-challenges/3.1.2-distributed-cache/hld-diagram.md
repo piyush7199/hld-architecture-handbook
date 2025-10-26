@@ -1,5 +1,21 @@
 # Distributed Cache - High-Level Design
 
+## Table of Contents
+
+1. [System Architecture Diagram](#system-architecture-diagram)
+2. [Consistent Hashing Ring](#consistent-hashing-ring)
+3. [Replication Architecture](#replication-architecture)
+4. [Cache Eviction Policies](#cache-eviction-policies)
+5. [Data Flow Patterns](#data-flow-patterns)
+6. [Failover Mechanism](#failover-mechanism)
+7. [Cluster Sharding (Redis Cluster)](#cluster-sharding-redis-cluster)
+8. [Performance Optimization Techniques](#performance-optimization-techniques)
+9. [Scaling Strategy](#scaling-strategy)
+10. [Technology Comparison](#technology-comparison)
+11. [Monitoring Dashboard](#monitoring-dashboard)
+
+---
+
 ## System Architecture Diagram
 
 **Flow Explanation:**

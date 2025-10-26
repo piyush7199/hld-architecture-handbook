@@ -24,14 +24,94 @@ Each design challenge in `03-challenges/` follows this exact structure:
 
 ### File Content Guidelines
 
+## ⚠️ CRITICAL FORMAT REQUIREMENTS ⚠️
+
+### EXACT FORMAT FOR ALL MAIN FILES AND README FILES
+
+**ALL main challenge files (`3.x.y-design-problem-name.md`) and README files MUST follow this EXACT structure:**
+
+```markdown
+# 3.x.y Challenge Title
+
+> 📚 **Note on Implementation Details:**
+> This document focuses on high-level design concepts and architectural decisions. 
+> For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
+
+## 📊 Visual Diagrams & Resources
+
+- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, component design, data flow
+- **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows and failure scenarios
+- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices
+- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations
+
+---
+
+## 1. Problem Statement
+
+[Content here]
+
+---
+
+## 2. Requirements and Scale Estimation
+
+[Content here]
+
+---
+
+## 3. High-Level Architecture
+
+[Content here]
+
+---
+
+## 4. [Next Section]
+
+[Continue with sequential numbering: 4, 5, 6, 7, etc.]
+```
+
+### ⚠️ CRITICAL SECTION NUMBERING RULES ⚠️
+
+**NEVER create duplicate section numbers!**
+
+✅ **CORRECT:**
+```markdown
+## 1. Problem Statement
+## 2. Requirements and Scale Estimation
+## 3. High-Level Architecture
+## 4. Detailed Component Design
+## 5. Availability and Fault Tolerance
+## 6. Bottlenecks and Optimizations
+```
+
+❌ **WRONG:**
+```markdown
+## 1. Problem Statement
+## 2. Requirements and Scale Estimation
+## 2. High-Level Architecture  ← DUPLICATE 2!
+## 3. Detailed Component Design
+```
+
+**VALIDATION STEP:** After creating any main file, run:
+```bash
+grep "^## [0-9]" your-file.md
+```
+Verify numbers are: 1, 2, 3, 4, 5... (sequential, no duplicates)
+
 #### Main Challenge File (`3.x.y-design-problem-name.md`):
 - **Complete standalone document** with all content
-- **Must include note at top** referencing pseudocode.md if algorithms are present:
-  ```
-  > 📚 **Note on Implementation Details:**
-  > This document focuses on high-level design concepts and architectural decisions. 
-  > For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
-  ```
+- **MUST follow EXACT format shown above** (no variations allowed)
+- **Line-by-line requirements:**
+  1. **Line 1:** Title: `# [ID] [Challenge Name]`
+  2. **Line 2:** Blank line
+  3. **Line 3:** Start of note block: `> 📚 **Note on Implementation Details:**`
+  4. **Lines 4-5:** Note content (see format above)
+  5. **Line 6:** Blank line
+  6. **Line 7:** `## 📊 Visual Diagrams & Resources`
+  7. **Lines 8-12:** Links to all 4 supplementary files
+  8. **Line 13:** `---` separator
+  9. **Line 14:** Blank line
+  10. **Line 15:** `## 1. Problem Statement` ← **MUST BE NUMBERED "1"**
+  11. Continue with `## 2.`, `## 3.`, `## 4.` etc. (SEQUENTIAL, NO GAPS, NO DUPLICATES)
 - Includes ASCII diagrams inline using triple backticks without language specification
 - Contains full explanations, high-level algorithms (NO detailed pseudocode)
 - **NO programming language code** - only high-level logic descriptions and conceptual explanations
@@ -40,23 +120,46 @@ Each design challenge in `03-challenges/` follows this exact structure:
 - For every major choice (DB, cache, sync/async), explain the rationale with bullet points
 - Links to diagram files, this-over-that.md, and pseudocode.md for detailed implementations
 - Focus on WHAT and WHY, delegate HOW to pseudocode.md
-- **Typical sections:** Problem Statement, Requirements, Scale Estimation, High-Level Architecture, Data Model, Component Design, Bottlenecks, Anti-Patterns, Alternative Approaches, Monitoring, Trade-offs Summary, Real-World Examples, References
+- **Typical sections (numbered):** 1. Problem Statement, 2. Requirements & Scale Estimation, 3. High-Level Architecture, 4. Data Model, 5. Component Design, 6. Bottlenecks, 7. Anti-Patterns, 8. Alternative Approaches, 9. Monitoring, 10. Trade-offs Summary, 11. Real-World Examples, 12. References
 
 #### README.md:
-- Similar or identical to main challenge file (can be slightly condensed)
-- **Must include visual diagrams section** at top with links:
-  ```
-  ## 📊 Visual Diagrams & Resources
-  - **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, component design, data flow
-  - **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows and failure scenarios
-  - **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices
-  - **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations
-  ```
+- **MUST follow EXACT SAME format as main file** (see format above)
+- **Line-by-line requirements (SAME as main file):**
+  1. Title
+  2. Blank line
+  3. Note block (3 lines)
+  4. Blank line
+  5. `## 📊 Visual Diagrams & Resources`
+  6. Links to all 4 files
+  7. `---` separator
+  8. Blank line
+  9. `## Problem Statement` (can omit number in README, but main file MUST have "## 1.")
+  10. Continue with content
 - **NO detailed pseudocode implementations** - only basic definitions and implementation descriptions
 - Reference `pseudocode.md::function_name()` for all algorithm implementations
 - Can include quick overview tables for key metrics, design decisions, and technology choices
 
 #### hld-diagram.md:
+- **REQUIRED FORMAT:**
+  ```markdown
+  # [Challenge Name] - High-Level Design
+  
+  ## Table of Contents
+  
+  1. [Section 1 Name](#section-1-name)
+  2. [Section 2 Name](#section-2-name)
+  3. [Section 3 Name](#section-3-name)
+  ...
+  
+  ---
+  
+  ## Section 1 Name
+  
+  **Flow Explanation:** [explanation here]
+  
+  [Mermaid diagram here]
+  ```
+- **⚠️ MUST have Table of Contents** at the top (after title, before first diagram)
 - Contains ONLY Mermaid diagrams for:
   - System architecture
   - Component design
@@ -96,6 +199,30 @@ Each design challenge in `03-challenges/` follows this exact structure:
 - Typical diagrams count: 10-15 diagrams per challenge
 
 #### sequence-diagrams.md:
+- **REQUIRED FORMAT:**
+  ```markdown
+  # [Challenge Name] - Sequence Diagrams
+  
+  ## Table of Contents
+  
+  1. [Flow 1 Name](#flow-1-name)
+  2. [Flow 2 Name](#flow-2-name)
+  3. [Flow 3 Name](#flow-3-name)
+  ...
+  
+  ---
+  
+  ## Flow 1 Name
+  
+  **Flow:** [one-line summary]
+  
+  **Steps:**
+  1. [Step description]
+  2. [Step description]
+  
+  [Mermaid sequence diagram here]
+  ```
+- **⚠️ MUST have Table of Contents** at the top (after title, before first diagram)
 - Contains ONLY Mermaid sequence diagrams for:
   - Request/response flows (happy path)
   - Interaction between components
@@ -134,6 +261,44 @@ Each design challenge in `03-challenges/` follows this exact structure:
 
 #### this-over-that.md:
 - **REQUIRED FILE** - Deep dive into design decisions
+- **REQUIRED FORMAT:**
+  ```markdown
+  # [Challenge Name] - Design Decisions (This Over That)
+  
+  This document provides in-depth analysis of all major architectural decisions...
+  
+  ---
+  
+  ## Table of Contents
+  
+  1. [Decision 1 Name](#decision-1-name)
+  2. [Decision 2 Name](#decision-2-name)
+  ...
+  
+  ---
+  
+  ## 1. Decision Name
+  
+  ### The Problem
+  [What are we solving?]
+  
+  ### Options Considered
+  [Comparison table]
+  
+  ### Decision Made
+  [What we chose]
+  
+  ### Rationale
+  [Why]
+  
+  ### Trade-offs Accepted
+  [What we sacrifice]
+  
+  ### When to Reconsider
+  [Conditions]
+  ```
+- **⚠️ MUST have standardized title format:** `# [Challenge Name] - Design Decisions (This Over That)`
+- **⚠️ MUST have Table of Contents** at the top
 - Contains in-depth discussion of all major architectural choices (typically 5-10 decisions):
   - Primary strategy choice (e.g., fanout strategy, sharding strategy)
   - Database selection (SQL vs NoSQL with specific DB comparisons)
@@ -160,10 +325,52 @@ Each design challenge in `03-challenges/` follows this exact structure:
 - Contains detailed algorithm implementations in pseudocode
 - **Main files and README should NEVER contain detailed pseudocode** - they should describe logic in words and reference this file
 - Reference format: `*See pseudocode.md::function_name() for implementation*` or `*See pseudocode.md::ClassName for detailed implementation*`
+- **REQUIRED FORMAT:**
+  ```markdown
+  # [Challenge Name] - Pseudocode Implementations
+  
+  This document contains detailed algorithm implementations for the [Challenge Name] system. The main challenge document references these functions.
+  
+  ---
+  
+  ## Table of Contents
+  
+  1. [Section 1 Name](#section-1-name)
+  2. [Section 2 Name](#section-2-name)
+  ...
+  
+  ---
+  
+  ## Section 1 Name
+  
+  ### function_name()
+  
+  **Purpose:** [One-line description]
+  
+  **Parameters:**
+  - param1 (type): description
+  
+  **Returns:**
+  - type: description
+  
+  **Algorithm:**
+  ```
+  function function_name(param1):
+    // pseudocode here
+    return result
+  ```
+  
+  **Time Complexity:** O(n)
+  
+  **Example Usage:**
+  ```
+  result = function_name(value)
+  ```
+  ```
+- **⚠️ MUST have standardized title format:** `# [Challenge Name] - Pseudocode Implementations`
+- **⚠️ MUST have intro description:** "This document contains detailed algorithm implementations for the [Challenge Name] system. The main challenge document references these functions."
+- **⚠️ MUST have Table of Contents** at the top with links to all sections
 - **Structure:**
-  - **Title:** "# Pseudocode Implementations: [Challenge Name]"
-  - **Description:** Brief intro paragraph
-  - **Table of Contents** at the top with links to all sections
   - Sections organized by functionality (e.g., "## Fanout Strategies", "## Cache Operations", "## Write Path")
   - Each function documented with:
     - **Purpose:** One-line description
@@ -287,20 +494,42 @@ graph TB
 
 ## Common Mistakes to Avoid
 
-1. ❌ DO NOT use language tags for pseudocode (use plain ```)
-2. ❌ DO NOT use language tags for ASCII diagrams (use plain ```)
-3. ❌ DO NOT create challenge files outside the folder structure
-4. ❌ DO NOT mix diagram content with theory in main file
-5. ❌ DO NOT indent triple backticks (always column 0)
-6. ❌ DO NOT include line numbers in code blocks
-7. ❌ DO NOT create separate README and main file with different content (keep them similar/identical)
-8. ❌ DO NOT include programming language code (Python, Java, Go, etc.) - use pseudocode only
-9. ❌ DO NOT create diagrams without flow explanations - EVERY diagram MUST have explanation
-10. ❌ DO NOT skip the this-over-that.md file - it's critical for understanding design decisions
-11. ❌ DO NOT put detailed pseudocode in main challenge files or README - use pseudocode.md and reference it
-12. ❌ DO NOT forget to verify that pseudocode.md contains ALL functions referenced in main/README files
-13. ❌ DO NOT create pseudocode functions without clear purpose documentation
-14. ❌ DO NOT skip Table of Contents in pseudocode.md - helps navigation
+### ⚠️ CRITICAL FORMAT MISTAKES (NEVER DO THESE):
+
+1. ❌ **DUPLICATE SECTION NUMBERS** - Check with `grep "^## [0-9]" file.md` after creating
+   - Wrong: `## 1. Problem`, `## 2. Requirements`, `## 2. Architecture` ← DUPLICATE 2!
+   - Right: `## 1. Problem`, `## 2. Requirements`, `## 3. Architecture`
+
+2. ❌ **MISSING NOTE BLOCK** at top of main file/README
+   - Must have: `> 📚 **Note on Implementation Details:**` BEFORE any content
+
+3. ❌ **MISSING VISUAL DIAGRAMS SECTION** at top
+   - Must have: `## 📊 Visual Diagrams & Resources` AFTER note, BEFORE `## 1. Problem Statement`
+
+4. ❌ **MISSING TABLE OF CONTENTS** in hld-diagram.md and sequence-diagrams.md
+   - Both files MUST have `## Table of Contents` section at top
+
+5. ❌ **WRONG FIRST SECTION NUMBER** - First content section MUST be `## 1. Problem Statement`
+   - Wrong: `## Problem Statement` (no number)
+   - Wrong: `## 0. Problem Statement` (wrong number)
+   - Right: `## 1. Problem Statement`
+
+### Other Common Mistakes:
+
+6. ❌ DO NOT use language tags for pseudocode (use plain ```)
+7. ❌ DO NOT use language tags for ASCII diagrams (use plain ```)
+8. ❌ DO NOT create challenge files outside the folder structure
+9. ❌ DO NOT mix diagram content with theory in main file
+10. ❌ DO NOT indent triple backticks (always column 0)
+11. ❌ DO NOT include line numbers in code blocks
+12. ❌ DO NOT create separate README and main file with different content (keep them similar/identical)
+13. ❌ DO NOT include programming language code (Python, Java, Go, etc.) - use pseudocode only
+14. ❌ DO NOT create diagrams without flow explanations - EVERY diagram MUST have explanation
+15. ❌ DO NOT skip the this-over-that.md file - it's critical for understanding design decisions
+16. ❌ DO NOT put detailed pseudocode in main challenge files or README - use pseudocode.md and reference it
+17. ❌ DO NOT forget to verify that pseudocode.md contains ALL functions referenced in main/README files
+18. ❌ DO NOT create pseudocode functions without clear purpose documentation
+19. ❌ DO NOT skip Table of Contents in pseudocode.md, hld-diagram.md, or sequence-diagrams.md
 
 ## When Adding New Challenges
 
@@ -339,6 +568,45 @@ Use LaTeX for technical notation:
 
 Before considering a challenge complete, verify all 6 required files exist and meet standards:
 
+### ⚠️ CRITICAL FORMAT VALIDATION (DO THIS FIRST):
+
+**Run these validation commands:**
+
+```bash
+# Check main file section numbering (must be 1, 2, 3, 4, 5...)
+grep "^## [0-9]" 03-challenges/3.x.y-problem-name/3.x.y-design-problem-name.md
+
+# Check for note block in main file
+head -10 03-challenges/3.x.y-problem-name/3.x.y-design-problem-name.md | grep "Note on Implementation"
+
+# Check for diagrams section in main file
+head -20 03-challenges/3.x.y-problem-name/3.x.y-design-problem-name.md | grep "Visual Diagrams"
+
+# Check for TOC in hld-diagram.md
+head -10 03-challenges/3.x.y-problem-name/hld-diagram.md | grep "Table of Contents"
+
+# Check for TOC in sequence-diagrams.md
+head -10 03-challenges/3.x.y-problem-name/sequence-diagrams.md | grep "Table of Contents"
+
+# Check pseudocode.md title format
+head -1 03-challenges/3.x.y-problem-name/pseudocode.md
+
+# Check this-over-that.md title format
+head -1 03-challenges/3.x.y-problem-name/this-over-that.md
+```
+
+**VERIFY:**
+- [ ] ✅ Main file sections are numbered: 1, 2, 3, 4, 5... (NO duplicates, NO gaps)
+- [ ] ✅ Main file has note block BEFORE first section
+- [ ] ✅ Main file has "📊 Visual Diagrams & Resources" section BEFORE "## 1. Problem Statement"
+- [ ] ✅ README has same format (note + diagrams section at top)
+- [ ] ✅ hld-diagram.md has "## Table of Contents" section
+- [ ] ✅ sequence-diagrams.md has "## Table of Contents" section
+- [ ] ✅ pseudocode.md has correct title: `# [Challenge Name] - Pseudocode Implementations`
+- [ ] ✅ pseudocode.md has Table of Contents
+- [ ] ✅ this-over-that.md has correct title: `# [Challenge Name] - Design Decisions (This Over That)`
+- [ ] ✅ this-over-that.md has Table of Contents
+
 ### File Existence (6 files):
 - [ ] `3.x.y-design-problem-name.md` exists (main comprehensive file)
 - [ ] `README.md` exists (similar to main file)
@@ -348,6 +616,8 @@ Before considering a challenge complete, verify all 6 required files exist and m
 - [ ] `pseudocode.md` exists (10-20 function implementations)
 
 ### Content Quality - Main File:
+- [ ] ✅ **EXACT FORMAT:** Title → Note → Diagrams Section → `## 1. Problem Statement` → `## 2. Requirements...`
+- [ ] ✅ **SECTION NUMBERING:** Sequential (1, 2, 3, 4...) with NO duplicates
 - [ ] Has note at top referencing pseudocode.md
 - [ ] NO detailed pseudocode (only descriptions + references to pseudocode.md)
 - [ ] Includes: Problem, Requirements, Scale Estimation, Architecture, Data Model, Component Design, Bottlenecks, Anti-Patterns, Alternatives, Monitoring, Trade-offs, Real-World Examples, References
@@ -359,11 +629,14 @@ Before considering a challenge complete, verify all 6 required files exist and m
 - [ ] Real-world examples (e.g., "Twitter uses X because...")
 
 ### Content Quality - README:
+- [ ] ✅ **SAME FORMAT as main file:** Title → Note → Diagrams Section → Content
 - [ ] Has visual diagrams section at top with links to all files
 - [ ] NO detailed pseudocode (only descriptions + references to pseudocode.md)
 - [ ] References all supplementary files
 
 ### Content Quality - Diagrams:
+- [ ] ✅ **hld-diagram.md has Table of Contents** at top
+- [ ] ✅ **sequence-diagrams.md has Table of Contents** at top
 - [ ] ALL diagrams in hld-diagram.md have detailed flow explanations (with Steps, Benefits, Trade-offs)
 - [ ] ALL diagrams in sequence-diagrams.md have detailed flow explanations (with numbered steps, performance)
 - [ ] All Mermaid diagrams use ```mermaid tag
@@ -376,12 +649,18 @@ Before considering a challenge complete, verify all 6 required files exist and m
 - [ ] Real-world examples included
 
 ### Content Quality - Pseudocode:
-- [ ] pseudocode.md has Table of Contents
+- [ ] ✅ **pseudocode.md has standardized title:** `# [Challenge Name] - Pseudocode Implementations`
+- [ ] ✅ **pseudocode.md has intro description** (see format above)
+- [ ] ✅ **pseudocode.md has Table of Contents** at top
 - [ ] Each function documented: Purpose, Parameters, Returns, Algorithm, Time Complexity, Example Usage
 - [ ] ALL functions referenced via `pseudocode.md::function_name()` in main/README actually exist
 - [ ] No language tags on pseudocode blocks (just ```)
 - [ ] Includes anti-pattern examples where relevant
 - [ ] Typical count: 10-20 functions
+
+### Content Quality - This Over That:
+- [ ] ✅ **this-over-that.md has standardized title:** `# [Challenge Name] - Design Decisions (This Over That)`
+- [ ] ✅ **this-over-that.md has Table of Contents** at top
 
 ### Code Block Formatting:
 - [ ] No programming language code (Python, Java, Go, etc.) anywhere
@@ -397,4 +676,87 @@ Before considering a challenge complete, verify all 6 required files exist and m
 - [ ] All pseudocode references in README exist in pseudocode.md
 - [ ] All diagram links in main file point to correct sections
 - [ ] All internal links work correctly
+
+---
+
+## 🔧 Automated Format Validation
+
+### Run These Commands to Verify ALL Challenges Are Consistent:
+
+```bash
+# 1. Check section numbering in ALL main files (must be sequential: 1, 2, 3, 4...)
+cd /path/to/hld-architecture-handbook/03-challenges
+for dir in 3.*/; do 
+  echo "=== $dir ===" 
+  grep "^## [0-9]" "$dir"3.*.md | head -10
+done
+
+# 2. Verify ALL main files and READMEs have note + diagrams section at top
+for dir in 3.*/; do
+  echo "=== $dir MAIN ===" 
+  head -20 "$dir"3.*.md | grep -E "^#|^>|^##"
+  echo "=== $dir README ==="
+  head -20 "$dir"README.md | grep -E "^#|^>|^##"
+done
+
+# 3. Verify ALL diagram files have Table of Contents
+for dir in 3.*/; do
+  echo "=== $dir ===" 
+  echo "HLD TOC:" 
+  head -5 "$dir"hld-diagram.md | grep "Table of Contents"
+  echo "SEQ TOC:" 
+  head -5 "$dir"sequence-diagrams.md | grep "Table of Contents"
+done
+
+# 4. Verify pseudocode.md and this-over-that.md title format
+echo "=== PSEUDOCODE.MD TITLES ==="
+for dir in 3.*/; do head -1 "$dir"pseudocode.md; done
+
+echo "=== THIS-OVER-THAT.MD TITLES ==="
+for dir in 3.*/; do head -1 "$dir"this-over-that.md; done
+```
+
+### Expected Output (All Challenges Should Match This):
+
+**Main File Format:**
+```
+# 3.x.y Challenge Title
+> 📚 **Note on Implementation Details:**
+## 📊 Visual Diagrams & Resources
+## 1. Problem Statement
+## 2. Requirements and Scale Estimation
+## 3. High-Level Architecture
+## 4. [Next Section]
+```
+
+**Section Numbering (NO duplicates):**
+```
+## 1. Problem Statement
+## 2. Requirements and Scale Estimation
+## 3. High-Level Architecture
+## 4. Detailed Component Design
+## 5. [Continue sequentially...]
+```
+
+**Diagram Files (MUST have TOC):**
+```
+# [Challenge] - High-Level Design
+## Table of Contents
+```
+
+**Pseudocode Files (MUST have standard title):**
+```
+# [Challenge Name] - Pseudocode Implementations
+This document contains detailed algorithm implementations...
+## Table of Contents
+```
+
+**This Over That Files (MUST have standard title):**
+```
+# [Challenge Name] - Design Decisions (This Over That)
+This document provides in-depth analysis...
+## Table of Contents
+```
+
+---
 

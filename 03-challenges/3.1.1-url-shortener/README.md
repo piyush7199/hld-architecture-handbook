@@ -1,13 +1,8 @@
 # 3.1.1 Design URL Shortener (TinyURL/Bitly)
 
-## Problem Statement
-
-Design a highly available, scalable URL shortening service like TinyURL or Bitly that can convert long URLs into short,
-memorable links. The system must handle billions of URLs, support extremely high read throughput (100:1 read-to-write
-ratio),
-provide sub-100ms redirect latency, and support custom aliases, expiration, and basic analytics.
-
----
+> 📚 **Note on Implementation Details:**
+> This document focuses on high-level design concepts and architectural decisions. 
+> For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
 ## 📊 Visual Diagrams & Resources
 
@@ -15,6 +10,15 @@ provide sub-100ms redirect latency, and support custom aliases, expiration, and 
 - **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows for URL creation, redirection, analytics, and failure scenarios
 - **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and trade-offs
 - **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for all core functions
+
+---
+
+## Problem Statement
+
+Design a highly available, scalable URL shortening service like TinyURL or Bitly that can convert long URLs into short,
+memorable links. The system must handle billions of URLs, support extremely high read throughput (100:1 read-to-write
+ratio),
+provide sub-100ms redirect latency, and support custom aliases, expiration, and basic analytics.
 
 ---
 

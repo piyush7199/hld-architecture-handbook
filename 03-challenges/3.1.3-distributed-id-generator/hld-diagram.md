@@ -1,5 +1,23 @@
 # Distributed ID Generator (Snowflake) - High-Level Design
 
+## Table of Contents
+
+1. [System Architecture Diagram](#system-architecture-diagram)
+2. [Snowflake ID Structure (64-bit)](#snowflake-id-structure-64-bit)
+3. [ID Generation Flow](#id-generation-flow)
+4. [Worker ID Assignment Strategy](#worker-id-assignment-strategy)
+5. [ID Capacity Analysis](#id-capacity-analysis)
+6. [Clock Drift Handling](#clock-drift-handling)
+7. [Multi-Region Deployment](#multi-region-deployment)
+8. [Comparison with Alternative ID Generation Strategies](#comparison-with-alternative-id-generation-strategies)
+9. [Monitoring & Observability Dashboard](#monitoring--observability-dashboard)
+10. [Scaling Strategy](#scaling-strategy)
+11. [Failure Scenarios & Recovery](#failure-scenarios--recovery)
+12. [Deployment Architecture](#deployment-architecture)
+13. [Performance Characteristics](#performance-characteristics)
+
+---
+
 ## System Architecture Diagram
 
 **Flow Explanation:**

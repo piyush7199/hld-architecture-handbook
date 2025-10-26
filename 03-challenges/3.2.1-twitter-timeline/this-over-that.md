@@ -1,6 +1,18 @@
-# Design Decisions: This Over That - Twitter Timeline
+# Twitter Timeline - Design Decisions (This Over That)
 
 This document provides in-depth analysis of the major architectural choices made in the Twitter Timeline system, including alternatives considered, trade-offs, and conditions that would change these decisions.
+
+---
+
+## Table of Contents
+
+1. [Fanout Strategy: Hybrid vs Pure Push vs Pure Pull](#1-fanout-strategy-hybrid-vs-pure-push-vs-pure-pull)
+2. [Messaging Queue: Kafka vs RabbitMQ vs AWS SQS](#2-messaging-queue-kafka-vs-rabbitmq-vs-aws-sqs)
+3. [Timeline Storage: Redis vs Cassandra vs PostgreSQL](#3-timeline-storage-redis-vs-cassandra-vs-postgresql)
+4. [Celebrity Handling: Fanout Skip vs Pull on Read vs Separate Queue](#4-celebrity-handling-fanout-skip-vs-pull-on-read-vs-separate-queue)
+5. [Activity-Based Filtering: Include vs Skip Inactive Users](#5-activity-based-filtering-include-vs-skip-inactive-users)
+6. [Data Consistency: ACID vs BASE](#6-data-consistency-acid-vs-base)
+7. [Trade-offs Summary](#7-trade-offs-summary)
 
 ---
 

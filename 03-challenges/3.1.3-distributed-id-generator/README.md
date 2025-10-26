@@ -1,13 +1,8 @@
 # 3.1.3 Design a Distributed ID Generator (Snowflake)
 
-## Problem Statement
-
-Design a highly available, distributed ID generation service similar to Twitter's Snowflake that can generate globally
-unique,
-time-sortable, 64-bit integer IDs at scale. The system must generate millions of IDs per second across multiple data
-centers while maintaining uniqueness guarantees without requiring coordination between nodes during ID generation.
-
----
+> 📚 **Note on Implementation Details:**
+> This document focuses on high-level design concepts and architectural decisions. 
+> For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
 ## 📊 Visual Diagrams & Resources
 
@@ -16,7 +11,14 @@ centers while maintaining uniqueness guarantees without requiring coordination b
 - **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and trade-offs
 - **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for all core functions
 
-> 📚 **Note:** This README contains high-level descriptions. For detailed pseudocode implementations, see **[pseudocode.md](./pseudocode.md)** and **[3.1.3-design-distributed-id-generator.md](./3.1.3-design-distributed-id-generator.md)**.
+---
+
+## Problem Statement
+
+Design a highly available, distributed ID generation service similar to Twitter's Snowflake that can generate globally
+unique,
+time-sortable, 64-bit integer IDs at scale. The system must generate millions of IDs per second across multiple data
+centers while maintaining uniqueness guarantees without requiring coordination between nodes during ID generation.
 
 ---
 

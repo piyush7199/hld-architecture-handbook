@@ -1,5 +1,23 @@
 # Distributed Cache - Sequence Diagrams
 
+## Table of Contents
+
+1. [Cache-Aside Pattern (Lazy Loading)](#cache-aside-pattern-lazy-loading)
+2. [Write-Through Pattern](#write-through-pattern)
+3. [Write-Behind (Write-Back) Pattern](#write-behind-write-back-pattern)
+4. [Cache Stampede Prevention](#cache-stampede-prevention)
+5. [Consistent Hashing: Node Addition](#consistent-hashing-node-addition)
+6. [Replication Flow](#replication-flow)
+7. [Failover Process](#failover-process)
+8. [Redis Cluster Resharding](#redis-cluster-resharding)
+9. [Connection Pooling](#connection-pooling)
+10. [Pipelining for Batch Operations](#pipelining-for-batch-operations)
+11. [Monitoring and Alerting Flow](#monitoring-and-alerting-flow)
+12. [Multi-Region Deployment](#multi-region-deployment)
+13. [Cache Warming on Startup](#cache-warming-on-startup)
+
+---
+
 ## Cache-Aside Pattern (Lazy Loading)
 
 ### Read Flow - Cache Hit

@@ -214,6 +214,8 @@ When adding a new design challenge to `03-challenges/`, create a folder `3.x.y-p
 
 #### Main File Template (3.x.y-design-problem-name.md):
 
+**REQUIRED STRUCTURE** (must follow this exact order):
+
 ```
 # [ID] Design a [System Name]
 
@@ -221,8 +223,19 @@ When adding a new design challenge to `03-challenges/`, create a folder `3.x.y-p
 > This document focuses on high-level design concepts and architectural decisions. 
 > For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
+## 📊 Visual Diagrams & Resources
+
+- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, component design, data flow
+- **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows and failure scenarios
+- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices
+- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations
+
+---
+
 ## 1. Problem Statement
 [Clear problem description]
+
+---
 
 ## 2. Requirements and Scale Estimation
 ### Functional Requirements
@@ -344,8 +357,14 @@ result = function_name(arg1, arg2)
 
 **Key Requirements:**
 
+- **STANDARDIZED FORMAT**: All main challenge files MUST follow this exact structure:
+  1. Title
+  2. "Note on Implementation Details" block (referencing pseudocode.md)
+  3. "📊 Visual Diagrams & Resources" section (with links to all 6 files)
+  4. Section numbering starts at "## 1. Problem Statement"
+  5. Continue with "## 2. Requirements...", "## 3. High-Level Architecture", etc.
 - Main file: NO programming language code, NO detailed pseudocode (describe in words, reference pseudocode.md)
 - All diagrams MUST have flow explanations (steps, benefits, trade-offs)
 - this-over-that.md: 5-10 major decisions with detailed analysis
 - pseudocode.md: 10-20 functions with complexity analysis
-- See `03-challenges/3.1.1-url-shortener/` as reference implementation
+- See `03-challenges/3.2.2-notification-service/` as reference implementation

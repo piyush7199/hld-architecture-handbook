@@ -1,5 +1,17 @@
 # URL Shortener - Sequence Diagrams
 
+## Table of Contents
+
+1. [Write Path: URL Shortening (Creation)](#write-path-url-shortening-creation)
+2. [Read Path: URL Redirection](#read-path-url-redirection)
+3. [Analytics Flow](#analytics-flow)
+4. [ID Generation Flow (Snowflake)](#id-generation-flow-snowflake)
+5. [Cache Stampede Prevention](#cache-stampede-prevention)
+6. [Multi-Region Deployment](#multi-region-deployment)
+7. [Failure Scenarios](#failure-scenarios)
+
+---
+
 ## Write Path: URL Shortening (Creation)
 
 ### Standard Flow (Auto-generated Alias)

@@ -2,6 +2,21 @@
 
 This document contains Mermaid diagrams illustrating the system architecture, component design, data flow, and scaling strategies for the Twitter Timeline system.
 
+## Table of Contents
+
+1. [Complete System Architecture](#1-complete-system-architecture)
+2. [Write Path (Posting a Tweet)](#2-write-path-posting-a-tweet)
+3. [Read Path (Loading Timeline)](#3-read-path-loading-timeline)
+4. [Fanout Strategies Comparison](#4-fanout-strategies-comparison)
+5. [Data Storage Architecture](#5-data-storage-architecture)
+6. [Scaling Timeline Cache (Redis)](#6-scaling-timeline-cache-redis)
+7. [Multi-Region Deployment](#7-multi-region-deployment)
+8. [Cassandra Data Model](#8-cassandra-data-model)
+9. [Kafka Partitioning Strategy](#9-kafka-partitioning-strategy)
+10. [Celebrity vs Normal User Flow](#10-celebrity-vs-normal-user-flow)
+11. [Activity-Based Fanout Optimization](#11-activity-based-fanout-optimization)
+12. [Monitoring Dashboard Layout](#12-monitoring-dashboard-layout)
+
 ---
 
 ## 1. Complete System Architecture

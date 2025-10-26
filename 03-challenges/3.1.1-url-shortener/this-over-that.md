@@ -1,4 +1,4 @@
-# URL Shortener: Design Decisions - This Over That
+# URL Shortener - Design Decisions (This Over That)
 
 This document provides an in-depth analysis of all major architectural decisions made for the URL Shortener system design.
 

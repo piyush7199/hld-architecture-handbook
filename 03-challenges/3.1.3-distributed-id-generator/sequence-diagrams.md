@@ -1,5 +1,23 @@
 # Distributed ID Generator (Snowflake) - Sequence Diagrams
 
+## Table of Contents
+
+1. [ID Generation Flow (Happy Path)](#id-generation-flow-happy-path)
+2. [Worker ID Assignment (Startup)](#worker-id-assignment-startup)
+3. [Sequence Exhaustion Handling](#sequence-exhaustion-handling)
+4. [Clock Drift Detection & Handling](#clock-drift-detection--handling)
+5. [Comparison: Snowflake vs UUID vs Auto-Increment](#comparison-snowflake-vs-uuid-vs-auto-increment)
+6. [Failover Scenario: Node Failure](#failover-scenario-node-failure)
+7. [Multi-Region ID Generation](#multi-region-id-generation)
+8. [Monitoring & Alerting Flow](#monitoring--alerting-flow)
+9. [Performance Test Scenario](#performance-test-scenario)
+10. [Batch ID Generation (Optimization)](#batch-id-generation-optimization)
+11. [Distributed Tracing](#distributed-tracing)
+12. [ID Parsing & Debugging](#id-parsing--debugging)
+13. [Clock Synchronization (NTP)](#clock-synchronization-ntp)
+
+---
+
 ## ID Generation Flow (Happy Path)
 
 **Flow:** Client → ID Generator → Check timestamp → Increment sequence → Compose 64-bit ID → Return. Sub-millisecond latency, lock-free.

@@ -1,6 +1,6 @@
-# Pseudocode Implementations: Notification Service
+# Notification Service - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Notification Service design challenge. The main design document describes WHAT and WHY, while this file shows HOW each algorithm works.
+This document contains detailed algorithm implementations for the Notification Service system. The main challenge document references these functions.
 
 ## Table of Contents
 

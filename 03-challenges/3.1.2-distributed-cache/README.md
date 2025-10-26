@@ -1,12 +1,8 @@
 # 3.1.2 Design a Distributed Cache (Redis/Memcached)
 
-## Problem Statement
-
-Design a highly available, horizontally scalable, distributed in-memory cache system similar to Redis or Memcached. The
-system should support millions of operations per second with sub-millisecond latency while providing fault tolerance and
-minimal data reshuffling when nodes are added or removed.
-
----
+> 📚 **Note on Implementation Details:**
+> This document focuses on high-level design concepts and architectural decisions. 
+> For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
 ## 📊 Visual Diagrams & Resources
 
@@ -15,7 +11,13 @@ minimal data reshuffling when nodes are added or removed.
 - **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and trade-offs
 - **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for all core functions
 
-> 📚 **Note:** This README contains high-level descriptions. For detailed pseudocode implementations, see **[pseudocode.md](./pseudocode.md)** and **[3.1.2-design-distributed-cache.md](./3.1.2-design-distributed-cache.md)**.
+---
+
+## Problem Statement
+
+Design a highly available, horizontally scalable, distributed in-memory cache system similar to Redis or Memcached. The
+system should support millions of operations per second with sub-millisecond latency while providing fault tolerance and
+minimal data reshuffling when nodes are added or removed.
 
 ---
 

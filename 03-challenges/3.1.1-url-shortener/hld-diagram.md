@@ -1,5 +1,15 @@
 # URL Shortener - High-Level Design
 
+## Table of Contents
+
+1. [System Architecture Diagram](#system-architecture-diagram)
+2. [Component Architecture](#component-architecture)
+3. [Data Flow Diagrams](#data-flow-diagrams)
+4. [Sharding Strategy](#sharding-strategy)
+5. [Scaling Path](#scaling-path)
+
+---
+
 ## System Architecture Diagram
 
 **Flow Explanation:**

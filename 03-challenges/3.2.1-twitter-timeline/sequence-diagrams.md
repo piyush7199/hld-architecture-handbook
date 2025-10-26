@@ -2,6 +2,21 @@
 
 This document contains Mermaid sequence diagrams illustrating detailed interaction flows, failure scenarios, and edge cases for the Twitter Timeline system.
 
+## Table of Contents
+
+1. [Standard Tweet Posting Flow (Normal User)](#1-standard-tweet-posting-flow-normal-user)
+2. [Timeline Loading (Cache Hit - Fast Path)](#2-timeline-loading-cache-hit---fast-path)
+3. [Timeline Loading (Cache Miss - Slow Path)](#3-timeline-loading-cache-miss---slow-path)
+4. [Hybrid Fanout: Celebrity Tweet](#4-hybrid-fanout-celebrity-tweet)
+5. [Timeline Loading with Celebrity Tweets (Hybrid Read)](#5-timeline-loading-with-celebrity-tweets-hybrid-read)
+6. [Fanout with Activity-Based Filtering](#6-fanout-with-activity-based-filtering)
+7. [Kafka Failover and Consumer Rebalancing](#7-kafka-failover-and-consumer-rebalancing)
+8. [Multi-Region Tweet Propagation](#8-multi-region-tweet-propagation)
+9. [Rate Limiting Flow](#9-rate-limiting-flow)
+10. [Cache Invalidation on Tweet Deletion](#10-cache-invalidation-on-tweet-deletion)
+11. [Cassandra Write Failure and Retry](#11-cassandra-write-failure-and-retry)
+12. [PostgreSQL Failover (Primary Failure)](#12-postgresql-failover-primary-failure)
+
 ---
 
 ## 1. Standard Tweet Posting Flow (Normal User)

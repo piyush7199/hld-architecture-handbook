@@ -1,6 +1,6 @@
-# Pseudocode Implementations: Twitter Timeline
+# Twitter Timeline - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for all core functions in the Twitter Timeline system.
+This document contains detailed algorithm implementations for the Twitter Timeline system. The main challenge document references these functions.
 
 ---
 
