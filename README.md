@@ -125,12 +125,12 @@ These problems require solid application of scaling fundamentals, hashing, and d
 
 These problems involve decoupling services, handling fan-out, and managing complex data models.
 
-| Problem ID | System Name                                                              | Key Concepts Applied                                                                                                                                              |
-|------------|--------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 3.2.1      | [**Design a Twitter/X Timeline**](03-challenges/3.2.1-twitter-timeline/) | $\text{Fanout}$ $\text{on}$ $\text{Write}$ vs. $\text{Fanout}$ $\text{on}$ $\text{Read}$, $\text{Caching}$ $\text{Hierarchy}$, $\text{Queuing}$ ($\text{Kafka}$). |
-| 3.2.2      | Design a Notification Service                                            | $\text{Pub}$/$\text{Sub}$ ($\text{SNS}$), $\text{Real}$-$\text{Time}$ ($\text{WebSockets}$), $\text{Batching}$ $\text{Notifications}$, $\text{DLQ}$.              |
-| 3.2.3      | Design a Distributed Web Crawler                                         | $\text{URL}$ $\text{Frontier}$, $\text{Bloom}$ $\text{Filter}$, $\text{Rate}$ $\text{Limiting}$, $\text{Queueing}$.                                               |
-| 3.2.4      | Design a Global Rate Limiter                                             | $\text{Distributed}$ $\text{Counters}$ ($\text{Redis}$ $\text{Cluster}$), $\text{Leaky}$ $\text{Bucket}$ $\text{Algorithm}$, $\text{API}$ $\text{Gateway}$.       |
+| Problem ID | System Name                                                                    | Key Concepts Applied                                                                                                                                                                                                               |
+|------------|--------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 3.2.1      | [**Design a Twitter/X Timeline**](03-challenges/3.2.1-twitter-timeline/)       | $\text{Fanout}$ $\text{on}$ $\text{Write}$ vs. $\text{Fanout}$ $\text{on}$ $\text{Read}$, $\text{Caching}$ $\text{Hierarchy}$, $\text{Queuing}$ ($\text{Kafka}$).                                                                  |
+| 3.2.2      | [**Design a Notification Service**](03-challenges/3.2.2-notification-service/) | $\text{Multi}$-$\text{Channel}$ ($\text{Email}$/$\text{SMS}$/$\text{Push}$/$\text{Web}$), $\text{WebSockets}$, $\text{Kafka}$ $\text{Streams}$, $\text{Circuit}$ $\text{Breakers}$, $\text{Rate}$ $\text{Limiting}$, $\text{DLQ}$. |
+| 3.2.3      | Design a Distributed Web Crawler                                               | $\text{URL}$ $\text{Frontier}$, $\text{Bloom}$ $\text{Filter}$, $\text{Rate}$ $\text{Limiting}$, $\text{Queueing}$.                                                                                                                |
+| 3.2.4      | Design a Global Rate Limiter                                                   | $\text{Distributed}$ $\text{Counters}$ ($\text{Redis}$ $\text{Cluster}$), $\text{Leaky}$ $\text{Bucket}$ $\text{Algorithm}$, $\text{API}$ $\text{Gateway}$.                                                                        |
 
 ### Hard Challenges (Focus: Consistency, Transactions, Consensus, Real-Time Geo)
 
@@ -201,6 +201,7 @@ technical details.
 When adding a new design challenge to `03-challenges/`, create a folder `3.x.y-problem-name/` with **6 required files**:
 
 #### File Structure:
+
 ```
 03-challenges/3.x.y-problem-name/
 ├── 3.x.y-design-problem-name.md    # Main comprehensive guide
@@ -212,6 +213,7 @@ When adding a new design challenge to `03-challenges/`, create a folder `3.x.y-p
 ```
 
 #### Main File Template (3.x.y-design-problem-name.md):
+
 ```
 # [ID] Design a [System Name]
 
@@ -269,6 +271,7 @@ When adding a new design challenge to `03-challenges/`, create a folder `3.x.y-p
 ```
 
 #### this-over-that.md Template:
+
 ```
 # Design Decisions: [System Name]
 
@@ -302,6 +305,7 @@ When adding a new design challenge to `03-challenges/`, create a folder `3.x.y-p
 ```
 
 #### pseudocode.md Template:
+
 ```
 # Pseudocode Implementations: [System Name]
 
@@ -339,6 +343,7 @@ result = function_name(arg1, arg2)
 ```
 
 **Key Requirements:**
+
 - Main file: NO programming language code, NO detailed pseudocode (describe in words, reference pseudocode.md)
 - All diagrams MUST have flow explanations (steps, benefits, trade-offs)
 - this-over-that.md: 5-10 major decisions with detailed analysis
