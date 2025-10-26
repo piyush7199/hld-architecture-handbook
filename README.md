@@ -26,26 +26,30 @@ The content is organized into three progressive categories:
 | [system-design-reference.md](./system-design-reference.md)             | Quick Reference Guide | Latency numbers, comparison tables, formulas, and decision matrices.                                                                        |
 | [resources-and-further-reading.md](./resources-and-further-reading.md) | Learning Resources    | Books, papers, courses, blogs, and tools for continued learning.                                                                            |
 
-### 📊 New: Visual Design Challenges Structure
+### 📊 New: Comprehensive Design Challenges Structure
 
-Each completed design challenge (3.1.x) now includes:
+Each completed design challenge now includes **6 comprehensive files** for complete understanding:
 
 ```
 03-challenges/
-├── 3.1.x-design-problem.md          # Quick reference overview
-└── 3.1.x-design-problem/            # Detailed structured content
-    ├── README.md                     # Theory, concepts, and explanations with diagram links
-    ├── hld-diagram.md                # High-level design diagrams (Mermaid)
-    └── sequence-diagrams.md          # Detailed sequence flows (Mermaid)
+└── 3.x.y-problem-name/
+    ├── 3.x.y-design-problem-name.md    # FULL comprehensive guide (main file)
+    ├── README.md                        # Similar to main file with quick navigation
+    ├── hld-diagram.md                   # System architecture diagrams (10-15 Mermaid diagrams)
+    ├── sequence-diagrams.md             # Detailed interaction flows (10-15 Mermaid diagrams)
+    ├── this-over-that.md                # In-depth design decisions & trade-offs analysis
+    └── pseudocode.md                    # Detailed algorithm implementations (10-20 functions)
 ```
 
 **Benefits:**
 
-- 📊 **Visual Learning:** Interactive Mermaid diagrams for system architecture, data flows, and interactions
-- 📁 **Better Organization:** Separate theory from visual representations
-- 🔗 **Easy Navigation:** Main README links directly to relevant diagram sections
-- 🎨 **Maintainable:** Text-based diagrams that are version-controlled and easily updatable
+- 📊 **Visual Learning:** 20-30 interactive Mermaid diagrams per challenge for system architecture and sequence flows
+- 📁 **Better Organization:** Separate theory, visuals, design decisions, and implementations
+- 🔗 **Easy Navigation:** README links directly to all supplementary files
+- 🎨 **Maintainable:** Text-based diagrams and pseudocode that are version-controlled
 - 🚀 **GitHub Native:** Renders beautifully in GitHub without external tools
+- 🧠 **Deep Understanding:** Detailed "This Over That" analysis explains WHY each architectural choice was made
+- 💻 **Implementation Ready:** Comprehensive pseudocode with time complexity analysis
 
 ## 🗺️ Learning Roadmap: Core Concepts
 
@@ -102,28 +106,31 @@ These problems require solid application of scaling fundamentals, hashing, and d
 
 > 📊 **Each challenge includes comprehensive visual diagrams (Mermaid) for system architecture and sequence flows!**
 
-| Problem ID | System Name                                                                                                  | Key Concepts Applied                                                                                                 |
-|------------|--------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
-| 3.1.1      | **[Design a URL Shortener](03-challenges/3.1.1-url-shortener/)** ($\text{TinyURL}$)                          | Hashing, Base62 Encoding, Read-Heavy Scaling, Sharding Key, $\text{Cache}$ $\text{Aside}$, Multi-region deployment   |
-| 3.1.2      | **[Design a Distributed Cache](03-challenges/3.1.2-distributed-cache/)** ($\text{Redis}$/$\text{Memcached}$) | Consistent Hashing, Eviction Policies ($\text{LRU}$), Replication, Failover, $\text{TTL}$, Cache Stampede Prevention |
-| 3.1.3      | **[Design a Distributed ID Generator](03-challenges/3.1.3-distributed-id-generator/)** ($\text{Snowflake}$)  | 64-bit ID Structure, Worker ID Assignment, Clock Drift Handling, Sequence Management, $\text{etcd}$ Coordination     |
+| Problem ID | System Name                                                                                                    | Key Concepts Applied                                                                                                 |
+|------------|----------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| 3.1.1      | **[Design a URL Shortener](03-challenges/3.1.1-url-shortener/)** ($\text{TinyURL}$)                            | Hashing, Base62 Encoding, Read-Heavy Scaling, Sharding Key, $\text{Cache}$ $\text{Aside}$, Multi-region deployment   |
+| 3.1.2      | **[Design a Distributed Cache](03-challenges/3.1.2-distributed-cache/)** ($\text{Redis}$ / $\text{Memcached}$) | Consistent Hashing, Eviction Policies ($\text{LRU}$), Replication, Failover, $\text{TTL}$, Cache Stampede Prevention |
+| 3.1.3      | **[Design a Distributed ID Generator](03-challenges/3.1.3-distributed-id-generator/)** ($\text{Snowflake}$)    | 64-bit ID Structure, Worker ID Assignment, Clock Drift Handling, Sequence Management, $\text{etcd}$ Coordination     |
 
-**📊 Each folder contains:**
+**📊 Each challenge folder contains 6 comprehensive files:**
 
-- **README.md** - Complete theory, concepts, and explanations with diagram links
-- **hld-diagram.md** - System architecture, component design, data flow, scaling strategies
-- **sequence-diagrams.md** - Detailed interaction flows, failure scenarios, failover processes
+- **[3.x.y-design-problem-name.md]** - Complete comprehensive guide with all content (main file)
+- **[README.md]** - Quick navigation with links to all supplementary files
+- **[hld-diagram.md]** - 10-15 system architecture diagrams with detailed flow explanations
+- **[sequence-diagrams.md]** - 10-15 interaction flows with step-by-step explanations
+- **[this-over-that.md]** - In-depth analysis of 5-10 major design decisions and trade-offs
+- **[pseudocode.md]** - 10-20 detailed algorithm implementations with complexity analysis
 
 ### Medium Challenges (Focus: Asynchrony, Feeds, Microservices, Geo-Spatial)
 
 These problems involve decoupling services, handling fan-out, and managing complex data models.
 
-| Problem ID | System Name                      | Key Concepts Applied                                                                                                                                              |
-|------------|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 3.2.1      | Design a Twitter/X Timeline      | $\text{Fanout}$ $\text{on}$ $\text{Write}$ vs. $\text{Fanout}$ $\text{on}$ $\text{Read}$, $\text{Caching}$ $\text{Hierarchy}$, $\text{Queuing}$ ($\text{Kafka}$). |
-| 3.2.2      | Design a Notification Service    | $\text{Pub}$/$\text{Sub}$ ($\text{SNS}$), $\text{Real}$-$\text{Time}$ ($\text{WebSockets}$), $\text{Batching}$ $\text{Notifications}$, $\text{DLQ}$.              |
-| 3.2.3      | Design a Distributed Web Crawler | $\text{URL}$ $\text{Frontier}$, $\text{Bloom}$ $\text{Filter}$, $\text{Rate}$ $\text{Limiting}$, $\text{Queueing}$.                                               |
-| 3.2.4      | Design a Global Rate Limiter     | $\text{Distributed}$ $\text{Counters}$ ($\text{Redis}$ $\text{Cluster}$), $\text{Leaky}$ $\text{Bucket}$ $\text{Algorithm}$, $\text{API}$ $\text{Gateway}$.       |
+| Problem ID | System Name                                                              | Key Concepts Applied                                                                                                                                              |
+|------------|--------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 3.2.1      | [**Design a Twitter/X Timeline**](03-challenges/3.2.1-twitter-timeline/) | $\text{Fanout}$ $\text{on}$ $\text{Write}$ vs. $\text{Fanout}$ $\text{on}$ $\text{Read}$, $\text{Caching}$ $\text{Hierarchy}$, $\text{Queuing}$ ($\text{Kafka}$). |
+| 3.2.2      | Design a Notification Service                                            | $\text{Pub}$/$\text{Sub}$ ($\text{SNS}$), $\text{Real}$-$\text{Time}$ ($\text{WebSockets}$), $\text{Batching}$ $\text{Notifications}$, $\text{DLQ}$.              |
+| 3.2.3      | Design a Distributed Web Crawler                                         | $\text{URL}$ $\text{Frontier}$, $\text{Bloom}$ $\text{Filter}$, $\text{Rate}$ $\text{Limiting}$, $\text{Queueing}$.                                               |
+| 3.2.4      | Design a Global Rate Limiter                                             | $\text{Distributed}$ $\text{Counters}$ ($\text{Redis}$ $\text{Cluster}$), $\text{Leaky}$ $\text{Bucket}$ $\text{Algorithm}$, $\text{API}$ $\text{Gateway}$.       |
 
 ### Hard Challenges (Focus: Consistency, Transactions, Consensus, Real-Time Geo)
 
@@ -191,37 +198,149 @@ technical details.
 
 ### Template for Adding a New Design Problem (Category 3)
 
-Use this structure for all design problem files (placed in `03-challenges/`). This format mimics the standard system
-design interview process, with a strong emphasis on architectural justification.
+When adding a new design challenge to `03-challenges/`, create a folder `3.x.y-problem-name/` with **6 required files**:
 
+#### File Structure:
 ```
-# [ID] Design a [System Name] (e.g., Design a Twitter Timeline)
+03-challenges/3.x.y-problem-name/
+├── 3.x.y-design-problem-name.md    # Main comprehensive guide
+├── README.md                        # Quick overview with navigation links
+├── hld-diagram.md                   # 10-15 architecture diagrams (Mermaid)
+├── sequence-diagrams.md             # 10-15 sequence diagrams (Mermaid)
+├── this-over-that.md                # In-depth design decision analysis
+└── pseudocode.md                    # Algorithm implementations
+```
 
-## 1. Requirements and Scale
+#### Main File Template (3.x.y-design-problem-name.md):
+```
+# [ID] Design a [System Name]
 
-### Functional Requirements (What the system MUST do)
-* [e.g., Users must be able to post messages (tweets).]
+> 📚 **Note on Implementation Details:**
+> This document focuses on high-level design concepts and architectural decisions. 
+> For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
-### Non-Functional Requirements (Constraints/Performance)
-* **Scale:** [e.g., 500 Million Daily Active Users (DAU)]
-* **QPS:** [e.g., Read QPS: 100k, Write QPS: 5k]
-* **Availability:** [e.g., High availability is critical (99.99%)]
+## 1. Problem Statement
+[Clear problem description]
 
-## 2. Capacity Estimation and Data Model
-[Provide basic calculations for Storage and Bandwidth. Detail the initial database schemas.]
+## 2. Requirements and Scale Estimation
+### Functional Requirements
+* [What the system MUST do]
+
+### Non-Functional Requirements
+* **Scale:** [e.g., 500M DAU]
+* **QPS:** [Read: 100k, Write: 5k]
+* **Latency:** [e.g., <100ms]
+
+### Capacity Estimation
+[Back-of-envelope calculations for storage, bandwidth, QPS]
 
 ## 3. High-Level Architecture
-[A diagram or description of the main components: CDN, LB, API Gateway, Services, Databases.]
+[ASCII diagram with main components]
 
-## 4. Deep Dive: Architectural Choices and Trade-offs
-[This section is critical. For every major component (DB, Caching, Messaging), you MUST explain the choice.]
+## 4. Data Model
+[Database schemas - use ```sql for SQL only]
 
-### Example: Database Choice (SQL vs. NoSQL)
-| Choice | Rationale (Why this over the alternative?) | Trade-off / Future Scalability Issue |
-| :--- | :--- | :--- |
-| **PostgreSQL (SQL)** | Chosen for its ACID properties, which are critical for financial transactions and order integrity. | Vertical scaling limits; future horizontal scaling will require complex application-level sharding. |
-| **Cassandra (NoSQL)** | Chosen for extreme read/write performance and horizontal scaling for the social feed data. | **Eventual Consistency** means a user might briefly miss a new post. We accept this trade-off for speed. |
+## 5. Component Design
+[Detailed component descriptions]
 
-## 5. Failure Handling and Future Scaling
-[Discuss how the chosen architecture scales further, what happens if a service fails (fault tolerance), and the key bottlenecks of the final design.]
+## 6. Why This Over That?
+[Inline explanations for major choices: DB, cache, sync/async]
+* **Why PostgreSQL over MongoDB?** [Rationale with bullets]
+* **Why Kafka over RabbitMQ?** [Rationale with bullets]
+
+## 7. Bottlenecks and Scaling
+[Identify bottlenecks and future scaling strategies]
+
+## 8. Common Anti-Patterns
+❌ **Anti-Pattern:** [Bad approach]
+✅ **Best Practice:** [Good approach]
+
+## 9. Alternative Approaches
+[Discuss 2-3 alternative architectures not chosen]
+
+## 10. Monitoring and Observability
+[Key metrics, alerts, dashboards]
+
+## 11. Trade-offs Summary
+[Final comparison table of all major decisions]
+
+## 12. Real-World Examples
+[How Twitter, Uber, etc. solve this problem]
 ```
+
+#### this-over-that.md Template:
+```
+# Design Decisions: [System Name]
+
+## Decision 1: [e.g., Fanout Strategy]
+### The Problem
+[What are we trying to solve?]
+
+### Options Considered
+| Option | Pros | Cons | Performance | Cost |
+|--------|------|------|-------------|------|
+| Option A | ... | ... | ... | ... |
+| Option B | ... | ... | ... | ... |
+
+### Decision Made
+[What we chose and why - 3-5 bullets]
+
+### Rationale
+1. [Detailed point 1]
+2. [Detailed point 2]
+
+### Trade-offs Accepted
+[What we're sacrificing]
+
+### When to Reconsider
+[Conditions that would change this decision]
+
+[Repeat for 5-10 major decisions]
+
+## Summary Comparison
+[Final table comparing all decisions]
+```
+
+#### pseudocode.md Template:
+```
+# Pseudocode Implementations: [System Name]
+
+## Table of Contents
+- [Section 1: Feature Name](#section-1)
+- [Section 2: Feature Name](#section-2)
+
+## Section 1: Feature Name
+
+### function_name()
+**Purpose:** One-line description
+
+**Parameters:**
+- param1: type - description
+- param2: type - description
+
+**Returns:** return_type - description
+
+**Algorithm:**
+\`\`\`
+function function_name(param1, param2):
+  // Detailed implementation
+  return result
+\`\`\`
+
+**Time Complexity:** O(n)
+**Space Complexity:** O(1)
+
+**Example Usage:**
+\`\`\`
+result = function_name(arg1, arg2)
+\`\`\`
+
+[Include 10-20 functions organized by feature]
+```
+
+**Key Requirements:**
+- Main file: NO programming language code, NO detailed pseudocode (describe in words, reference pseudocode.md)
+- All diagrams MUST have flow explanations (steps, benefits, trade-offs)
+- this-over-that.md: 5-10 major decisions with detailed analysis
+- pseudocode.md: 10-20 functions with complexity analysis
+- See `03-challenges/3.1.1-url-shortener/` as reference implementation
