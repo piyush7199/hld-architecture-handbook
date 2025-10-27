@@ -129,10 +129,10 @@ These problems involve decoupling services, handling fan-out, and managing compl
 |------------|--------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 3.2.1      | [**Design a Twitter/X Timeline**](03-challenges/3.2.1-twitter-timeline/)       | $\text{Fanout}$ $\text{on}$ $\text{Write}$ vs. $\text{Fanout}$ $\text{on}$ $\text{Read}$, $\text{Caching}$ $\text{Hierarchy}$, $\text{Queuing}$ ($\text{Kafka}$).                                                                  |
 | 3.2.2      | [**Design a Notification Service**](03-challenges/3.2.2-notification-service/) | $\text{Multi}$-$\text{Channel}$ ($\text{Email}$/$\text{SMS}$/$\text{Push}$/$\text{Web}$), $\text{WebSockets}$, $\text{Kafka}$ $\text{Streams}$, $\text{Circuit}$ $\text{Breakers}$, $\text{Rate}$ $\text{Limiting}$, $\text{DLQ}$. |
-| 3.2.3      | [**Design a Distributed Web Crawler**](03-challenges/3.2.3-web-crawler/)       | $\text{URL}$ $\text{Frontier}$, $\text{Bloom}$ $\text{Filter}$, $\text{Duplicate}$ $\text{Detection}$, $\text{Politeness}$, $\text{Rate}$ $\text{Limiting}$, $\text{robots}$.$\text{txt}$.                                          |
-| 3.2.4      | Design a Global Rate Limiter                                                   | $\text{Distributed}$ $\text{Counters}$ ($\text{Redis}$ $\text{Cluster}$), $\text{Leaky}$ $\text{Bucket}$ $\text{Algorithm}$, $\text{API}$ $\text{Gateway}$.                                                                        |
+| 3.2.3      | [**Design a Distributed Web Crawler**](03-challenges/3.2.3-web-crawler/)       | $\text{URL}$ $\text{Frontier}$, $\text{Bloom}$ $\text{Filter}$, $\text{Duplicate}$ $\text{Detection}$, $\text{Politeness}$, $\text{Rate}$ $\text{Limiting}$, $\text{robots}$.$\text{txt}$.                                         |
+| 3.2.4      | [**Design a Global Rate Limiter**](03-challenges/3.2.4-global-rate-limiter/)   | $\text{Token}$ $\text{Bucket}$, $\text{Sliding}$ $\text{Window}$, $\text{Atomic}$ $\text{INCR}$, $\text{Circuit}$ $\text{Breakers}$, $\text{Fail}$-$\text{Open}$, $\text{Hot}$ $\text{Key}$ $\text{Mitigation}$.                   |
 
-### Hard Challenges (Focus: Consistency, Transactions, Consensus, Real-Time Geo)
+### Hard Challenges (Focus: Consistency, Low-Latency, Transactions, Consensus, Real-Time Geo)
 
 These problems require advanced pattern usage, strong consistency guarantees, and managing complex real-time state.
 
@@ -142,8 +142,11 @@ These problems require advanced pattern usage, strong consistency guarantees, an
 | 3.3.2      | **Design Uber/Lyft Ride Matching**                                 | $\text{Geospatial}$ $\text{Indexing}$ ($\text{H3}$/$\text{Geohash}$), $\text{Real}$-$\text{Time}$ $\text{Updates}$ ($\text{WebSockets}$), $\text{Load}$ $\text{Balancing}$ $\text{Drivers}$. |
 | 3.3.3      | **Design an E-commerce Flash Sale**                                | $\text{Distributed}$ $\text{Locking}$, $\text{Soft}$ $\text{Inventory}$ $\text{Reservation}$, $\text{Idempotency}$, $\text{Payment}$ $\text{Sagas}$.                                         |
 | 3.3.4      | **Design a Distributed Database**                                  | $\text{Raft}$/$\text{Paxos}$ $\text{Consensus}$, $\text{Sharding}$, $\text{Replication}$ $\text{Topology}$, $\text{Fault}$ $\text{Tolerance}$.                                               |
-
----
+| 4.1.1      | **Design a Stock Exchange Matching Engine**                        |                                                                                                                                                                                              |
+| 4.1.2      | **Design a Global News Feed (Google News)**                        |                                                                                                                                                                                              |
+| 4.1.3      | **Design a Distributed Monitoring System**                         |                                                                                                                                                                                              |
+| 4.1.4      | **Design a Recommendation System**                                 |                                                                                                                                                                                              |
+| 4.1.5      | **Design a Stock Brokerage Platform**                              |                                                                                                                                                                                              |
 
 ---
 
@@ -358,11 +361,11 @@ result = function_name(arg1, arg2)
 **Key Requirements:**
 
 - **STANDARDIZED FORMAT**: All main challenge files MUST follow this exact structure:
-  1. Title
-  2. "Note on Implementation Details" block (referencing pseudocode.md)
-  3. "📊 Visual Diagrams & Resources" section (with links to all 6 files)
-  4. Section numbering starts at "## 1. Problem Statement"
-  5. Continue with "## 2. Requirements...", "## 3. High-Level Architecture", etc.
+    1. Title
+    2. "Note on Implementation Details" block (referencing pseudocode.md)
+    3. "📊 Visual Diagrams & Resources" section (with links to all 6 files)
+    4. Section numbering starts at "## 1. Problem Statement"
+    5. Continue with "## 2. Requirements...", "## 3. High-Level Architecture", etc.
 - Main file: NO programming language code, NO detailed pseudocode (describe in words, reference pseudocode.md)
 - All diagrams MUST have flow explanations (steps, benefits, trade-offs)
 - this-over-that.md: 5-10 major decisions with detailed analysis
