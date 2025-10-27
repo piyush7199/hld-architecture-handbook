@@ -97,6 +97,90 @@ grep "^## [0-9]" your-file.md
 ```
 Verify numbers are: 1, 2, 3, 4, 5... (sequential, no duplicates)
 
+---
+
+## ⚠️ CRITICAL: COMPREHENSIVE CONTENT RULE ⚠️
+
+### **BOTH Main File AND README MUST Be Comprehensive**
+
+**Key Principle:** The README is NOT a "quick overview" or "summary" file. It is a **full, standalone comprehensive guide** similar to the main file.
+
+### **Main File Requirements:**
+- **Minimum Length:** 800-1200+ lines for most challenges
+- **Depth:** Deep explanations of ALL components, design decisions, trade-offs
+- **Content:** 10-15 major sections covering full system design
+- **Reference Examples:**
+  - URL Shortener: 1,153 lines ✅
+  - Live Chat System: 1,233 lines ✅
+  - Global Rate Limiter: 735 lines ✅
+
+### **README Requirements:**
+- **Minimum Length:** 75-120% of main file line count (typically 77-100%)
+- **Same Sections:** Include ALL major sections from main file
+- **Same Depth:** Full explanations, not summaries
+- **Same Tables:** Complete tables for estimation, trade-offs, comparisons
+- **Same Diagrams:** ASCII diagrams where appropriate
+- **Reference Examples:**
+  - URL Shortener: 886 lines (77% of 1,153) ✅
+  - Live Chat System: 955 lines (77% of 1,233) ✅
+
+### **Validation Commands:**
+
+**After creating files, run:**
+```bash
+cd /path/to/challenge-folder
+
+# 1. Check main file length
+MAIN_LINES=$(wc -l < 3.x.y-design-problem-name.md)
+echo "Main file: $MAIN_LINES lines"
+
+# 2. Check README length
+README_LINES=$(wc -l < README.md)
+echo "README: $README_LINES lines"
+
+# 3. Calculate ratio
+RATIO=$(echo "scale=0; $README_LINES * 100 / $MAIN_LINES" | bc)
+echo "README is $RATIO% of main file"
+
+# 4. Validate ratio (should be 75-120%)
+if [ $RATIO -lt 75 ] || [ $RATIO -gt 120 ]; then
+    echo "❌ FAILED: README should be 75-120% of main file"
+else
+    echo "✅ PASSED: README length is within acceptable range"
+fi
+```
+
+### **Content Parity Checklist:**
+
+Both main file AND README must include:
+- ✅ Problem Statement (full paragraph)
+- ✅ Requirements & Scale Estimation (complete tables with calculations)
+- ✅ High-Level Architecture (ASCII diagram + component descriptions)
+- ✅ Detailed Component Design (ALL subsections)
+- ✅ Data Models (schemas, structures)
+- ✅ Key Algorithms (described in words, reference pseudocode.md)
+- ✅ "Why This Over That?" sections (inline design justifications)
+- ✅ Bottlenecks & Solutions (4-6 major bottlenecks)
+- ✅ Common Anti-Patterns (3-5 patterns with ❌ bad vs ✅ good)
+- ✅ Alternative Approaches (2-3 alternatives)
+- ✅ Monitoring & Observability (metrics, alerts)
+- ✅ Trade-offs Summary (what we gained vs sacrificed)
+- ✅ Real-World Examples (how companies solve this)
+- ✅ References (links to other chapters)
+
+### **What's Different Between Main File and README:**
+
+| Aspect | Main File | README |
+|--------|-----------|--------|
+| **Section Numbering** | MUST have numbers (## 1., ## 2., ## 3.) | MAY omit numbers (## Problem Statement) |
+| **Depth of Detail** | Slightly more detailed | Slightly more concise, but still comprehensive |
+| **Length** | 100% (reference) | 75-120% of main file (typically 77-100%) |
+| **Purpose** | Primary comprehensive document | Standalone comprehensive guide (users can read either) |
+
+**IMPORTANT:** The only acceptable difference is that README may be *slightly* more concise (75% minimum), but it must still include ALL sections with FULL explanations.
+
+---
+
 #### Main Challenge File (`3.x.y-design-problem-name.md`):
 - **Complete standalone document** with all content
 - **MUST follow EXACT format shown above** (no variations allowed)
@@ -123,7 +207,15 @@ Verify numbers are: 1, 2, 3, 4, 5... (sequential, no duplicates)
 - **Typical sections (numbered):** 1. Problem Statement, 2. Requirements & Scale Estimation, 3. High-Level Architecture, 4. Data Model, 5. Component Design, 6. Bottlenecks, 7. Anti-Patterns, 8. Alternative Approaches, 9. Monitoring, 10. Trade-offs Summary, 11. Real-World Examples, 12. References
 
 #### README.md:
+- **⚠️ CRITICAL: README MUST BE COMPREHENSIVE LIKE MAIN FILE** - NOT a quick overview
 - **MUST follow EXACT SAME format as main file** (see format above)
+- **Content Requirements:**
+  - **Similar length to main file** (within 75-120% line count, typically 77-100%)
+  - **Include ALL major sections** from main file (Requirements, Architecture, Component Design, Bottlenecks, Anti-Patterns, Trade-offs, etc.)
+  - **Full explanations** for all design decisions, not just summaries
+  - **Complete tables** for scale estimation, technology choices, trade-offs
+  - **ASCII diagrams** inline where appropriate
+  - **Example:** URL Shortener README (887 lines = 77% of 1,153 main file) ✅
 - **Line-by-line requirements (SAME as main file):**
   1. Title
   2. Blank line
@@ -133,11 +225,11 @@ Verify numbers are: 1, 2, 3, 4, 5... (sequential, no duplicates)
   6. Links to all 4 files
   7. `---` separator
   8. Blank line
-  9. `## Problem Statement` (can omit number in README, but main file MUST have "## 1.")
-  10. Continue with content
+  9. `## Problem Statement` (can omit section numbers in README, but include all content)
+  10. Continue with ALL sections from main file
 - **NO detailed pseudocode implementations** - only basic definitions and implementation descriptions
 - Reference `pseudocode.md::function_name()` for all algorithm implementations
-- Can include quick overview tables for key metrics, design decisions, and technology choices
+- **Purpose:** README serves as a standalone comprehensive guide that users can read without opening main file
 
 #### hld-diagram.md:
 - **REQUIRED FORMAT:**
@@ -615,6 +707,38 @@ head -1 03-challenges/3.x.y-problem-name/this-over-that.md
 - [ ] `this-over-that.md` exists (5-10 major design decisions)
 - [ ] `pseudocode.md` exists (10-20 function implementations)
 
+### ⚠️ Comprehensive Content Validation (CRITICAL):
+
+**Run validation script:**
+```bash
+cd /path/to/challenge-folder
+
+# Check line counts
+MAIN=$(wc -l < 3.x.y-design-problem-name.md)
+README=$(wc -l < README.md)
+RATIO=$(echo "scale=0; $README * 100 / $MAIN" | bc)
+
+echo "Main file: $MAIN lines"
+echo "README: $README lines"
+echo "Ratio: $RATIO%"
+
+# Validate
+if [ $MAIN -lt 800 ]; then
+    echo "❌ Main file too short (minimum 800 lines)"
+elif [ $RATIO -lt 75 ] || [ $RATIO -gt 120 ]; then
+    echo "❌ README ratio out of range (should be 75-120%)"
+else
+    echo "✅ Length validation passed"
+fi
+```
+
+**Checklist:**
+- [ ] ✅ **Main file ≥ 800 lines** (most challenges should be 1000+ lines)
+- [ ] ✅ **README is 75-120% of main file** (typically 77-100%, run validation script above)
+- [ ] ✅ **README includes ALL sections** from main file (not just a subset)
+- [ ] ✅ **Both files have complete tables** (not summary tables)
+- [ ] ✅ **Both files have full explanations** (not "see main file for details")
+
 ### Content Quality - Main File:
 - [ ] ✅ **EXACT FORMAT:** Title → Note → Diagrams Section → `## 1. Problem Statement` → `## 2. Requirements...`
 - [ ] ✅ **SECTION NUMBERING:** Sequential (1, 2, 3, 4...) with NO duplicates
@@ -630,9 +754,12 @@ head -1 03-challenges/3.x.y-problem-name/this-over-that.md
 
 ### Content Quality - README:
 - [ ] ✅ **SAME FORMAT as main file:** Title → Note → Diagrams Section → Content
+- [ ] ✅ **COMPREHENSIVE (similar length to main file):** 75-120% of main file line count (typically 77-100%)
+- [ ] ✅ **ALL major sections included:** Requirements, Architecture, Component Design, Bottlenecks, Anti-Patterns, Trade-offs
 - [ ] Has visual diagrams section at top with links to all files
 - [ ] NO detailed pseudocode (only descriptions + references to pseudocode.md)
 - [ ] References all supplementary files
+- [ ] **Line count check:** README lines ≥ 75% of main file lines
 
 ### Content Quality - Diagrams:
 - [ ] ✅ **hld-diagram.md has Table of Contents** at top
