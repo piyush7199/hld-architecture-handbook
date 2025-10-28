@@ -101,10 +101,10 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 #### SQL Databases
 
-| Topic ID | Concept                                                                        | Focus                                                                                            |
-|----------|--------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| Topic ID | Concept                                                                           | Focus                                                                                            |
+|----------|-----------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
 | 2.1.7    | [PostgreSQL Deep Dive](02-components/2.1-databases/2.1.7-postgresql-deep-dive.md) | MVCC, JSONB, Full-Text Search, PostGIS, Advanced Indexing (GIN, BRIN), Replication, Extensions.  |
-| 2.1.8    | [MySQL Deep Dive](02-components/2.1-databases/2.1.8-mysql-deep-dive.md)       | InnoDB Storage Engine, MVCC, Replication (Async, Semi-Sync, Group), Indexing (B+Tree), ProxySQL. |
+| 2.1.8    | [MySQL Deep Dive](02-components/2.1-databases/2.1.8-mysql-deep-dive.md)           | InnoDB Storage Engine, MVCC, Replication (Async, Semi-Sync, Group), Indexing (B+Tree), ProxySQL. |
 
 #### NoSQL Databases
 
@@ -117,11 +117,11 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 #### Specialized Databases
 
-| Topic ID | Concept                                                                                          | Focus                                                                                          |
-|----------|--------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
-| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)         | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM. |
-| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)       | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.           |
-| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md)    | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                |
+| Topic ID | Concept                                                                                       | Focus                                                                                          |
+|----------|-----------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
+| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)      | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM. |
+| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)    | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.           |
+| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md) | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                |
 
 ### 2.2 Caching (Folder: [2.2-caching](./02-components/2.2-caching))
 
@@ -162,18 +162,6 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 ## 🗺️ Design Challenges Roadmap (Category 3)
 
-### Easy Challenges (Focus: Core Components, Caching, Databases)
-
-These problems require solid application of scaling fundamentals, hashing, and database choices.
-
-> 📊 **Each challenge includes comprehensive visual diagrams (Mermaid) for system architecture and sequence flows!**
-
-| Problem ID | System Name                                                                                                    | Key Concepts Applied                                                                                                 |
-|------------|----------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
-| 3.1.1      | **[Design a URL Shortener](03-challenges/3.1.1-url-shortener/)** ($\text{TinyURL}$)                            | Hashing, Base62 Encoding, Read-Heavy Scaling, Sharding Key, $\text{Cache}$ $\text{Aside}$, Multi-region deployment   |
-| 3.1.2      | **[Design a Distributed Cache](03-challenges/3.1.2-distributed-cache/)** ($\text{Redis}$ / $\text{Memcached}$) | Consistent Hashing, Eviction Policies ($\text{LRU}$), Replication, Failover, $\text{TTL}$, Cache Stampede Prevention |
-| 3.1.3      | **[Design a Distributed ID Generator](03-challenges/3.1.3-distributed-id-generator/)** ($\text{Snowflake}$)    | 64-bit ID Structure, Worker ID Assignment, Clock Drift Handling, Sequence Management, $\text{etcd}$ Coordination     |
-
 **📊 Each challenge folder contains 6 comprehensive files:**
 
 - **[3.x.y-design-problem-name.md]** - Complete comprehensive guide with all content (main file)
@@ -182,6 +170,18 @@ These problems require solid application of scaling fundamentals, hashing, and d
 - **[sequence-diagrams.md]** - 10-15 interaction flows with step-by-step explanations
 - **[this-over-that.md]** - In-depth analysis of 5-10 major design decisions and trade-offs
 - **[pseudocode.md]** - 10-20 detailed algorithm implementations with complexity analysis
+
+> 📊 **Each challenge includes comprehensive visual diagrams (Mermaid) for system architecture and sequence flows!**
+
+### Easy Challenges (Focus: Core Components, Caching, Databases)
+
+These problems require solid application of scaling fundamentals, hashing, and database choices.
+
+| Problem ID | System Name                                                                                                    | Key Concepts Applied                                                                                                 |
+|------------|----------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| 3.1.1      | **[Design a URL Shortener](03-challenges/3.1.1-url-shortener/)** ($\text{TinyURL}$)                            | Hashing, Base62 Encoding, Read-Heavy Scaling, Sharding Key, $\text{Cache}$ $\text{Aside}$, Multi-region deployment   |
+| 3.1.2      | **[Design a Distributed Cache](03-challenges/3.1.2-distributed-cache/)** ($\text{Redis}$ / $\text{Memcached}$) | Consistent Hashing, Eviction Policies ($\text{LRU}$), Replication, Failover, $\text{TTL}$, Cache Stampede Prevention |
+| 3.1.3      | **[Design a Distributed ID Generator](03-challenges/3.1.3-distributed-id-generator/)** ($\text{Snowflake}$)    | 64-bit ID Structure, Worker ID Assignment, Clock Drift Handling, Sequence Management, $\text{etcd}$ Coordination     |
 
 ### Medium Challenges (Focus: Asynchrony, Feeds, Microservices, Geo-Spatial)
 
@@ -204,11 +204,11 @@ These problems require advanced pattern usage, strong consistency guarantees, an
 | 3.3.2      | **Design Uber/Lyft Ride Matching**                                                                          | $\text{Geospatial}$ $\text{Indexing}$ ($\text{H3}$/$\text{Geohash}$), $\text{Real}$-$\text{Time}$ $\text{Updates}$ ($\text{WebSockets}$), $\text{Load}$ $\text{Balancing}$ $\text{Drivers}$. |
 | 3.3.3      | **Design an E-commerce Flash Sale**                                                                         | $\text{Distributed}$ $\text{Locking}$, $\text{Soft}$ $\text{Inventory}$ $\text{Reservation}$, $\text{Idempotency}$, $\text{Payment}$ $\text{Sagas}$.                                         |
 | 3.3.4      | **Design a Distributed Database**                                                                           | $\text{Raft}$/$\text{Paxos}$ $\text{Consensus}$, $\text{Sharding}$, $\text{Replication}$ $\text{Topology}$, $\text{Fault}$ $\text{Tolerance}$.                                               |
-| 4.1.1      | **Design a Stock Exchange Matching Engine**                                                                 |                                                                                                                                                                                              |
-| 4.1.2      | **Design a Global News Feed (Google News)**                                                                 |                                                                                                                                                                                              |
-| 4.1.3      | **Design a Distributed Monitoring System**                                                                  |                                                                                                                                                                                              |
-| 4.1.4      | **Design a Recommendation System**                                                                          |                                                                                                                                                                                              |
-| 4.1.5      | **Design a Stock Brokerage Platform**                                                                       |                                                                                                                                                                                              |
+| 4.1.1      | **Design a Stock Exchange Matching Engine**                                                                 | $\text{In}$-$\text{Memory}$ $\text{Processing}$, $\text{Audit}$ $\text{Logs}$, $\text{Price}$-$\text{Time}$ $\text{Priority}$, $\text{Microsecond}$ $\text{Latency}$.                        |
+| 4.1.2      | **Design a Global News Feed (Google News)**                                                                 | $\text{NLP}$ $\text{Pipelines}$, $\text{LSH}$ $\text{Deduplication}$, $\text{Elasticsearch}$, $\text{Personalization}$ $\text{Lag}$.                                                         |
+| 4.1.3      | **Design a Distributed Monitoring System**                                                                  | $\text{Time}$-$\text{Series}$ $\text{Databases}$ ($\text{TSDB}$), $\text{Rollup}$ $\text{Aggregations}$, $\text{Stream}$ $\text{Alerting}$.                                                  |
+| 4.1.4      | **Design a Recommendation System**                                                                          | $\text{Lambda}$ $\text{Architecture}$, $\text{Feature}$ $\text{Stores}$, $\text{Vector}$ $\text{Embeddings}$, $\text{Real}$-$\text{Time}$ $\text{Serving}$.                                  |
+| 4.1.5      | **Design a Stock Brokerage Platform**                                                                       | $\text{ACID}$ $\text{Ledgers}$, $\text{Real}$-$\text{Time}$ $\text{Data}$ $\text{Push}$, $\text{Geo}$-$\text{Sharding}$, $\text{Order}$ $\text{Entry}$ $\text{Flows}$.                       |
 
 ---
 

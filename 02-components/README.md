@@ -80,20 +80,6 @@ Core algorithms for distributed systems.
 
 ---
 
-## 📊 Content Overview
-
-| Category | Files | Total Lines | Focus |
-|----------|-------|-------------|-------|
-| **Communication** | 3 | ~500 | Protocols, APIs, Real-time |
-| **Databases** | 15 | ~12,000+ | SQL, NoSQL, Specialized DBs |
-| **Caching** | 3 | ~1,000 | Distributed caching strategies |
-| **Messaging & Streaming** | 8 | ~3,000 | Kafka, Spark, Flink, Queues |
-| **Security & Observability** | 2 | ~600 | Auth, Monitoring, Tracing |
-| **Algorithms** | 4 | ~1,000 | Rate limiting, Consensus, Locking |
-| **TOTAL** | **35 files** | **~18,000+ lines** | Comprehensive system design |
-
----
-
 ## 🎯 How to Use This Directory
 
 ### For Learning:
@@ -155,8 +141,6 @@ Each component deep dive follows a consistent structure:
 8. **References** — Official docs and related chapters
 9. **✏️ Design Challenge** — Practical scenario with detailed solution
 
-**Average file length:** 600-1,100 lines per deep dive (comprehensive!)
-
 ---
 
 ## 🚀 Quick Navigation
@@ -190,8 +174,3 @@ Each component deep dive follows a consistent structure:
 - Rate limiting → [Rate Limiting Algorithms (2.5.1)](./2.5-algorithms/2.5.1-rate-limiting-algorithms.md)
 - Consensus → [Paxos/Raft (2.5.2)](./2.5-algorithms/2.5.2-consensus-algorithms.md)
 - Distributed locks → [Distributed Locking (2.5.3)](./2.5-algorithms/2.5.3-distributed-locking.md)
-
----
-
-**Total:** 35 comprehensive deep dive documents covering all major distributed system components! 🎉
-
