@@ -204,7 +204,7 @@ These problems require advanced pattern usage, strong consistency guarantees, an
 | 3.3.2      | [**Design Uber/Lyft Ride Matching**](03-challenges/3.3.2-uber-ride-matching/)                               | $\text{Redis}$ $\text{Geo}$, $\text{Geohash}$ $\text{Indexing}$, $\text{Kafka}$ $\text{Buffer}$, $\text{ETA}$ $\text{Calculation}$, $\text{Geographic}$ $\text{Sharding}$, $\text{750K}$ $\text{writes/sec}$.                             |
 | 3.3.3      | [**Design an E-commerce Flash Sale**](03-challenges/3.3.3-flash-sale/)                                      | $\text{Redis}$ $\text{Atomic}$ $\text{DECR}$, $\text{Saga}$ $\text{Pattern}$, $\text{Load}$ $\text{Shedding}$, $\text{Idempotency}$ $\text{Keys}$, $\text{Split}$ $\text{Counter}$, $\text{100K}$ $\text{QPS}$ $\text{hot}$ $\text{key}$. |
 | 3.3.4      | [**Design a Distributed Database**](03-challenges/3.3.4-distributed-database/)                              | $\text{Raft}$ $\text{Consensus}$, $\text{2PC}$, $\text{Range}$ $\text{Sharding}$, $\text{LSM}$ $\text{Tree}$, $\text{MVCC}$, $\text{Timestamp}$ $\text{Oracle}$, $\text{Multi}$-$\text{Region}$, $\text{1M}$ $\text{QPS}$.                |
-| 4.1.1      | **Design a Stock Exchange Matching Engine**                                                                 | $\text{In}$-$\text{Memory}$ $\text{Processing}$, $\text{Audit}$ $\text{Logs}$, $\text{Price}$-$\text{Time}$ $\text{Priority}$, $\text{Microsecond}$ $\text{Latency}$.                                                                     |
+| 4.1.1      | [**Design a Stock Exchange Matching Engine**](03-challenges/4.1.1-stock-exchange/)                         | $\text{LMAX}$ $\text{Disruptor}$, $\text{DPDK}$ $\text{Kernel}$ $\text{Bypass}$, $\text{Red}$-$\text{Black}$ $\text{Tree}$, $\text{Fixed}$-$\text{Point}$ $\text{Integers}$, $\text{WAL}$, $\text{<100μs}$ $\text{p99}$, $\text{1M}$ $\text{orders/sec}$. |
 | 4.1.2      | **Design a Global News Feed (Google News)**                                                                 | $\text{NLP}$ $\text{Pipelines}$, $\text{LSH}$ $\text{Deduplication}$, $\text{Elasticsearch}$, $\text{Personalization}$ $\text{Lag}$.                                                                                                      |
 | 4.1.3      | **Design a Distributed Monitoring System**                                                                  | $\text{Time}$-$\text{Series}$ $\text{Databases}$ ($\text{TSDB}$), $\text{Rollup}$ $\text{Aggregations}$, $\text{Stream}$ $\text{Alerting}$.                                                                                               |
 | 4.1.4      | **Design a Recommendation System**                                                                          | $\text{Lambda}$ $\text{Architecture}$, $\text{Feature}$ $\text{Stores}$, $\text{Vector}$ $\text{Embeddings}$, $\text{Real}$-$\text{Time}$ $\text{Serving}$.                                                                               |
@@ -423,11 +423,11 @@ result = function_name(arg1, arg2)
 **Key Requirements:**
 
 - **STANDARDIZED FORMAT**: All main challenge files MUST follow this exact structure:
-    1. Title
-    2. "Note on Implementation Details" block (referencing pseudocode.md)
-    3. "📊 Visual Diagrams & Resources" section (with links to all 6 files)
-    4. Section numbering starts at "## 1. Problem Statement"
-    5. Continue with "## 2. Requirements...", "## 3. High-Level Architecture", etc.
+  1. Title
+  2. "Note on Implementation Details" block (referencing pseudocode.md)
+  3. "📊 Visual Diagrams & Resources" section (with links to all 6 files)
+  4. Section numbering starts at "## 1. Problem Statement"
+  5. Continue with "## 2. Requirements...", "## 3. High-Level Architecture", etc.
 - Main file: NO programming language code, NO detailed pseudocode (describe in words, reference pseudocode.md)
 - All diagrams MUST have flow explanations (steps, benefits, trade-offs)
 - this-over-that.md: 5-10 major decisions with detailed analysis
