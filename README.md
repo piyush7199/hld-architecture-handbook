@@ -70,43 +70,95 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 ## Category 2: Components Deep Dive (Folder: [02-components](./02-components))
 
-| Topic ID | Concept                                                                                                   | Focus                                                                                                     |
-|----------|-----------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| 2.0.1    | [Foundational Communication Protocols](02-components/2.0.1-foundational-communication-protocols.md)       | TCP vs. UDP, HTTP/S, WebSockets, WebRTC, DASH.                                                            |
-| 2.0.2    | [API Communication Styles](02-components/2.0.2-api-communication-styles.md)                               | REST, gRPC, SOAP, GraphQL (Pros, Cons, and Use Cases).                                                    |
-| 2.0.3    | [Real-Time Communication](02-components/2.0.3-real-time-communication.md)                                 | Comparison of techniques for maintaining persistent or near-persistent connections for real-time updates. |
-| 2.1.1    | [RDBMS Deep Dive: SQL & ACID](02-components/2.1.1-rdbms-deep-dive.md)                                     | Transactions, Isolation Levels, ACID vs. BASE.                                                            |
-| 2.1.2    | [NoSQL Deep Dive: The BASE Principle](02-components/2.1.2-no-sql-deep-dive.md)                            | Document Stores, Key-Value Stores, Column-Family.                                                         |
-| 2.1.3    | [Specialized Databases](02-components/2.1.3-specialized-databases.md)                                     | Time-Series, Graph, Geospatial DBs (e.g., Redis Streams, Neo4j).                                          |
-| 2.1.4    | [Database Scaling](02-components/2.1.4-database-scaling.md)                                               | Replication (Master-Slave), Federation, Sharding Strategies.                                              |
-| 2.1.5    | [Indexing and Query Optimization](02-components/2.1.5-indexing-and-query-optimization.md)                 | B-Trees, LSM-Trees, Denormalization Trade-offs.                                                           |
-| 2.1.6    | [Data Modeling for Scale (CQRS)](02-components/2.1.6-data-modeling-for-scale.md)                          | Denormalization, Data Decomposition, Command-Query Responsibility Segregation (CQRS).                     |
-| 2.1.7    | [PostgreSQL Deep Dive](02-components/2.1.7-postgresql-deep-dive.md)                                       | MVCC, JSONB, Full-Text Search, PostGIS, Advanced Indexing (GIN, BRIN), Replication, Extensions.           |
-| 2.1.8    | [Cassandra Deep Dive](02-components/2.1.8-cassandra-deep-dive.md)                                         | Masterless Architecture, Wide-Column Store, Tunable Consistency, Write Path, Compaction, Multi-DC.        |
-| 2.1.9    | [Elasticsearch Deep Dive](02-components/2.1.9-elasticsearch-deep-dive.md)                                 | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM.            |
-| 2.1.10   | [MongoDB Deep Dive](02-components/2.1.10-mongodb-deep-dive.md)                                            | Document Model (BSON), Embedded vs. Referenced, Aggregation Framework, Sharding, Change Streams.          |
-| 2.1.11   | [Redis Deep Dive](02-components/2.1.11-redis-deep-dive.md)                                                | In-Memory Data Structures (Strings, Lists, Sets, Sorted Sets), Persistence (RDB/AOF), Cluster, Streams.   |
-| 2.1.12   | [MySQL Deep Dive](02-components/2.1.12-mysql-deep-dive.md)                                                | InnoDB Storage Engine, MVCC, Replication (Async, Semi-Sync, Group), Indexing (B+Tree), ProxySQL.          |
-| 2.1.13   | [DynamoDB Deep Dive](02-components/2.1.13-dynamodb-deep-dive.md)                                          | Serverless NoSQL, Partition/Sort Keys, GSI/LSI, On-Demand vs. Provisioned, Global Tables, Streams.        |
-| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1.14-neo4j-deep-dive.md)                              | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms (PageRank, BFS).      |
-| 2.1.15   | [ClickHouse Deep Dive (Columnar Analytics)](02-components/2.1.15-clickhouse-deep-dive.md)                 | Columnar Storage, MergeTree Engine, Vectorized Query Execution, Distributed Queries, OLAP Workloads.      |
-| 2.2.1    | [Caching Deep Dive](02-components/2.2.1-caching-deep-dive.md)                                             | Cache-Aside, Write-Through, CDN vs. App-Level Cache.                                                      |
-| 2.2.2    | [Consistent Hashing](02-components/2.2.2-consistent-hashing.md)                                           | Algorithm mechanics, Ring implementation, how it minimizes data movement.                                 |
-| 2.2.3    | [Memcached Deep Dive](02-components/2.2.3-memcached-deep-dive.md)                                         | In-Memory Key-Value Cache, Slab Allocation, LRU Eviction, Simple Protocol, Multi-Threading.               |
-| 2.3.1    | [Asynchronous Communication](02-components/2.3.1-asynchronous-communication.md)                           | Queues vs. Streams, Pub/Sub Models, Backpressure.                                                         |
-| 2.3.2    | [Kafka Deep Dive](02-components/2.3.2-kafka-deep-dive.md)                                                 | Broker, Producer, Consumer Group, Partitions, Offset Management, Log Compaction.                          |
-| 2.3.3    | [Advanced Message Queues (RabbitMQ, SQS, SNS)](02-components/2.3.3-advanced-message-queues.md)            | Comparison of broker-based vs. managed queues, Dead-Letter Queues (DLQs).                                 |
-| 2.3.4    | [Distributed Transactions & Idempotency](02-components/2.3.4-distributed-transactions-and-idempotency.md) | Two-Phase Commit (2PC), Sagas, ensuring atomic operations.                                                |
-| 2.3.5    | [Batch vs Stream Processing](02-components/2.3.5-batch-vs-stream-processing.md)                           | Detailed look at the Lambda and Kappa Architectures, latency vs. completeness trade-offs.                 |
-| 2.3.6    | [Push vs Pull Data Flow](02-components/2.3.6-push-vs-pull-data-flow.md)                                   | Architectural choices in messaging systems (e.g., Kafka (Pull) vs. RabbitMQ (Push)).                      |
-| 2.3.7    | [Apache Spark Deep Dive](02-components/2.3.7-apache-spark-deep-dive.md)                                   | Unified Analytics Engine, RDD/DataFrame API, In-Memory Computing, MLlib, Batch & Stream Processing.       |
-| 2.3.8    | [Apache Flink Deep Dive](02-components/2.3.8-apache-flink-deep-dive.md)                                   | True Stream Processing, Event-by-Event, Stateful Operators, Exactly-Once, CEP, Ultra-Low Latency.         |
-| 2.4.1    | [Security Fundamentals](02-components/2.4.1-security-fundamentals.md)                                     | Authn/Authz (JWT), TLS/Encryption, Cross-Site Scripting (XSS) & CSRF.                                     |
-| 2.4.2    | [Observability](02-components/2.4.2-observability.md)                                                     | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting.                             |
-| 2.5.1    | [Rate Limiting Algorithms](02-components/2.5.1-rate-limiting-algorithms.md)                               | Token Bucket, Leaky Bucket, Fixed Window counter mechanisms.                                              |
-| 2.5.2    | [Consensus Algorithms](02-components/2.5.2-consensus-algorithms.md)                                       | Paxos / Raft, Distributed Locks (ZooKeeper/etcd), solving the concurrency problem.                        |
-| 2.5.3    | [Distributed Locking](02-components/2.5.3-distributed-locking.md)                                         | $\text{Redis}$ locks, $\text{TTL}$, Fencing Tokens, ensuring mutual exclusion.                            |
-| 2.5.4    | [Bloom Filters](02-components/2.5.4-bloom-filters.md)                                                     | Intuition, Hash Functions, False Positives, use cases (e.g., CDN cache lookups).                          |
+> **📁 Organized into 6 logical categories for easier navigation:**
+> - 🌐 **Communication** (Protocols, APIs, Real-time)
+> - 🗄️ **Databases** (15 database deep dives!)
+> - ⚡ **Caching** (Redis, Memcached, Consistent Hashing)
+> - 📨 **Messaging & Streaming** (Kafka, Spark, Flink, Message Queues)
+> - 🔒 **Security & Observability** (Auth, Monitoring, Tracing)
+> - 🧮 **Algorithms** (Rate Limiting, Consensus, Locking, Bloom Filters)
+
+### 2.0 Communication (Folder: [2.0-communication](./02-components/2.0-communication))
+
+| Topic ID | Concept                                                                                                               | Focus                                                                                                     |
+|----------|-----------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| 2.0.1    | [Foundational Communication Protocols](02-components/2.0-communication/2.0.1-foundational-communication-protocols.md) | TCP vs. UDP, HTTP/S, WebSockets, WebRTC, DASH.                                                            |
+| 2.0.2    | [API Communication Styles](02-components/2.0-communication/2.0.2-api-communication-styles.md)                         | REST, gRPC, SOAP, GraphQL (Pros, Cons, and Use Cases).                                                    |
+| 2.0.3    | [Real-Time Communication](02-components/2.0-communication/2.0.3-real-time-communication.md)                           | Comparison of techniques for maintaining persistent or near-persistent connections for real-time updates. |
+
+### 2.1 Databases (Folder: [2.1-databases](./02-components/2.1-databases)) — 15 Deep Dives
+
+#### Core Database Concepts
+
+| Topic ID | Concept                                                                                                 | Focus                                                                                 |
+|----------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| 2.1.1    | [RDBMS Deep Dive: SQL & ACID](02-components/2.1-databases/2.1.1-rdbms-deep-dive.md)                     | Transactions, Isolation Levels, ACID vs. BASE.                                        |
+| 2.1.2    | [NoSQL Deep Dive: The BASE Principle](02-components/2.1-databases/2.1.2-no-sql-deep-dive.md)            | Document Stores, Key-Value Stores, Column-Family.                                     |
+| 2.1.3    | [Specialized Databases](02-components/2.1-databases/2.1.3-specialized-databases.md)                     | Time-Series, Graph, Geospatial DBs (e.g., Redis Streams, Neo4j).                      |
+| 2.1.4    | [Database Scaling](02-components/2.1-databases/2.1.4-database-scaling.md)                               | Replication (Master-Slave), Federation, Sharding Strategies.                          |
+| 2.1.5    | [Indexing and Query Optimization](02-components/2.1-databases/2.1.5-indexing-and-query-optimization.md) | B-Trees, LSM-Trees, Denormalization Trade-offs.                                       |
+| 2.1.6    | [Data Modeling for Scale (CQRS)](02-components/2.1-databases/2.1.6-data-modeling-for-scale.md)          | Denormalization, Data Decomposition, Command-Query Responsibility Segregation (CQRS). |
+
+#### SQL Databases
+
+| Topic ID | Concept                                                                        | Focus                                                                                            |
+|----------|--------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| 2.1.7    | [PostgreSQL Deep Dive](02-components/2.1-databases/2.1.7-postgresql-deep-dive.md) | MVCC, JSONB, Full-Text Search, PostGIS, Advanced Indexing (GIN, BRIN), Replication, Extensions.  |
+| 2.1.8    | [MySQL Deep Dive](02-components/2.1-databases/2.1.8-mysql-deep-dive.md)       | InnoDB Storage Engine, MVCC, Replication (Async, Semi-Sync, Group), Indexing (B+Tree), ProxySQL. |
+
+#### NoSQL Databases
+
+| Topic ID | Concept                                                                         | Focus                                                                                              |
+|----------|---------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
+| 2.1.9    | [Cassandra Deep Dive](02-components/2.1-databases/2.1.9-cassandra-deep-dive.md) | Masterless Architecture, Wide-Column Store, Tunable Consistency, Write Path, Compaction, Multi-DC. |
+| 2.1.10   | [MongoDB Deep Dive](02-components/2.1-databases/2.1.10-mongodb-deep-dive.md)    | Document Model (BSON), Embedded vs. Referenced, Aggregation Framework, Sharding, Change Streams.   |
+| 2.1.11   | [Redis Deep Dive](02-components/2.1-databases/2.1.11-redis-deep-dive.md)        | In-Memory Data Structures (Strings, Lists, Sets, Sorted Sets), Persistence (RDB/AOF), Cluster.     |
+| 2.1.12   | [DynamoDB Deep Dive](02-components/2.1-databases/2.1.12-dynamodb-deep-dive.md)  | Serverless NoSQL, Partition/Sort Keys, GSI/LSI, On-Demand vs. Provisioned, Global Tables, Streams. |
+
+#### Specialized Databases
+
+| Topic ID | Concept                                                                                          | Focus                                                                                          |
+|----------|--------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
+| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)         | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM. |
+| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)       | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.           |
+| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md)    | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                |
+
+### 2.2 Caching (Folder: [2.2-caching](./02-components/2.2-caching))
+
+| Topic ID | Concept                                                                       | Focus                                                                      |
+|----------|-------------------------------------------------------------------------------|----------------------------------------------------------------------------|
+| 2.2.1    | [Caching Deep Dive](02-components/2.2-caching/2.2.1-caching-deep-dive.md)     | Cache-Aside, Write-Through, CDN vs. App-Level Cache.                       |
+| 2.2.2    | [Consistent Hashing](02-components/2.2-caching/2.2.2-consistent-hashing.md)   | Algorithm mechanics, Ring implementation, how it minimizes data movement.  |
+| 2.2.3    | [Memcached Deep Dive](02-components/2.2-caching/2.2.3-memcached-deep-dive.md) | In-Memory Key-Value Cache, Slab Allocation, LRU Eviction, Multi-Threading. |
+
+### 2.3 Messaging & Streaming (Folder: [2.3-messaging-streaming](./02-components/2.3-messaging-streaming))
+
+| Topic ID | Concept                                                                                                                           | Focus                                                                                             |
+|----------|-----------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| 2.3.1    | [Asynchronous Communication](02-components/2.3-messaging-streaming/2.3.1-asynchronous-communication.md)                           | Queues vs. Streams, Pub/Sub Models, Backpressure.                                                 |
+| 2.3.2    | [Kafka Deep Dive](02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)                                                 | Broker, Producer, Consumer Group, Partitions, Offset Management, Log Compaction.                  |
+| 2.3.3    | [Advanced Message Queues (RabbitMQ, SQS, SNS)](02-components/2.3-messaging-streaming/2.3.3-advanced-message-queues.md)            | Comparison of broker-based vs. managed queues, Dead-Letter Queues (DLQs).                         |
+| 2.3.4    | [Distributed Transactions & Idempotency](02-components/2.3-messaging-streaming/2.3.4-distributed-transactions-and-idempotency.md) | Two-Phase Commit (2PC), Sagas, ensuring atomic operations.                                        |
+| 2.3.5    | [Batch vs Stream Processing](02-components/2.3-messaging-streaming/2.3.5-batch-vs-stream-processing.md)                           | Detailed look at the Lambda and Kappa Architectures, latency vs. completeness trade-offs.         |
+| 2.3.6    | [Push vs Pull Data Flow](02-components/2.3-messaging-streaming/2.3.6-push-vs-pull-data-flow.md)                                   | Architectural choices in messaging systems (e.g., Kafka (Pull) vs. RabbitMQ (Push)).              |
+| 2.3.7    | [Apache Spark Deep Dive](02-components/2.3-messaging-streaming/2.3.7-apache-spark-deep-dive.md)                                   | Unified Analytics Engine, RDD/DataFrame API, In-Memory Computing, MLlib, Batch & Stream.          |
+| 2.3.8    | [Apache Flink Deep Dive](02-components/2.3-messaging-streaming/2.3.8-apache-flink-deep-dive.md)                                   | True Stream Processing, Event-by-Event, Stateful Operators, Exactly-Once, CEP, Ultra-Low Latency. |
+
+### 2.4 Security & Observability (Folder: [2.4-security-observability](./02-components/2.4-security-observability))
+
+| Topic ID | Concept                                                                                          | Focus                                                                         |
+|----------|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
+| 2.4.1    | [Security Fundamentals](02-components/2.4-security-observability/2.4.1-security-fundamentals.md) | Authn/Authz (JWT), TLS/Encryption, Cross-Site Scripting (XSS) & CSRF.         |
+| 2.4.2    | [Observability](02-components/2.4-security-observability/2.4.2-observability.md)                 | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting. |
+
+### 2.5 Distributed Algorithms (Folder: [2.5-algorithms](./02-components/2.5-algorithms))
+
+| Topic ID | Concept                                                                                    | Focus                                                                              |
+|----------|--------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
+| 2.5.1    | [Rate Limiting Algorithms](02-components/2.5-algorithms/2.5.1-rate-limiting-algorithms.md) | Token Bucket, Leaky Bucket, Fixed Window counter mechanisms.                       |
+| 2.5.2    | [Consensus Algorithms](02-components/2.5-algorithms/2.5.2-consensus-algorithms.md)         | Paxos / Raft, Distributed Locks (ZooKeeper/etcd), solving the concurrency problem. |
+| 2.5.3    | [Distributed Locking](02-components/2.5-algorithms/2.5.3-distributed-locking.md)           | $\text{Redis}$ locks, $\text{TTL}$, Fencing Tokens, ensuring mutual exclusion.     |
+| 2.5.4    | [Bloom Filters](02-components/2.5-algorithms/2.5.4-bloom-filters.md)                       | Intuition, Hash Functions, False Positives, use cases (e.g., CDN cache lookups).   |
 
 ## 🗺️ Design Challenges Roadmap (Category 3)
 

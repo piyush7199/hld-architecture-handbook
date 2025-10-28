@@ -4,12 +4,24 @@
 
 This is a system design learning repository organized into:
 - `01-principles/` - Core theoretical concepts
-- `02-components/` - Deep dive into system components  
+- `02-components/` - Deep dive into system components (organized into 6 categories)
+  - `2.0-communication/` - Communication protocols, APIs, real-time communication
+  - `2.1-databases/` - 15 database deep dives (SQL, NoSQL, specialized)
+  - `2.2-caching/` - Caching systems and strategies
+  - `2.3-messaging-streaming/` - Message queues, Kafka, Spark, Flink
+  - `2.4-security-observability/` - Security fundamentals and observability
+  - `2.5-algorithms/` - Distributed algorithms (rate limiting, consensus, locking)
 - `03-challenges/` - Real-world design problems with detailed solutions
 
 ---
 
 ## Component File Structure (02-components)
+
+**Directory Organization:** Component files are organized into 6 logical subdirectories:
+- Files are located in `02-components/[category]/[filename].md`
+- Example: `02-components/2.1-databases/2.1.7-postgresql-deep-dive.md` (SQL database)
+- Example: `02-components/2.1-databases/2.1.9-cassandra-deep-dive.md` (NoSQL database)
+- Example: `02-components/2.3-messaging-streaming/2.3.7-apache-spark-deep-dive.md` (Stream processing)
 
 All component deep dive files in `02-components/` MUST follow this structure:
 
