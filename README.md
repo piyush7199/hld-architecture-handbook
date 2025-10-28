@@ -3,12 +3,10 @@
 ## Project Goal
 
 This repository, the **HLD Architecture Handbook**, is designed to be a comprehensive, self-paced learning guide for
-mastering **High-Level Design (HLD)** and large-scale system architecture. We focus on providing **intuitive definitions
-** and
-**in-depth explanations** of core concepts, followed by structured design challenges. The ultimate goal is to help you
-understand **the 'Why'** behind every architectural choice—the trade-offs, constraints, and future-proofing
-considerations
-necessary for building systems at scale.
+mastering **High-Level Design (HLD)** and large-scale system architecture. We focus on providing
+**intuitive definitions** and **in-depth explanations** of core concepts, followed by structured design challenges. The
+ultimate goal is to help you understand **the 'Why'** behind every architectural choice—the trade-offs, constraints, and
+future-proofing considerations necessary for building systems at scale.
 
 **Audience:** Engineers with basic programming knowledge looking to transition from small-scale development to designing
 highly scalable, reliable, and performant distributed systems.
@@ -83,6 +81,13 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 2.1.4    | [Database Scaling](02-components/2.1.4-database-scaling.md)                                               | Replication (Master-Slave), Federation, Sharding Strategies.                                              |
 | 2.1.5    | [Indexing and Query Optimization](02-components/2.1.5-indexing-and-query-optimization.md)                 | B-Trees, LSM-Trees, Denormalization Trade-offs.                                                           |
 | 2.1.6    | [Data Modeling for Scale (CQRS)](02-components/2.1.6-data-modeling-for-scale.md)                          | Denormalization, Data Decomposition, Command-Query Responsibility Segregation (CQRS).                     |
+| 2.1.7    | [PostgreSQL Deep Dive](02-components/2.1.7-postgresql-deep-dive.md)                                       | MVCC, JSONB, Full-Text Search, PostGIS, Advanced Indexing (GIN, BRIN), Replication, Extensions.           |
+| 2.1.8    | [Cassandra Deep Dive](02-components/2.1.8-cassandra-deep-dive.md)                                         | Masterless Architecture, Wide-Column Store, Tunable Consistency, Write Path, Compaction, Multi-DC.        |
+| 2.1.9    | [Elasticsearch Deep Dive](02-components/2.1.9-elasticsearch-deep-dive.md)                                 | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM.            |
+| 2.1.10   | [MongoDB Deep Dive](02-components/2.1.10-mongodb-deep-dive.md)                                            | Document Model (BSON), Embedded vs. Referenced, Aggregation Framework, Sharding, Change Streams.          |
+| 2.1.11   | [Redis Deep Dive](02-components/2.1.11-redis-deep-dive.md)                                                | In-Memory Data Structures (Strings, Lists, Sets, Sorted Sets), Persistence (RDB/AOF), Cluster, Streams.   |
+| 2.1.12   | [MySQL Deep Dive](02-components/2.1.12-mysql-deep-dive.md)                                                | InnoDB Storage Engine, MVCC, Replication (Async, Semi-Sync, Group), Indexing (B+Tree), ProxySQL.          |
+| 2.1.13   | [DynamoDB Deep Dive](02-components/2.1.13-dynamodb-deep-dive.md)                                          | Serverless NoSQL, Partition/Sort Keys, GSI/LSI, On-Demand vs. Provisioned, Global Tables, Streams.        |
 | 2.2.1    | [Caching Deep Dive](02-components/2.2.1-caching-deep-dive.md)                                             | Cache-Aside, Write-Through, CDN vs. App-Level Cache.                                                      |
 | 2.2.2    | [Consistent Hashing](02-components/2.2.2-consistent-hashing.md)                                           | Algorithm mechanics, Ring implementation, how it minimizes data movement.                                 |
 | 2.3.1    | [Asynchronous Communication](02-components/2.3.1-asynchronous-communication.md)                           | Queues vs. Streams, Pub/Sub Models, Backpressure.                                                         |
@@ -136,17 +141,17 @@ These problems involve decoupling services, handling fan-out, and managing compl
 
 These problems require advanced pattern usage, strong consistency guarantees, and managing complex real-time state.
 
-| Problem ID | System Name                                                        | Key Concepts Applied                                                                                                                                                                         |
-|------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 3.3.1      | [**Design a Live Chat System**](03-challenges/3.3.1-live-chat-system/) ($\text{WhatsApp}$ / $\text{Slack}$) | $\text{WebSockets}$, $\text{Kafka}$ $\text{Ordering}$, $\text{Presence}$ $\text{Service}$, $\text{Sequence}$ $\text{IDs}$, $\text{Read}$ $\text{Receipts}$, $\text{Group}$ $\text{Chat}$.           |
-| 3.3.2      | **Design Uber/Lyft Ride Matching**                                 | $\text{Geospatial}$ $\text{Indexing}$ ($\text{H3}$/$\text{Geohash}$), $\text{Real}$-$\text{Time}$ $\text{Updates}$ ($\text{WebSockets}$), $\text{Load}$ $\text{Balancing}$ $\text{Drivers}$. |
-| 3.3.3      | **Design an E-commerce Flash Sale**                                | $\text{Distributed}$ $\text{Locking}$, $\text{Soft}$ $\text{Inventory}$ $\text{Reservation}$, $\text{Idempotency}$, $\text{Payment}$ $\text{Sagas}$.                                         |
-| 3.3.4      | **Design a Distributed Database**                                  | $\text{Raft}$/$\text{Paxos}$ $\text{Consensus}$, $\text{Sharding}$, $\text{Replication}$ $\text{Topology}$, $\text{Fault}$ $\text{Tolerance}$.                                               |
-| 4.1.1      | **Design a Stock Exchange Matching Engine**                        |                                                                                                                                                                                              |
-| 4.1.2      | **Design a Global News Feed (Google News)**                        |                                                                                                                                                                                              |
-| 4.1.3      | **Design a Distributed Monitoring System**                         |                                                                                                                                                                                              |
-| 4.1.4      | **Design a Recommendation System**                                 |                                                                                                                                                                                              |
-| 4.1.5      | **Design a Stock Brokerage Platform**                              |                                                                                                                                                                                              |
+| Problem ID | System Name                                                                                                 | Key Concepts Applied                                                                                                                                                                         |
+|------------|-------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 3.3.1      | [**Design a Live Chat System**](03-challenges/3.3.1-live-chat-system/) ($\text{WhatsApp}$ / $\text{Slack}$) | $\text{WebSockets}$, $\text{Kafka}$ $\text{Ordering}$, $\text{Presence}$ $\text{Service}$, $\text{Sequence}$ $\text{IDs}$, $\text{Read}$ $\text{Receipts}$, $\text{Group}$ $\text{Chat}$.    |
+| 3.3.2      | **Design Uber/Lyft Ride Matching**                                                                          | $\text{Geospatial}$ $\text{Indexing}$ ($\text{H3}$/$\text{Geohash}$), $\text{Real}$-$\text{Time}$ $\text{Updates}$ ($\text{WebSockets}$), $\text{Load}$ $\text{Balancing}$ $\text{Drivers}$. |
+| 3.3.3      | **Design an E-commerce Flash Sale**                                                                         | $\text{Distributed}$ $\text{Locking}$, $\text{Soft}$ $\text{Inventory}$ $\text{Reservation}$, $\text{Idempotency}$, $\text{Payment}$ $\text{Sagas}$.                                         |
+| 3.3.4      | **Design a Distributed Database**                                                                           | $\text{Raft}$/$\text{Paxos}$ $\text{Consensus}$, $\text{Sharding}$, $\text{Replication}$ $\text{Topology}$, $\text{Fault}$ $\text{Tolerance}$.                                               |
+| 4.1.1      | **Design a Stock Exchange Matching Engine**                                                                 |                                                                                                                                                                                              |
+| 4.1.2      | **Design a Global News Feed (Google News)**                                                                 |                                                                                                                                                                                              |
+| 4.1.3      | **Design a Distributed Monitoring System**                                                                  |                                                                                                                                                                                              |
+| 4.1.4      | **Design a Recommendation System**                                                                          |                                                                                                                                                                                              |
+| 4.1.5      | **Design a Stock Brokerage Platform**                                                                       |                                                                                                                                                                                              |
 
 ---
 

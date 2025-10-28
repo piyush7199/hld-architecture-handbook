@@ -7,6 +7,203 @@ This is a system design learning repository organized into:
 - `02-components/` - Deep dive into system components  
 - `03-challenges/` - Real-world design problems with detailed solutions
 
+---
+
+## Component File Structure (02-components)
+
+All component deep dive files in `02-components/` MUST follow this structure:
+
+### Required Structure:
+
+1. **Title:** `# [ID] [Topic Name]: [Subtitle]`
+2. **Intuitive Explanation** section
+3. **In-Depth Analysis** section with subsections
+4. **When to Use** section
+5. **Real-World Examples** section
+6. **Common Anti-Patterns** section (with ❌ and ✅ examples)
+7. **Trade-offs Summary** section (table format)
+8. **References** section
+9. **✏️ Design Challenge** section (REQUIRED at end)
+
+### Design Challenge Format (END OF EVERY COMPONENT FILE):
+
+**REQUIRED at the end of ALL component files:**
+
+```markdown
+---
+
+## ✏️ Design Challenge
+
+### Problem
+
+[A practical scenario/question that applies the concepts from the component]
+
+Requirements:
+1. [Requirement 1]
+2. [Requirement 2]
+3. [Requirement 3]
+
+**Question:** [Specific design question that requires deep understanding]
+
+### Solution
+
+#### 🧩 Scenario
+
+- **System:** [System description]
+- **Scale:** [Scale metrics]
+- **Requirements:** [Detailed requirements list]
+- **Query/Access patterns:** [How data is accessed]
+
+#### ✅ Goal
+
+- [Goal 1]
+- [Goal 2]
+- [Goal 3]
+
+#### ⚙️ Solution: [Chosen Approach]
+
+**Why [This Choice]?**
+
+[Comparison table showing why this technology/approach was chosen]
+
+**Design Decisions:**
+
+[Detailed explanation of key design choices with code examples/schemas]
+
+**Example Implementation:**
+
+[Code examples, schemas, or configuration]
+
+#### ⚠️ Trade-offs and Challenges
+
+**Challenge 1: [Challenge Name]**
+
+**Problem:** [What's the problem]
+
+**Solution:** [How to solve it]
+
+[Repeat for 2-3 challenges]
+
+#### 🧠 Practical Considerations
+
+[Real-world architecture, scaling strategies, cost analysis]
+
+#### ✅ Final Answer
+
+| Aspect | Decision | Reason |
+|--------|----------|--------|
+| **[Aspect 1]** | [Decision] | [Rationale] |
+| **[Aspect 2]** | [Decision] | [Rationale] |
+| **Trade-off Accepted** | [What you sacrifice] | [What you gain] |
+
+**Performance Metrics:**
+- [Metric 1]: [Value]
+- [Metric 2]: [Value]
+
+**Why NOT [Alternative]:**
+- [Reason 1]
+- [Reason 2]
+
+**When to Reconsider:**
+- [Condition 1]
+- [Condition 2]
+```
+
+### Examples of Component Design Challenges:
+
+- **PostgreSQL:** "Can PostgreSQL handle search, geospatial, and inventory consistency, or do you need multiple databases?"
+- **Cassandra:** "How would you design a time-series IoT platform with 100K writes/sec and proper partition key strategy?"
+- **Redis:** "How would you build a gaming leaderboard with 10M players using Redis sorted sets?"
+- **MongoDB:** "How would you model a social media profile system with varying fields and handle the celebrity problem?"
+- **Elasticsearch:** "How would you design a multi-tenant SaaS search platform with data isolation and real-time sync from PostgreSQL?"
+- **MySQL:** "How would you design an e-commerce order system with ACID transactions and read replicas?"
+- **DynamoDB:** "How would you design a serverless shopping cart that handles 100x traffic spikes on Black Friday?"
+
+### Component File Template:
+
+```markdown
+# [ID] [Topic Name]: [Subtitle]
+
+## Intuitive Explanation
+
+[Simple, high-level explanation with analogies]
+
+## In-Depth Analysis
+
+### 1. [Topic 1]
+
+[Detailed explanation]
+
+### 2. [Topic 2]
+
+[Detailed explanation]
+
+[... continue with 10-15 major sections ...]
+
+### [N]. When to Use [Technology]
+
+#### ✅ Use [Technology] When:
+
+1. [Use case 1]
+2. [Use case 2]
+
+#### ❌ Don't Use [Technology] When:
+
+1. [Anti-use case 1]
+2. [Anti-use case 2]
+
+### [N+1]. Real-World Examples
+
+| Company | Use Case | Why [Technology]? |
+|---------|----------|-------------------|
+| **Company 1** | [Use case] | [Reason] |
+
+### [N+2]. [Technology] vs. Other [Category]
+
+| Feature | [Technology] | [Alternative 1] | [Alternative 2] |
+|---------|-------------|-----------------|-----------------|
+
+### [N+3]. Common Anti-Patterns
+
+#### ❌ **1. [Anti-Pattern Name]**
+
+**Problem:** [What's wrong]
+
+**Solution:** [How to fix]
+
+### [N+4]. Trade-offs Summary
+
+| What You Gain | What You Sacrifice |
+|---------------|-------------------|
+| ✅ [Benefit 1] | ❌ [Cost 1] |
+
+### [N+5]. References
+
+- **[Official Docs]:** [URL]
+- **Related Chapters:**
+  - [Link to related chapter 1]
+  - [Link to related chapter 2]
+
+---
+
+## ✏️ Design Challenge
+
+[REQUIRED: See Design Challenge Format above]
+```
+
+### Key Requirements for Component Files:
+
+1. ✅ **Comprehensive:** 500-700+ lines
+2. ✅ **Practical:** Real-world examples, code samples, schemas
+3. ✅ **Comparative:** Compare with alternatives (vs. other databases)
+4. ✅ **Anti-patterns:** Show ❌ bad and ✅ good approaches
+5. ✅ **Design challenge:** MUST include practical design challenge at end
+6. ✅ **Trade-offs:** Explicit what you gain vs. what you sacrifice
+7. ❌ **NO:** Generic theory without practical application
+8. ❌ **NO:** Missing design challenge (every component MUST have one)
+
+---
+
 ## Design Challenge Structure
 
 Each design challenge in `03-challenges/` follows this exact structure:
