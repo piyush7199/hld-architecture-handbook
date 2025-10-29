@@ -1,4 +1,4 @@
-# 4.1.1 Design a Stock Exchange Matching Engine
+# 3.4.1 Design a Stock Exchange Matching Engine
 
 > 📚 **Note on Implementation Details:**
 > This document focuses on high-level design concepts and architectural decisions. 
