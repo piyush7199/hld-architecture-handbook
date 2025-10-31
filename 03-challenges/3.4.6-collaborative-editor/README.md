@@ -1059,8 +1059,3 @@ A: Challenges with broadcast fanout (1000² messages). Use hierarchical broadcas
 **Real-World:**
 - [Figma's Multiplayer](https://www.figma.com/blog/how-figmas-multiplayer-technology-works/)
 - [Notion's Data Model](https://www.notion.so/blog/data-model-behind-notion)
-
----
-
-**End of README**
-

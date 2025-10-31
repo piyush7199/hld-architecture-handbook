@@ -1098,10 +1098,3 @@ sequenceDiagram
 
     Note over User: T12: Normal operation resumed
 ```
-
----
-
-**End of Sequence Diagrams**
-
-*This document contains 14 comprehensive sequence diagrams covering real-time collaboration, conflict resolution, offline sync, cursor tracking, presence, reconnection, permissions, version history, failure recovery, and rate limiting for the Collaborative Editor system.*
-

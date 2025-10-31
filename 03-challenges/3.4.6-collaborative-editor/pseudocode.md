@@ -1179,10 +1179,3 @@ function handle_websocket_reconnection(connection, doc_id, user_id, last_event_i
 ```
 
 **Time Complexity:** O(e) where e is number of missed events
-
----
-
-**End of Pseudocode Implementations**
-
-*This document contains 50+ function implementations covering Operational Transformation, CRDT, document state management, WebSocket server, event sourcing, snapshots, offline sync, presence tracking, rate limiting, and failure recovery for the Collaborative Editor system.*
-

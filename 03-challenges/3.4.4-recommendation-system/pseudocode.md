@@ -1,42 +1,43 @@
 # Recommendation System - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Recommendation System. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Recommendation System. The main challenge document
+references these functions.
 
 ---
 
 ## Table of Contents
 
 1. [Real-Time Serving](#real-time-serving)
-   - generate_recommendations()
-   - get_user_features()
-   - score_candidates()
+    - generate_recommendations()
+    - get_user_features()
+    - score_candidates()
 2. [Candidate Generation](#candidate-generation)
-   - CandidateGenerator class
-   - collaborative_filtering_candidates()
-   - content_based_candidates()
-   - find_similar_items()
-   - get_trending_items()
+    - CandidateGenerator class
+    - collaborative_filtering_candidates()
+    - content_based_candidates()
+    - find_similar_items()
+    - get_trending_items()
 3. [Feature Store](#feature-store)
-   - update_user_features()
-   - start_kafka_streams()
-   - UserState class
+    - update_user_features()
+    - start_kafka_streams()
+    - UserState class
 4. [Model Training](#model-training)
-   - train_als_model()
-   - train_two_tower_model()
-   - clean_training_data()
+    - train_als_model()
+    - train_two_tower_model()
+    - clean_training_data()
 5. [Ranking and Filtering](#ranking-and-filtering)
-   - rank_and_filter()
-   - blend_strategies()
-   - apply_time_decay()
-   - diversify_recommendations()
+    - rank_and_filter()
+    - blend_strategies()
+    - apply_time_decay()
+    - diversify_recommendations()
 6. [Cold Start Handling](#cold-start-handling)
-   - handle_cold_start()
-   - bootstrap_new_user()
-   - bootstrap_new_item()
+    - handle_cold_start()
+    - bootstrap_new_user()
+    - bootstrap_new_item()
 7. [Optimization](#optimization)
-   - optimize_latency()
-   - precompute_recommendations_job()
-   - cache_popular_recommendations()
+    - optimize_latency()
+    - precompute_recommendations_job()
+    - cache_popular_recommendations()
 
 ---
 
@@ -47,11 +48,13 @@ This document contains detailed algorithm implementations for the Recommendation
 **Purpose:** Main entry point for generating personalized recommendations.
 
 **Parameters:**
+
 - `user_id` (INT64): Unique user identifier
 - `context` (OBJECT): Request context (device, location, time)
 - `num_recommendations` (INT): Number of recommendations to return (default: 10)
 
 **Returns:**
+
 - `List<Recommendation>`: Top-N recommended items with metadata
 
 **Algorithm:**
@@ -115,6 +118,7 @@ recommendations = generate_recommendations(user_id=12345, context={"device": "mo
 **Time Complexity:** O(N + M × log M) where N = candidates (~150), M = final recommendations (10)
 
 **Latency Breakdown:**
+
 - Cache hit: 2ms
 - Cache miss: 30-50ms (feature fetch 5ms + candidate gen 20ms + scoring 20ms + ranking 5ms)
 
@@ -125,9 +129,11 @@ recommendations = generate_recommendations(user_id=12345, context={"device": "mo
 **Purpose:** Fetch user features from Redis Feature Store.
 
 **Parameters:**
+
 - `user_id` (INT64): Unique user identifier
 
 **Returns:**
+
 - `UserFeatures`: User feature object (last 5 items, embeddings, preferences)
 
 **Algorithm:**
@@ -215,10 +221,12 @@ features = get_user_features(user_id=12345)
 **Purpose:** Score candidate items using ML model (TensorFlow Serving).
 
 **Parameters:**
+
 - `user_features` (UserFeatures): User features
 - `candidates` (List<INT64>): List of candidate item IDs (~150 items)
 
 **Returns:**
+
 - `List<(INT64, FLOAT)>`: List of (item_id, score) tuples, sorted by score (descending)
 
 **Algorithm:**
@@ -368,9 +376,11 @@ candidates = generator.generate()
 **Purpose:** Generate candidates using collaborative filtering (ALS embeddings).
 
 **Parameters:**
+
 - `user_features` (UserFeatures): User features
 
 **Returns:**
+
 - `List<INT64>`: List of candidate item IDs (50 items)
 
 **Algorithm:**
@@ -427,9 +437,11 @@ candidates = collaborative_filtering_candidates(user_features)
 **Purpose:** Generate candidates based on content similarity (item metadata).
 
 **Parameters:**
+
 - `user_features` (UserFeatures): User features
 
 **Returns:**
+
 - `List<INT64>`: List of candidate item IDs (30 items)
 
 **Algorithm:**
@@ -489,10 +501,12 @@ candidates = content_based_candidates(user_features)
 **Purpose:** Find similar items using FAISS approximate nearest neighbor search.
 
 **Parameters:**
+
 - `item_ids` (List<INT64>): List of item IDs (e.g., last 5 viewed items)
 - `top_k` (INT): Number of similar items per input item (default: 10)
 
 **Returns:**
+
 - `List<INT64>`: List of similar item IDs (50 items total)
 
 **Algorithm:**
@@ -549,10 +563,12 @@ similar = find_similar_items(item_ids=[1, 2, 3, 4, 5], top_k=10)
 **Purpose:** Get globally trending items in preferred categories.
 
 **Parameters:**
+
 - `preferred_categories` (List<INT32>): List of category IDs
 - `limit` (INT): Number of trending items to return (default: 20)
 
 **Returns:**
+
 - `List<INT64>`: List of trending item IDs
 
 **Algorithm:**
@@ -631,10 +647,12 @@ trending = get_trending_items(preferred_categories=[5, 12, 8], limit=20)
 **Purpose:** Update user features in real-time from Kafka stream events.
 
 **Parameters:**
+
 - `user_id` (INT64): Unique user identifier
 - `event` (ClickstreamEvent): Clickstream event
 
 **Returns:**
+
 - None (side effect: updates Redis)
 
 **Algorithm:**
@@ -852,12 +870,14 @@ class UserState:
 **Purpose:** Train collaborative filtering model using Alternating Least Squares (ALS).
 
 **Parameters:**
+
 - `user_item_interactions` (DataFrame): Spark DataFrame with (user_id, item_id, rating) columns
 - `rank` (INT): Number of latent factors (default: 100)
 - `max_iter` (INT): Maximum iterations (default: 10)
 - `reg_param` (FLOAT): Regularization parameter (default: 0.01)
 
 **Returns:**
+
 - `ALSModel`: Trained ALS model with user and item embeddings
 
 **Algorithm:**
@@ -951,11 +971,13 @@ model = train_als_model(interactions, rank=100, max_iter=10, reg_param=0.01)
 **Purpose:** Train deep learning model using two-tower architecture.
 
 **Parameters:**
+
 - `user_features` (DataFrame): User features (user_id, embeddings, demographics)
 - `item_features` (DataFrame): Item features (item_id, embeddings, metadata)
 - `interactions` (DataFrame): User-item interactions (user_id, item_id, label)
 
 **Returns:**
+
 - `TwoTowerModel`: Trained neural network model
 
 **Algorithm:**
@@ -1064,9 +1086,11 @@ model = train_two_tower_model(user_features, item_features, interactions)
 **Purpose:** Clean and filter training data before model training.
 
 **Parameters:**
+
 - `raw_interactions` (DataFrame): Raw clickstream events
 
 **Returns:**
+
 - `DataFrame`: Cleaned interactions ready for training
 
 **Algorithm:**
@@ -1172,12 +1196,14 @@ clean_data = clean_training_data(raw_interactions)
 **Purpose:** Re-rank and filter scored candidates using business rules.
 
 **Parameters:**
+
 - `scored_items` (List<(INT64, FLOAT)>): List of (item_id, score) tuples
 - `user_features` (UserFeatures): User features
 - `context` (OBJECT): Request context
 - `num_recommendations` (INT): Number of recommendations to return
 
 **Returns:**
+
 - `List<(INT64, FLOAT)>`: Top-N ranked items
 
 **Algorithm:**
@@ -1239,10 +1265,12 @@ ranked = rank_and_filter(scored_items, user_features, context, num_recommendatio
 **Purpose:** Blend multiple recommendation strategies with configurable weights.
 
 **Parameters:**
+
 - `strategies` (Dict<STRING, List<(INT64, FLOAT)>>): Dictionary of strategy name → scored items
 - `weights` (Dict<STRING, FLOAT>): Strategy weights (must sum to 1.0)
 
 **Returns:**
+
 - `List<(INT64, FLOAT)>`: Blended recommendations
 
 **Algorithm:**
@@ -1310,10 +1338,12 @@ blended = blend_strategies(strategies, weights)
 **Purpose:** Apply exponential time decay to historical interactions.
 
 **Parameters:**
+
 - `interactions` (List<Interaction>): List of user interactions
 - `decay_lambda` (FLOAT): Decay parameter (default: 0.01 = 1% per day)
 
 **Returns:**
+
 - `List<Interaction>`: Interactions with time-decayed weights
 
 **Algorithm:**
@@ -1350,10 +1380,12 @@ decayed = apply_time_decay(interactions, decay_lambda=0.01)
 **Purpose:** Ensure diversity by limiting items per category.
 
 **Parameters:**
+
 - `scored_items` (List<(INT64, FLOAT)>): Scored items
 - `max_per_category` (INT): Maximum items per category (default: 3)
 
 **Returns:**
+
 - `List<(INT64, FLOAT)>`: Diversified recommendations
 
 **Algorithm:**
@@ -1400,11 +1432,13 @@ diversified = diversify_recommendations(scored, max_per_category=2)
 **Purpose:** Handle recommendations for new users with no interaction history.
 
 **Parameters:**
+
 - `user_id` (INT64): User ID
 - `user_features` (UserFeatures): User features (minimal for new users)
 - `context` (OBJECT): Request context
 
 **Returns:**
+
 - `List<Recommendation>`: Cold start recommendations
 
 **Algorithm:**
@@ -1470,10 +1504,12 @@ recommendations = handle_cold_start(user_id=999999, user_features=new_user_featu
 **Purpose:** Bootstrap recommendations for new user with explicit preferences.
 
 **Parameters:**
+
 - `user_id` (INT64): User ID
 - `preferred_categories` (List<INT32>): Categories selected during onboarding
 
 **Returns:**
+
 - `List<Recommendation>`: Bootstrapped recommendations
 
 **Algorithm:**
@@ -1525,9 +1561,11 @@ recommendations = bootstrap_new_user(user_id=999999, preferred_categories=[5, 12
 **Purpose:** Bootstrap recommendations for new item with no engagement history.
 
 **Parameters:**
+
 - `item_id` (INT64): Item ID
 
 **Returns:**
+
 - None (side effect: registers item in exploration engine)
 
 **Algorithm:**
@@ -1677,8 +1715,3 @@ function cache_popular_recommendations():
 cache_popular_recommendations()
 // Runs every 10 minutes for VIP users
 ```
-
----
-
-**Pseudocode Complete:** ✅ 20 comprehensive function implementations covering serving, training, feature store, ranking, cold start, and optimization.
-
