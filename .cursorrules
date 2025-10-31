@@ -98,7 +98,7 @@ Requirements:
 
 #### 🧠 Practical Considerations
 
-[Real-world architecture, scaling strategies, cost analysis]
+[Real-world architecture, scaling strategies]
 
 #### ✅ Final Answer
 
@@ -315,13 +315,17 @@ Verify numbers are: 1, 2, 3, 4, 5... (sequential, no duplicates)
 **Key Principle:** The README is NOT a "quick overview" or "summary" file. It is a **full, standalone comprehensive guide** similar to the main file.
 
 ### **Main File Requirements:**
-- **Minimum Length:** 800-1200+ lines for most challenges
-- **Depth:** Deep explanations of ALL components, design decisions, trade-offs
-- **Content:** 10-15 major sections covering full system design
+- **Recommended Length:** 1,000+ lines for comprehensive coverage (absolute minimum: 800 lines, no upper limit)
+- **Depth:** Deep explanations of ALL components, design decisions, trade-offs, deployment, and optimization
+- **Content:** 15-22 major sections covering full system design lifecycle
 - **Reference Examples:**
-  - URL Shortener: 1,153 lines ✅
-  - Live Chat System: 1,233 lines ✅
-  - Global Rate Limiter: 735 lines ✅
+  - **Payment Gateway (3.5.1):** 1,668 lines (22 sections) ✅✅✅ **GOLD STANDARD**
+  - **Stock Brokerage (3.4.5):** 2,161 lines ✅✅
+  - **Online Code Judge (3.4.7):** 1,564 lines ✅
+  - **Uber Ride Matching (3.3.2):** 1,242 lines ✅
+  - **Live Chat System (3.3.1):** 1,233 lines ✅
+  - **News Feed (3.4.2):** 1,169 lines ✅
+  - **URL Shortener (3.1.1):** 1,153 lines ✅
 
 ### **README Requirements:**
 - **Minimum Length:** 75-120% of main file line count (typically 77-100%)
@@ -390,6 +394,50 @@ Both main file AND README must include:
 
 ---
 
+### **Advanced Sections Content Guide (For Comprehensive 1000+ Line Challenges)**
+
+To reach 1000+ lines with comprehensive coverage, include these 4 advanced sections:
+
+#### **1. Deployment and Infrastructure** (~100-150 lines)
+- **Multi-region deployment strategies** (active-active vs active-passive)
+- **Infrastructure as Code** examples (Terraform, CloudFormation)
+- **Container orchestration** (Kubernetes manifests, Helm charts)
+- **CI/CD pipeline** considerations and best practices
+- **Blue-green deployment** and canary release strategies
+- **Service mesh** integration (if applicable)
+
+#### **2. Advanced Features** (~100-150 lines)
+- **Domain-specific advanced capabilities** unique to the system
+- **Future enhancements** and extensibility points
+- **Edge cases and special scenarios** handling
+- **Premium/Enterprise features** (if applicable)
+- **Plugin/Extension systems** (if applicable)
+- **Multi-tenancy** support (if applicable)
+
+#### **3. Performance Optimization** (~80-120 lines)
+- **Connection pooling** strategies and configuration
+- **Caching strategies** at multiple layers
+- **Query optimization** techniques
+- **Resource tuning** (CPU, memory, network)
+- **Compression** techniques
+- **Batch processing** optimizations
+- **Hardware acceleration** (GPU, FPGA if applicable)
+
+#### **4. Interview Discussion Points** (~60-100 lines)
+- **Common interview questions** for this system
+- **Key talking points** and design rationale
+- **Trade-off discussions** (what you'd change at different scales)
+- **Scalability questions** and answers
+- **Failure scenario discussions**
+- **"How would you improve this?"** talking points
+
+**Note:** Not all challenges need all advanced sections. Choose sections relevant to the domain. For example:
+- **Payment Gateway** needs Security & Compliance, Interview Discussion Points
+- **Video Streaming** needs Performance Optimization (bandwidth heavy)
+- **Collaborative Editor** needs Performance Optimization, Interview Discussion Points (real-time)
+
+---
+
 #### Main Challenge File (`3.x.y-design-problem-name.md`):
 - **Complete standalone document** with all content
 - **MUST follow EXACT format shown above** (no variations allowed)
@@ -413,7 +461,11 @@ Both main file AND README must include:
 - For every major choice (DB, cache, sync/async), explain the rationale with bullet points
 - Links to diagram files, this-over-that.md, and pseudocode.md for detailed implementations
 - Focus on WHAT and WHY, delegate HOW to pseudocode.md
-- **Typical sections (numbered):** 1. Problem Statement, 2. Requirements & Scale Estimation, 3. High-Level Architecture, 4. Data Model, 5. Component Design, 6. Bottlenecks, 7. Anti-Patterns, 8. Alternative Approaches, 9. Monitoring, 10. Trade-offs Summary, 11. Real-World Examples, 12. References
+- **Typical sections (numbered) - Minimum 15-22 sections for comprehensive coverage:**
+  - **Core Sections (Required):** 1. Problem Statement, 2. Requirements & Scale Estimation, 3. High-Level Architecture, 4. Data Model, 5. Detailed Component Design, 6. Availability & Fault Tolerance, 7. Bottlenecks & Optimizations, 8. Common Anti-Patterns, 9. Alternative Approaches, 10. Monitoring & Observability, 11. Trade-offs Summary, 12. Real-World Examples, 13. References
+  - **Advanced Sections (Recommended for 1000+ lines):** 14. Deployment & Infrastructure, 15. Advanced Features (domain-specific), 16. Performance Optimization, 17. Interview Discussion Points
+  - **Optional Sections (domain-specific):** Security & Compliance, Multi-Currency Support, Webhook Systems, Refunds/Chargebacks, etc.
+  - **Gold Standard Example:** Payment Gateway (3.5.1) has 22 sections covering full system lifecycle
 
 #### README.md:
 - **⚠️ CRITICAL: README MUST BE COMPREHENSIVE LIKE MAIN FILE** - NOT a quick overview

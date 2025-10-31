@@ -1292,45 +1292,7 @@ User-Agent: Googlebot/2.1 (+http://www.google.com/bot.html)
 
 ---
 
-## 12. Cost Analysis (AWS Example)
-
-**Assumptions:**
-- 10 billion pages
-- 1,000 URLs/sec throughput
-- 115 days crawl duration
-- 100 TB storage
-
-| Component                        | Specification                     | Monthly Cost        |
-|----------------------------------|-----------------------------------|---------------------|
-| **Crawler Workers (EC2)**        | 20× c5.2xlarge (8 vCPU, 16 GB)   | $2,720              |
-| **Kafka Cluster**                | 3× kafka.m5.xlarge                | $1,092              |
-| **Redis (Duplicate Filter)**     | cache.r5.2xlarge (52 GB RAM)      | $547                |
-| **Elasticsearch**                | 5× i3.xlarge (4 vCPU, 30 GB RAM) | $3,990              |
-| **S3 Storage (HTML)**            | 100 TB storage + requests         | $2,300              |
-| **Data Transfer**                | 10 MB/sec egress                  | $7,884              |
-| **CloudWatch Monitoring**        | Logs + Metrics + Dashboards       | $150                |
-| **VPC, NAT Gateway**             | Multi-AZ setup                    | $90                 |
-| **Total**                        |                                   | **~$18,773/month**  |
-
-**Cost Optimization:**
-
-| Optimization                  | Savings      | Notes                                    |
-|-------------------------------|--------------|------------------------------------------|
-| **Reserved Instances (1-year)**| -40% EC2     | Save $1,088/month on EC2                 |
-| **S3 Glacier for Old Data**   | -70% storage | Archive after 30 days → Save $1,610/month|
-| **Spot Instances for Workers**| -70% EC2     | Use Spot for 50% of workers → Save $950/month|
-| **Compress HTML (gzip)**      | -70% storage | 5× compression → Save $1,400/month       |
-| **Use S3 Intelligent Tiering**| -20% storage | Auto-archive → Save $460/month           |
-
-**Optimized Cost: ~$13,265/month** (~30% savings)
-
-**Cost per Page:**
-- Full crawl: $18,773 × 4 months = $75,092
-- Cost per page: $75,092 / 10B = **$0.0000075 per page** (~$7.50 per million pages)
-
----
-
-## 13. Trade-offs Summary
+## 12. Trade-offs Summary
 
 | Decision                      | Choice                                | Alternative               | Why Chosen                                   | Trade-off                              |
 |-------------------------------|---------------------------------------|---------------------------|----------------------------------------------|----------------------------------------|
