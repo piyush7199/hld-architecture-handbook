@@ -241,7 +241,60 @@ The Read Path must prioritize speed and offload the database.
 
 ---
 
-## 4. Bottlenecks and Future Scaling
+## 4. Availability and Fault Tolerance
+
+### Single Points of Failure
+
+| Component          | Impact if Failed             | Mitigation Strategy                                      |
+|--------------------|------------------------------|----------------------------------------------------------|
+| **ID Generator**   | No new URLs                  | Distributed Snowflake-style ID generation                |
+| **Redis Cache**    | High DB load                 | Redis Cluster with replication, circuit breaker          |
+| **Database Master**| No writes                    | PostgreSQL automatic failover (Patroni + etcd)          |
+| **API Servers**    | Reduced capacity             | Auto-scaling group with health checks                    |
+
+### High Availability Strategies
+
+**Database Layer:**
+- Primary-Replica setup: 1 Primary + 2+ Read Replicas
+- Automatic failover: < 30 seconds
+- Replication lag: < 1 second
+
+**Cache Layer:**
+- Redis Cluster: 6 nodes (3 masters + 3 replicas)
+- Automatic failover with Redis Sentinel
+- Circuit breaker pattern if cluster fails
+
+**Application Layer:**
+- Auto-scaling: 3-20 instances across 3 AZs
+- Scale up trigger: CPU > 70% for 2 minutes
+- Health checks every 10 seconds
+
+### Disaster Recovery
+
+| Data Type        | Backup Frequency | Retention | Recovery Time Objective |
+|------------------|------------------|-----------|-------------------------|
+| **URL Mappings** | Continuous (WAL) | 30 days   | < 1 hour                |
+| **Analytics**    | Daily snapshots  | 90 days   | < 4 hours               |
+| **Redis State**  | RDB every 6 hrs  | 7 days    | < 15 minutes            |
+
+**Multi-Region Strategy:**
+- Active-Passive: Primary (US-East) + Backup (EU-West)
+- Async replication (lag < 5 seconds)
+- DNS failover: 60 seconds
+
+### Circuit Breaker Pattern
+
+Protects database from cache failures:
+- CLOSED: Normal operation
+- OPEN: DB overloaded (return error)
+- HALF-OPEN: Testing recovery
+- Open threshold: 50% DB error rate over 10 seconds
+
+*See pseudocode.md::circuit_breaker_check() for implementation*
+
+---
+
+## 5. Bottlenecks and Future Scaling
 
 1. **SPOF in Cache:** If the Redis Cluster fails, all traffic hits the $\text{DB}$, causing a
    potential $\text{Cache}$ $\text{Stampede}$ and $\text{DB}$ overload.
@@ -260,7 +313,7 @@ The Read Path must prioritize speed and offload the database.
 
 ---
 
-## 5. Common Anti-Patterns
+## 6. Common Anti-Patterns
 
 > 📚 **Note:** For detailed pseudocode implementations of anti-patterns and their solutions, see **[3.1.1-design-url-shortener.md](./3.1.1-design-url-shortener.md#5-common-anti-patterns)** and **[pseudocode.md](./pseudocode.md)**.
 
@@ -406,7 +459,7 @@ CREATE TABLE click_events (
 
 ---
 
-## 6. Alternative Approaches (Not Chosen)
+## 7. Alternative Approaches (Not Chosen)
 
 ### Approach A: NoSQL-First Design (DynamoDB/Cassandra)
 
@@ -512,7 +565,7 @@ System must rehash with counter: hash(URL2 + "1") → xyz5678
 
 ---
 
-## 7. Deep Dive: Handling Edge Cases
+## 8. Deep Dive: Handling Edge Cases
 
 ### Edge Case 1: Expired Links
 
@@ -589,7 +642,7 @@ CREATE TABLE click_events (
 
 ---
 
-## 8. Monitoring and Observability
+## 9. Monitoring and Observability
 
 ### Key Metrics to Track
 
@@ -632,7 +685,7 @@ Request: GET /xyz789
 
 ---
 
-## 9. Interview Discussion Points
+## 10. Interview Discussion Points
 
 ### Question 1: How would you handle 100× growth?
 
@@ -762,7 +815,7 @@ Request: GET /xyz789
 
 ---
 
-## 10. Comparison with Real-World Systems
+## 11. Comparison with Real-World Systems
 
 | Feature            | Our Design         | Bitly       | TinyURL   | Short.io  |
 |--------------------|--------------------|-------------|-----------|-----------|
@@ -776,7 +829,7 @@ Request: GET /xyz789
 
 ---
 
-## 11. Trade-offs Summary
+## 12. Trade-offs Summary
 
 | Decision             | Choice                      | Alternative          | Why Chosen                            | Trade-off                          |
 |----------------------|-----------------------------|----------------------|---------------------------------------|------------------------------------|
@@ -851,6 +904,387 @@ A URL shortener system requires careful balance between:
 - Use reserved instances (save 40% on EC2/RDS)
 - Separate read replicas for analytics queries
 - **Estimated cost:** ~$1,500-$3,000/month for 1M creations + 100M redirects/day
+
+---
+
+## 13. Deployment and Infrastructure
+
+### Infrastructure as Code (Terraform)
+
+**VPC and Networking:**
+- 3 Availability Zones for redundancy
+- Public subnets for ALB, private for services
+- NAT Gateway for outbound traffic
+- VPC peering for cross-region communication
+- Security groups: API (port 8080), Redis (6379), PostgreSQL (5432)
+
+**Application Layer:**
+- EC2 Auto Scaling Group: 3-20 t3.medium instances (2 vCPU, 4GB RAM)
+- Application Load Balancer with health checks
+- Rolling deployments with 25% max surge
+- Launch template with latest AMI (Ubuntu 22.04)
+- IAM roles for S3 access (analytics logs)
+- CloudWatch agent for metrics
+
+**Cache Layer:**
+- ElastiCache Redis Cluster: 3 shards + 3 replicas
+- cache.r6g.large instances (13.07 GB memory)
+- Multi-AZ with automatic failover (< 30 seconds)
+- Encryption at rest and in transit
+- Parameter group: maxmemory-policy=allkeys-lru
+
+**Database Layer:**
+- RDS PostgreSQL 15.4 (db.r5.2xlarge: 8 vCPU, 64GB RAM)
+- Multi-AZ deployment + 2 read replicas
+- Automated backups (7-day retention, daily snapshots)
+- Point-in-time recovery enabled
+- Performance Insights enabled
+- Enhanced monitoring (1-minute intervals)
+
+**Analytics:**
+- Kinesis Data Streams (1 shard initially)
+- Lambda for click event processing
+- S3 bucket for raw event storage (Intelligent-Tiering)
+- Athena for ad-hoc SQL queries
+
+### Kubernetes Deployment
+
+For containerized environments:
+
+**API Deployment:**
+- 3-20 pod replicas
+- Resources: requests (500m CPU, 1GB RAM), limits (1 CPU, 2GB RAM)
+- HorizontalPodAutoscaler: target CPU 70%
+- Rolling update strategy: maxSurge 25%, maxUnavailable 0
+- Liveness probe: HTTP GET /health every 10s
+- Readiness probe: HTTP GET /ready every 5s
+
+**Redis StatefulSet:**
+- 6 pods (3 masters + 3 replicas)
+- PersistentVolumeClaims: 50GB SSD per pod
+- Headless service for cluster formation
+- Anti-affinity rules: spread across nodes
+- Sentinel for automatic failover
+
+**PostgreSQL:**
+- Use CloudNativePG operator
+- Primary + 2 replicas
+- PVC: 500GB SSD (gp3)
+- Automated failover and backups
+- Connection pooling via PgBouncer
+
+**Ingress:**
+- NGINX Ingress Controller
+- TLS termination (Let's Encrypt)
+- Rate limiting: 100 req/sec per IP
+- WAF rules: SQL injection, XSS protection
+
+### CI/CD Pipeline
+
+**Deployment Strategy:**
+
+1. **GitHub Actions Workflow:**
+   - Trigger: Push to main branch
+   - Steps: Lint → Test → Build → Security scan → Push to ECR
+
+2. **Deployment Stages:**
+   - Dev environment (auto-deploy on merge to dev)
+   - Staging environment (auto-deploy on merge to main)
+   - Production (manual approval + blue-green deployment)
+
+3. **Blue-Green Deployment Process:**
+   - Deploy new version to "green" environment
+   - Run smoke tests (5 critical API endpoints)
+   - Switch traffic gradually: 10% → 50% → 100% over 30 minutes
+   - Monitor error rates and latency
+   - Rollback if error rate > 1% or p99 latency > 200ms
+
+4. **Rollback Strategy:**
+   - Automatic: Traffic shifted back to blue within 60 seconds
+   - Manual: kubectl rollout undo or Terraform state revert
+   - Database: Use WAL for point-in-time recovery
+
+### Multi-Region Architecture
+
+**Global Deployments:**
+
+**Primary Regions:**
+- US-East-1 (North America traffic)
+- EU-Central-1 (Europe traffic)
+- AP-Southeast-1 (Asia traffic)
+
+**Traffic Routing:**
+- Route53 geolocation routing policy
+- Latency-based routing as fallback
+- Health checks: every 30 seconds
+- Failover: Automatic to backup region if health check fails
+
+**Data Strategy:**
+- URL writes: Primary region only (US-East-1)
+- URL reads: Local region (cache + read replica)
+- Analytics: Regional Kinesis → Central S3 bucket
+- Cross-region replication lag: < 5 seconds (acceptable for reads)
+
+**Cost Optimization:**
+- Use spot instances for non-critical workloads
+- Reserved instances for baseline capacity (40% savings)
+- S3 Intelligent-Tiering for analytics data
+- CloudFront for static assets (reduce data transfer)
+
+---
+
+## 14. Advanced Features
+
+### QR Code Generation
+
+Generate QR codes automatically for each short URL:
+
+**Implementation:**
+- Generate QR code on URL creation (async worker)
+- Store as PNG (multiple sizes) in S3: 150x150, 300x300, 600x600
+- CDN cached with 1-year TTL
+- SVG option for scalable logos and custom branding
+- Error correction level: Medium (15% damage tolerance)
+
+**API Endpoints:**
+```
+GET /api/v1/qr/{shortCode}?size=300&format=png
+GET /api/v1/qr/{shortCode}?format=svg&color=000000
+```
+
+**Benefits:**
+- Mobile-first sharing (camera scan)
+- Print materials (posters, business cards, product packaging)
+- No-type URL entry (reduces friction)
+- Branding: Add logo in center of QR code
+
+**Performance:**
+- Generation time: 50-100ms
+- S3 storage: ~5KB per QR code
+- CloudFront cache hit rate: 95%+
+
+### Link Preview & Open Graph
+
+Rich link previews for social media:
+
+**Features:**
+- Fetch Open Graph metadata from target URL (og:title, og:description, og:image)
+- Cache metadata (24-hour TTL in Redis)
+- Generate preview card with thumbnail
+- Custom OG tags for short URL page (override defaults)
+- Fallback to HTML title/meta description if OG tags missing
+
+**Implementation:**
+- Async job on URL creation (non-blocking)
+- HTTP client with 5-second timeout
+- Store metadata in separate table: url_metadata
+- Serve via og:tags on /{shortCode} page
+- Preview API: GET /api/v1/preview/{shortCode}
+
+**Use Cases:**
+- Twitter card previews
+- Facebook link sharing
+- LinkedIn posts
+- WhatsApp/Telegram link previews
+
+### Link Bundling & Campaigns
+
+Group related links for marketing campaigns:
+
+**Use Cases:**
+- Social media campaigns (multiple product links)
+- Event promotions (schedule, tickets, venue, sponsors)
+- Bio links (Instagram, TikTok, YouTube)
+- Email campaigns (multiple CTAs)
+
+**Features:**
+- Create link bundle: POST /api/v1/bundles
+- Landing page: /b/{bundleId} with all links
+- Aggregate analytics across bundle (total clicks, conversion rate)
+- Custom branding: logo, colors, background, CTAs
+- Drag-and-drop reordering
+- Individual link analytics within bundle
+- Schedule: Enable/disable links by date/time
+
+**Schema:**
+```
+bundles: {
+  bundle_id, user_id, title, description, theme,
+  bg_color, logo_url, created_at
+}
+
+bundle_links: {
+  bundle_id, short_code, order, title, description,
+  icon, enabled, visible_from, visible_until
+}
+```
+
+**Analytics:**
+- Track clicks per link in bundle
+- Click-through rate (CTR) for each link
+- Conversion funnel: Bundle view → Link click → Action
+- Geographic distribution of clicks
+
+### Geographic Redirection
+
+Route users to different destinations based on location:
+
+**Use Cases:**
+- E-commerce: Different stores for US/EU/Asia (currency, language)
+- App downloads: App Store (iOS) vs Google Play (Android)
+- Localized content: Language-specific pages, regional promotions
+- Compliance: GDPR-compliant pages for EU users
+
+**Implementation:**
+- Detect country from IP (GeoIP2 MaxMind database)
+- Store geo_rules table: {short_code, country_code, target_url, priority}
+- Priority: Exact country match → Region → Default
+- Fallback to primary URL if no match
+- Cache geo lookup results (1-hour TTL)
+
+**Schema:**
+```
+geo_rules: {
+  rule_id, short_code, country_code, target_url,
+  priority, created_at
+}
+```
+
+**Performance:**
+- GeoIP lookup: < 1ms (in-memory database, 300MB)
+- Rule evaluation: < 1ms (indexed query)
+- Total overhead: < 5ms
+- Cache: Redis with geo:{ip} key (1-hour TTL)
+
+**Admin UI:**
+- Visual map to configure redirections
+- Bulk upload via CSV (country_code, target_url)
+- A/B testing: Split traffic by country
+
+### Link Retargeting & Pixels
+
+Marketing pixel injection for retargeting campaigns:
+
+**Features:**
+- Add tracking pixels: Facebook Pixel, Google Analytics, LinkedIn Insight Tag
+- Inject into intermediate redirect page (302 with meta refresh)
+- User sees redirect page for 100-200ms (pixels fire)
+- Then auto-redirect to target URL
+- Custom pixel parameters: event_name, product_id, value
+
+**Implementation:**
+```
+GET /{shortCode}
+→ Render HTML page with pixels
+→ Meta refresh: 0;url=target_url
+→ JavaScript redirect as fallback
+→ Pixels fire in parallel
+→ User redirected
+```
+
+**Privacy Considerations:**
+- Comply with GDPR/CCPA regulations
+- Cookie consent banner (required in EU)
+- User opt-out mechanism via ?no_tracking=1
+- Privacy policy link on redirect page
+- Do Not Track (DNT) header respect
+
+**Use Cases:**
+- Facebook Custom Audiences
+- Google Remarketing
+- LinkedIn Matched Audiences
+- Cart abandonment recovery
+
+---
+
+## 15. Performance Optimization
+
+### Connection Pooling
+
+**PostgreSQL Optimization:**
+- Pool size: 20 connections per API server
+- Max: 500 (RDS limit), 20 servers × 20 = 400 (safe)
+- Benefits: Avoid 10-50ms connection overhead
+
+HikariCP settings: maxPoolSize=20, minIdle=5, maxLifetime=30m
+
+### Read-Through Cache Pattern
+
+Optimize cache miss handling:
+- Traditional: Check cache → DB query → Write back (51-52ms)
+- Read-through: Cache handles DB fallback internally (atomic)
+- Probability-based refresh at 90% TTL (prevents stampede)
+
+### Database Query Optimization
+
+**Critical Indexes:**
+- UNIQUE INDEX on short_code (< 1ms lookups)
+- INDEX on user_id, created_at (user dashboards)
+- PARTIAL INDEX on active URLs
+
+**Query Patterns:**
+✅ SELECT target_url WHERE short_code = ? (uses PK, < 1ms)
+❌ SELECT * WHERE target_url LIKE '%...%' (full scan, > 1000ms)
+
+**Connection Settings:**
+- statement_timeout: 5000ms (kill slow queries)
+- work_mem: 16MB (sort optimization)
+
+### Compression & CDN
+
+**Response Compression:**
+- Gzip for JSON (70-80% reduction)
+- Cost savings: $400/month → $80/month
+
+**CDN Strategy:**
+- CloudFront for redirect pages
+- 200+ edge locations globally
+- Latency: 200ms → 20ms (international)
+
+Cache headers: max-age=31536000 (QR codes), max-age=300 (redirects)
+
+### Database Sharding Strategy
+
+**Scale beyond 1B URLs:**
+- Shard key: hash(short_code) % num_shards
+- 16 shards initially (60M URLs each)
+- Benefits: Horizontal scalability, isolated failures
+- Challenges: Cross-shard analytics (use data warehouse)
+
+---
+
+## 16. References
+
+### Related System Design Components
+
+- **[2.1.7 PostgreSQL Deep Dive](../../02-components/2.1-databases/2.1.7-postgresql-deep-dive.md)** - Database patterns
+- **[2.2.1 Redis Deep Dive](../../02-components/2.2-caching/2.2.1-redis-deep-dive.md)** - Caching strategies
+- **[2.5.1 Rate Limiting Algorithms](../../02-components/2.5-algorithms/2.5.1-rate-limiting-algorithms.md)** - Token bucket
+- **[1.1.2 Horizontal vs Vertical Scaling](../../01-principles/1.1.2-horizontal-vs-vertical-scaling.md)** - Scaling
+- **[1.2.2 CAP Theorem](../../01-principles/1.2.2-cap-theorem.md)** - Consistency trade-offs
+
+### Related Design Challenges
+
+- **[3.1.2 Distributed Cache](../3.1.2-distributed-cache/)** - Cache architecture
+- **[3.1.3 Distributed ID Generator](../3.1.3-distributed-id-generator/)** - ID generation
+- **[3.4.2 News Feed](../3.4.2-news-feed/)** - Read-heavy patterns
+- **[3.2.4 Global Rate Limiter](../3.2.4-global-rate-limiter/)** - Rate limiting at scale
+
+### External Resources
+
+- **URL Shortening at Scale:** [bit.ly/bitly-architecture](https://bit.ly/bitly-architecture)
+- **Base62 Encoding:** [Wikipedia](https://en.wikipedia.org/wiki/Base62)
+- **Redis Best Practices:** [Redis Docs](https://redis.io/topics/memory-optimization)
+- **PostgreSQL Performance:** [PG Wiki](https://wiki.postgresql.org/wiki/Performance_Optimization)
+- **Snowflake ID:** [Twitter's Snowflake](https://github.com/twitter-archive/snowflake)
+
+### Books
+
+- *Designing Data-Intensive Applications* - Martin Kleppmann
+- *System Design Interview Vol 1* - Alex Xu
+- *Database Internals* - Alex Petrov
+
+---
 
 This design provides a **production-ready, scalable blueprint** for building a URL shortener that can handle billions of
 URLs and millions of redirects per second! 🚀
