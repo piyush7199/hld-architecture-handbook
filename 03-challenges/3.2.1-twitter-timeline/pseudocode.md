@@ -1,35 +1,36 @@
 # Twitter Timeline - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Twitter Timeline system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Twitter Timeline system. The main challenge document
+references these functions.
 
 ---
 
 ## Table of Contents
 
 1. [Fanout Strategies](#fanout-strategies)
-   - `fanout_on_write()` - Push model implementation
-   - `fanout_on_read()` - Pull model implementation
-   - `hybrid_fanout()` - Hybrid strategy
-   - `activity_based_fanout()` - Optimized with activity filtering
+    - `fanout_on_write()` - Push model implementation
+    - `fanout_on_read()` - Pull model implementation
+    - `hybrid_fanout()` - Hybrid strategy
+    - `activity_based_fanout()` - Optimized with activity filtering
 2. [Timeline Operations](#timeline-operations)
-   - `load_timeline()` - Load user timeline with cache
-   - `load_timeline_with_details()` - Fetch full tweet data
-   - `merge_timelines()` - Merge multiple sorted lists
+    - `load_timeline()` - Load user timeline with cache
+    - `load_timeline_with_details()` - Fetch full tweet data
+    - `merge_timelines()` - Merge multiple sorted lists
 3. [Write Path](#write-path)
-   - `post_tweet()` - Complete tweet posting flow
-   - `publish_to_kafka()` - Kafka event publishing
+    - `post_tweet()` - Complete tweet posting flow
+    - `publish_to_kafka()` - Kafka event publishing
 4. [Read Path](#read-path)
-   - `get_timeline_cached()` - Cache-first timeline retrieval
-   - `get_timeline_cassandra()` - Database fallback
+    - `get_timeline_cached()` - Cache-first timeline retrieval
+    - `get_timeline_cassandra()` - Database fallback
 5. [Celebrity Handling](#celebrity-handling)
-   - `is_celebrity()` - Celebrity detection
-   - `fetch_celebrity_tweets()` - Pull celebrity content
+    - `is_celebrity()` - Celebrity detection
+    - `fetch_celebrity_tweets()` - Pull celebrity content
 6. [Cache Operations](#cache-operations)
-   - `populate_timeline_cache()` - Cache warming
-   - `invalidate_timeline_cache()` - Cache invalidation
+    - `populate_timeline_cache()` - Cache warming
+    - `invalidate_timeline_cache()` - Cache invalidation
 7. [Helper Functions](#helper-functions)
-   - `get_followers()` - Fetch follower list
-   - `batch_insert_timelines()` - Optimized batch writes
+    - `get_followers()` - Fetch follower list
+    - `batch_insert_timelines()` - Optimized batch writes
 
 ---
 
@@ -40,6 +41,7 @@ This document contains detailed algorithm implementations for the Twitter Timeli
 **Purpose:** Implement the push model - insert tweet into all followers' timelines immediately.
 
 **Parameters:**
+
 - `tweet_id`: Unique identifier for the tweet
 - `author_user_id`: ID of the user who posted the tweet
 
@@ -111,6 +113,7 @@ fanout_on_write(tweet_id, author_user_id)
 **Purpose:** Implement the pull model - fetch and merge tweets from all followees on-demand.
 
 **Parameters:**
+
 - `user_id`: ID of the user requesting their timeline
 - `limit`: Number of tweets to return (default: 50)
 
@@ -173,6 +176,7 @@ timeline = fanout_on_read(user_id, limit=50)
 **Purpose:** Implement the hybrid strategy - push for normal users, pull for celebrities.
 
 **Parameters:**
+
 - `tweet_id`: Unique identifier for the tweet
 - `author_user_id`: ID of the user who posted the tweet
 
@@ -251,6 +255,7 @@ function load_timeline_hybrid(user_id, limit=50):
 ```
 
 **Benefits:**
+
 - Normal users: Fast reads (<10ms cache hits)
 - Celebrities: Avoids fanout explosion
 - Hybrid reads: Acceptable latency (~30ms)
@@ -279,6 +284,7 @@ timeline = load_timeline_hybrid(user_id=789, limit=50)
 **Purpose:** Optimize fanout by only pushing to active followers (logged in recently).
 
 **Parameters:**
+
 - `tweet_id`: Unique identifier for the tweet
 - `author_user_id`: ID of the user who posted the tweet
 - `activity_threshold_days`: Number of days to consider a follower active (default: 30)
@@ -404,6 +410,7 @@ metrics = activity_based_fanout(tweet_id=123, author_user_id=42, activity_thresh
 **Purpose:** Load user's timeline with cache-first strategy.
 
 **Parameters:**
+
 - `user_id`: ID of the user requesting timeline
 - `limit`: Number of tweets to return
 - `cursor`: Pagination cursor (last tweet_id seen)
@@ -465,6 +472,7 @@ function async_populate_cache(user_id, timeline_entries):
 ```
 
 **Time Complexity:**
+
 - Cache hit: $\text{O}(N)$ where $N$ = limit
 - Cache miss: $\text{O}(N)$ + cache population overhead
 
@@ -475,6 +483,7 @@ function async_populate_cache(user_id, timeline_entries):
 **Purpose:** Fetch full tweet details for a list of tweet IDs (batch operation).
 
 **Parameters:**
+
 - `tweet_ids`: Array of tweet IDs
 
 **Returns:** Array of full tweet objects
@@ -551,6 +560,7 @@ Instead of storing entire tweet in timeline, store only tweet_id + minimal metad
 **Purpose:** Merge multiple sorted lists of tweets into a single sorted list.
 
 **Parameters:**
+
 - `timeline_lists`: Array of sorted tweet arrays
 - `limit`: Number of tweets to return
 
@@ -599,6 +609,7 @@ function merge_timelines(timeline_lists, limit):
 ```
 
 **Time Complexity:** $\text{O}(K \log N)$ where:
+
 - $K$ = limit (number of tweets to return)
 - $N$ = number of lists to merge
 
@@ -629,6 +640,7 @@ function merge_timelines_simple(timeline_lists, limit):
 **Purpose:** Complete flow for posting a tweet.
 
 **Parameters:**
+
 - `user_id`: ID of the user posting
 - `content`: Tweet text content
 - `media_urls`: Optional array of media URLs
@@ -723,6 +735,7 @@ tweet = post_tweet(user_id, content)
 **Purpose:** Publish event to Kafka topic.
 
 **Parameters:**
+
 - `topic`: Kafka topic name
 - `event`: Event data (will be JSON serialized)
 
@@ -772,6 +785,7 @@ function publish_to_kafka(topic, event):
 **Purpose:** Fetch recent tweets from celebrity users (for hybrid timeline).
 
 **Parameters:**
+
 - `celebrity_ids`: Array of celebrity user IDs
 - `tweets_per_celebrity`: Number of tweets to fetch per celebrity
 
@@ -815,6 +829,7 @@ function fetch_celebrity_tweets(celebrity_ids, tweets_per_celebrity=10):
 **Purpose:** Warm cache with user's timeline.
 
 **Parameters:**
+
 - `user_id`: User whose timeline to cache
 - `tweets`: Array of tweets to cache
 
@@ -849,6 +864,7 @@ function populate_timeline_cache(user_id, tweets):
 **Purpose:** Invalidate cache when tweet is deleted.
 
 **Parameters:**
+
 - `tweet_id`: ID of deleted tweet
 - `author_user_id`: ID of tweet author
 
@@ -887,6 +903,7 @@ function invalidate_timeline_cache(tweet_id, author_user_id):
 **Purpose:** Fetch all followers of a user from the follower graph.
 
 **Parameters:**
+
 - `user_id`: User whose followers to fetch
 
 **Returns:** Array of follower user IDs
@@ -925,6 +942,7 @@ function get_followers_postgres(user_id):
 **Purpose:** Optimized batch insert for fanout operations.
 
 **Parameters:**
+
 - `timeline_entries`: Array of {user_id, tweet_id, tweet_data} objects
 
 **Returns:** Number of entries inserted
@@ -966,10 +984,3 @@ function batch_insert_timelines(timeline_entries):
     
     return total_inserted
 ```
-
----
-
-**End of Pseudocode Documentation**
-
-All functions are production-ready patterns used in real-world social media systems. For complete system design, see [main design document](3.2.1-design-twitter-timeline.md).
-
