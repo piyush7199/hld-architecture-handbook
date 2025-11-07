@@ -1,38 +1,39 @@
 # Notification Service - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Notification Service system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Notification Service system. The main challenge
+document references these functions.
 
 ## Table of Contents
 
 1. [Notification Service Core](#1-notification-service-core)
-   - [processNotification()](#processnotification)
-   - [selectChannels()](#selectchannels)
-   - [enrichTemplate()](#enrichtemplate)
+    - [processNotification()](#processnotification)
+    - [selectChannels()](#selectchannels)
+    - [enrichTemplate()](#enrichtemplate)
 2. [Idempotency & Deduplication](#2-idempotency--deduplication)
-   - [isDuplicate()](#isduplicate)
-   - [storeIdempotencyKey()](#storeidempotencykey)
+    - [isDuplicate()](#isduplicate)
+    - [storeIdempotencyKey()](#storeidempotencykey)
 3. [Rate Limiting](#3-rate-limiting)
-   - [TokenBucket class](#tokenbucket-class)
-   - [consumeTokens()](#consumetokens)
+    - [TokenBucket class](#tokenbucket-class)
+    - [consumeTokens()](#consumetokens)
 4. [Circuit Breaker](#4-circuit-breaker)
-   - [CircuitBreaker class](#circuitbreaker-class)
-   - [recordSuccess()](#recordsuccess)
-   - [recordFailure()](#recordfailure)
+    - [CircuitBreaker class](#circuitbreaker-class)
+    - [recordSuccess()](#recordsuccess)
+    - [recordFailure()](#recordfailure)
 5. [Channel Workers](#5-channel-workers)
-   - [EmailWorker.processMessage()](#emailworkerprocessmessage)
-   - [SMSWorker.processMessage()](#smsworkerprocessmessage)
-   - [PushWorker.batchSend()](#pushworkerbatchsend)
+    - [EmailWorker.processMessage()](#emailworkerprocessmessage)
+    - [SMSWorker.processMessage()](#smsworkerprocessmessage)
+    - [PushWorker.batchSend()](#pushworkerbatchsend)
 6. [WebSocket Connection Management](#6-websocket-connection-management)
-   - [WebSocketManager.registerConnection()](#websocketmanagerregisterconnection)
-   - [WebSocketManager.sendNotification()](#websocketmanagersendnotification)
-   - [WebSocketManager.handleDisconnect()](#websocketmanagerhandledisconnect)
+    - [WebSocketManager.registerConnection()](#websocketmanagerregisterconnection)
+    - [WebSocketManager.sendNotification()](#websocketmanagersendnotification)
+    - [WebSocketManager.handleDisconnect()](#websocketmanagerhandledisconnect)
 7. [Cache Operations](#7-cache-operations)
-   - [fetchUserPreferences()](#fetchuserpreferences)
-   - [invalidateCache()](#invalidatecache)
+    - [fetchUserPreferences()](#fetchuserpreferences)
+    - [invalidateCache()](#invalidatecache)
 8. [Retry Logic](#8-retry-logic)
-   - [retryWithBackoff()](#retrywithbackoff)
+    - [retryWithBackoff()](#retrywithbackoff)
 9. [Dead Letter Queue](#9-dead-letter-queue)
-   - [moveToDLQ()](#movetodlq)
+    - [moveToDLQ()](#movetodlq)
 10. [Metrics & Logging](#10-metrics--logging)
     - [logNotificationStatus()](#lognotificationstatus)
     - [emitMetrics()](#emitmetrics)
@@ -46,17 +47,19 @@ This document contains detailed algorithm implementations for the Notification S
 **Purpose:** Main entry point for processing a notification request from API Gateway.
 
 **Parameters:**
+
 - `request`: object - HTTP request containing notification details
-  - `user_id`: int - Target user ID
-  - `event_type`: string - Event that triggered notification (e.g., "order_confirmed")
-  - `template_id`: string - Template to use
-  - `variables`: map - Variables for template substitution
-  - `priority`: string - Notification priority ("critical", "high", "normal", "low")
-  - `idempotency_key`: string - Unique key to prevent duplicates
+    - `user_id`: int - Target user ID
+    - `event_type`: string - Event that triggered notification (e.g., "order_confirmed")
+    - `template_id`: string - Template to use
+    - `variables`: map - Variables for template substitution
+    - `priority`: string - Notification priority ("critical", "high", "normal", "low")
+    - `idempotency_key`: string - Unique key to prevent duplicates
 
 **Returns:** object - Response with notification_id and status
 
 **Algorithm:**
+
 ```
 function processNotification(request):
     // Step 1: Validate request
@@ -122,6 +125,7 @@ function processNotification(request):
 **Space Complexity:** $O(1)$
 
 **Example Usage:**
+
 ```
 request = {
     user_id: 123456,
@@ -147,18 +151,20 @@ response = processNotification(request)
 **Purpose:** Determine which notification channels to use based on user preferences and notification priority.
 
 **Parameters:**
+
 - `user_prefs`: object - User notification preferences
-  - `email_enabled`: boolean
-  - `sms_enabled`: boolean
-  - `push_enabled`: boolean
-  - `web_enabled`: boolean
-  - `quiet_hours_start`: time
-  - `quiet_hours_end`: time
+    - `email_enabled`: boolean
+    - `sms_enabled`: boolean
+    - `push_enabled`: boolean
+    - `web_enabled`: boolean
+    - `quiet_hours_start`: time
+    - `quiet_hours_end`: time
 - `priority`: string - Notification priority level
 
 **Returns:** array - List of channels to use
 
 **Algorithm:**
+
 ```
 function selectChannels(user_prefs, priority):
     channels = []
@@ -214,14 +220,16 @@ function selectChannels(user_prefs, priority):
 **Purpose:** Substitute variables in notification template with actual values.
 
 **Parameters:**
+
 - `template`: object - Notification template
-  - `subject`: string - Subject line with {{variables}}
-  - `body`: string - Body content with {{variables}}
+    - `subject`: string - Subject line with {{variables}}
+    - `body`: string - Body content with {{variables}}
 - `variables`: map<string, string> - Variable name to value mapping
 
 **Returns:** object - Enriched content for all channels
 
 **Algorithm:**
+
 ```
 function enrichTemplate(template, variables):
     enriched = {}
@@ -275,11 +283,13 @@ function enrichTemplate(template, variables):
 **Purpose:** Check if a notification request with the given idempotency key has already been processed.
 
 **Parameters:**
+
 - `idempotency_key`: string - Unique key for the notification request
 
 **Returns:** boolean - True if duplicate, False otherwise
 
 **Algorithm:**
+
 ```
 function isDuplicate(idempotency_key):
     // Query Redis for idempotency key
@@ -302,6 +312,7 @@ function isDuplicate(idempotency_key):
 **Purpose:** Store idempotency key with notification ID to prevent duplicate processing.
 
 **Parameters:**
+
 - `idempotency_key`: string - Unique key
 - `notification_id`: string - Generated notification UUID
 - `ttl`: int - Time to live in seconds
@@ -309,6 +320,7 @@ function isDuplicate(idempotency_key):
 **Returns:** void
 
 **Algorithm:**
+
 ```
 function storeIdempotencyKey(idempotency_key, notification_id, ttl):
     redis_key = "idempotency:" + idempotency_key
@@ -333,6 +345,7 @@ function storeIdempotencyKey(idempotency_key, notification_id, ttl):
 **Purpose:** Implement Token Bucket algorithm for rate limiting API calls to third-party providers.
 
 **Algorithm:**
+
 ```
 class TokenBucket:
     capacity: int           // Maximum tokens (burst size)
@@ -385,6 +398,7 @@ class TokenBucket:
 **Purpose:** Distributed token bucket implementation using Redis for multiple workers.
 
 **Parameters:**
+
 - `key`: string - Redis key for the bucket (e.g., "ratelimit:email:bucket")
 - `count`: int - Number of tokens to consume
 - `capacity`: int - Bucket capacity
@@ -393,6 +407,7 @@ class TokenBucket:
 **Returns:** boolean - True if tokens consumed, False if insufficient
 
 **Algorithm:**
+
 ```
 function consumeTokens(key, count, capacity, refill_rate):
     // Redis Lua script for atomic token consumption
@@ -443,6 +458,7 @@ function consumeTokens(key, count, capacity, refill_rate):
 **Purpose:** Implement Circuit Breaker pattern to prevent cascading failures when third-party APIs are down.
 
 **Algorithm:**
+
 ```
 class CircuitBreaker:
     state: string              // "CLOSED", "OPEN", "HALF_OPEN"
@@ -549,11 +565,13 @@ class CircuitBreaker:
 **Purpose:** Process email notification message from Kafka and send via SendGrid.
 
 **Parameters:**
+
 - `message`: object - Kafka message containing notification details
 
 **Returns:** void
 
 **Algorithm:**
+
 ```
 function processMessage(message):
     rate_limiter = getTokenBucket("email")
@@ -625,6 +643,7 @@ function processMessage(message):
 **Purpose:** Process SMS notification message from Kafka and send via Twilio.
 
 **Algorithm:**
+
 ```
 function processMessage(message):
     rate_limiter = getTokenBucket("sms")
@@ -675,11 +694,13 @@ function processMessage(message):
 **Purpose:** Batch process push notifications and send via FCM/APNS.
 
 **Parameters:**
+
 - `messages`: array - Batch of notification messages
 
 **Returns:** void
 
 **Algorithm:**
+
 ```
 function batchSend(messages):
     rate_limiter = getTokenBucket("push")
@@ -744,6 +765,7 @@ function batchSend(messages):
 **Purpose:** Register a new WebSocket connection for a user.
 
 **Parameters:**
+
 - `user_id`: int - User identifier
 - `connection`: object - WebSocket connection object
 - `server_id`: string - ID of WebSocket server handling this connection
@@ -751,6 +773,7 @@ function batchSend(messages):
 **Returns:** void
 
 **Algorithm:**
+
 ```
 function registerConnection(user_id, connection, server_id):
     // Store in Redis for distributed tracking
@@ -783,12 +806,14 @@ function registerConnection(user_id, connection, server_id):
 **Purpose:** Send notification to user via WebSocket.
 
 **Parameters:**
+
 - `user_id`: int - Target user
 - `notification`: object - Notification content
 
 **Returns:** boolean - True if sent, False if user not connected
 
 **Algorithm:**
+
 ```
 function sendNotification(user_id, notification):
     // Step 1: Lookup which server has user's connection
@@ -834,11 +859,13 @@ function sendNotification(user_id, notification):
 **Purpose:** Clean up when WebSocket connection is lost.
 
 **Parameters:**
+
 - `user_id`: int - Disconnected user
 
 **Returns:** void
 
 **Algorithm:**
+
 ```
 function handleDisconnect(user_id):
     // Remove from Redis
@@ -866,11 +893,13 @@ function handleDisconnect(user_id):
 **Purpose:** Fetch user notification preferences from cache or database.
 
 **Parameters:**
+
 - `user_id`: int - User identifier
 
 **Returns:** object - User preferences
 
 **Algorithm:**
+
 ```
 function fetchUserPreferences(user_id):
     // Step 1: Try cache first
@@ -911,11 +940,13 @@ function fetchUserPreferences(user_id):
 **Purpose:** Invalidate cache when user updates preferences.
 
 **Parameters:**
+
 - `user_id`: int - User whose cache to invalidate
 
 **Returns:** void
 
 **Algorithm:**
+
 ```
 function invalidateCache(user_id):
     cache_key = "user:prefs:" + user_id
@@ -942,6 +973,7 @@ function invalidateCache(user_id):
 **Purpose:** Retry a function with exponential backoff on failure.
 
 **Parameters:**
+
 - `function`: callable - Function to retry
 - `args`: object - Arguments to pass to function
 - `max_retries`: int - Maximum retry attempts
@@ -950,6 +982,7 @@ function invalidateCache(user_id):
 **Returns:** result of function or throws exception
 
 **Algorithm:**
+
 ```
 function retryWithBackoff(function, args, max_retries=3, backoff_factor=2):
     attempt = 0
@@ -978,6 +1011,7 @@ function retryWithBackoff(function, args, max_retries=3, backoff_factor=2):
 **Space Complexity:** $O(1)$
 
 **Example Usage:**
+
 ```
 result = retryWithBackoff(
     function=sendGridAPI.sendEmail,
@@ -997,6 +1031,7 @@ result = retryWithBackoff(
 **Purpose:** Move failed message to Dead Letter Queue for investigation.
 
 **Parameters:**
+
 - `message`: object - Original Kafka message
 - `error`: string - Error message
 - `channel`: string - Channel that failed (email, sms, push, web)
@@ -1004,6 +1039,7 @@ result = retryWithBackoff(
 **Returns:** void
 
 **Algorithm:**
+
 ```
 function moveToDLQ(message, error, channel):
     dlq_message = {
@@ -1055,6 +1091,7 @@ function moveToDLQ(message, error, channel):
 **Purpose:** Log notification delivery status to Cassandra.
 
 **Parameters:**
+
 - `notification_id`: string - Notification UUID
 - `status`: string - Status (created, sent, delivered, failed, opened)
 - `channel`: string - Delivery channel
@@ -1063,6 +1100,7 @@ function moveToDLQ(message, error, channel):
 **Returns:** void
 
 **Algorithm:**
+
 ```
 function logNotificationStatus(notification_id, status, channel, metadata={}):
     // Async write to Cassandra (don't block)
@@ -1099,6 +1137,7 @@ function logNotificationStatus(notification_id, status, channel, metadata={}):
 **Purpose:** Emit metrics to Prometheus for monitoring.
 
 **Parameters:**
+
 - `metric_name`: string - Metric identifier
 - `value`: float - Metric value
 - `tags`: map - Additional tags for grouping
@@ -1106,6 +1145,7 @@ function logNotificationStatus(notification_id, status, channel, metadata={}):
 **Returns:** void
 
 **Algorithm:**
+
 ```
 function emitMetrics(metric_name, value, tags={}):
     // Construct metric with tags
@@ -1135,26 +1175,22 @@ function emitMetrics(metric_name, value, tags={}):
 
 This document provides detailed pseudocode implementations for 20+ key functions in the Notification Service:
 
-| Category | Functions | Key Algorithms |
-|----------|-----------|----------------|
-| **Core Service** | 3 functions | Request processing, channel selection, template enrichment |
-| **Idempotency** | 2 functions | Duplicate detection, key storage |
-| **Rate Limiting** | 2 functions | Token bucket (local & distributed) |
-| **Circuit Breaker** | 3 functions | State management, success/failure recording |
-| **Channel Workers** | 3 functions | Email, SMS, push processing with retries |
-| **WebSocket** | 3 functions | Connection management, real-time delivery |
-| **Caching** | 2 functions | Cache-aside pattern, invalidation |
-| **Retry** | 1 function | Exponential backoff |
-| **DLQ** | 1 function | Failed message handling |
-| **Metrics** | 2 functions | Logging, monitoring |
+| Category            | Functions   | Key Algorithms                                             |
+|---------------------|-------------|------------------------------------------------------------|
+| **Core Service**    | 3 functions | Request processing, channel selection, template enrichment |
+| **Idempotency**     | 2 functions | Duplicate detection, key storage                           |
+| **Rate Limiting**   | 2 functions | Token bucket (local & distributed)                         |
+| **Circuit Breaker** | 3 functions | State management, success/failure recording                |
+| **Channel Workers** | 3 functions | Email, SMS, push processing with retries                   |
+| **WebSocket**       | 3 functions | Connection management, real-time delivery                  |
+| **Caching**         | 2 functions | Cache-aside pattern, invalidation                          |
+| **Retry**           | 1 function  | Exponential backoff                                        |
+| **DLQ**             | 1 function  | Failed message handling                                    |
+| **Metrics**         | 2 functions | Logging, monitoring                                        |
 
 **Key Complexity Analysis:**
+
 - Most operations are $O(1)$ constant time
 - Cache misses require $O(log n)$ database lookups
 - Batch operations are $O(n)$ where $n$ is batch size
 - All algorithms use $O(1)$ or $O(n)$ space
-
-**Next Steps:**
-- Review **[3.2.2-design-notification-service.md](./3.2.2-design-notification-service.md)** for complete system design
-- Study **[this-over-that.md](./this-over-that.md)** for design decision rationale
-- Examine **[hld-diagram.md](./hld-diagram.md)** and **[sequence-diagrams.md](./sequence-diagrams.md)** for visual flows

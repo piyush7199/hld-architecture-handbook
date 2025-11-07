@@ -1,1618 +1,1101 @@
 # 3.2.2 Design a Notification Service
 
 > 📚 **Note on Implementation Details:**
-> This document focuses on high-level design concepts and architectural decisions. 
+> This document focuses on high-level design concepts and architectural decisions.
 > For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
 ## 📊 Visual Diagrams & Resources
 
-- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, component design, data flow, scaling strategies
+- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, component design, data flow, scaling
+  strategies
 - **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows, failure scenarios, retry mechanisms
 - **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices
 - **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations
 
 ---
 
-## Quick Overview
+## 1. Problem Statement
 
-Design a scalable, reliable notification system that can deliver real-time notifications to users across multiple channels (Email, SMS, Push Notifications, and In-App notifications). The system must handle hundreds of millions of notifications daily, guarantee delivery even during third-party service outages, and provide tracking for delivery status.
+Design a scalable, reliable notification system that can deliver real-time notifications to users across multiple
+channels (Email, SMS, Push Notifications, and In-App notifications). The system must handle hundreds of millions of
+notifications daily, guarantee delivery even during third-party service outages, and provide tracking for delivery
+status.
 
-## Key Metrics
+**Key Challenges:**
 
-| Metric | Value |
-|--------|-------|
-| **Daily Active Users** | $100$ Million |
-| **Daily Notifications** | $1$ Billion |
-| **Average QPS** | $\sim 11,574$ |
-| **Peak QPS** | $\sim 57,870$ (5x average) |
-| **Delivery Latency** | $<2$ seconds (real-time) |
-| **Log Storage** | $\sim 500$ GB/day, $183$ TB/year |
-| **Concurrent WebSocket Connections** | $10$ Million |
+- **Multi-Channel Complexity**: Each channel (Email, SMS, Push, Web) has different delivery mechanisms, rate limits, and
+  third-party providers
+- **High Volume & Bursts**: Must handle peak loads of 57k+ QPS during major events (e.g., product launches, breaking
+  news)
+- **Guaranteed Delivery**: Cannot lose notifications even if downstream services are temporarily unavailable
+- **Real-Time Requirements**: Push and in-app notifications must arrive within 2 seconds
+- **Third-Party Dependencies**: Reliance on external providers (Twilio, SendGrid, FCM, APNS) with their own rate limits
+  and availability
 
-## System Overview
+---
+
+## 2. Requirements and Scale Estimation
+
+### 2.1 Functional Requirements (FRs)
+
+1. **Multi-Channel Delivery**: Support notifications via:
+    - $\text{Email}$ (transactional emails, newsletters)
+    - $\text{SMS}$ (one-time passwords, urgent alerts)
+    - $\text{Push}$ $\text{Notification}$ (mobile apps via FCM/APNS)
+    - $\text{Web}$ $\text{Notifications}$ (in-app bell icon, browser push)
+
+2. **Real-Time Delivery**: Notifications must be delivered near-instantly when triggered by user actions (e.g., friend
+   request, order confirmation)
+
+3. **User Preferences**: Respect user notification preferences (opt-in/opt-out per channel, frequency limits)
+
+4. **Delivery Status Tracking**: Log and track delivery status for auditing:
+    - Sent, Delivered, Failed, Opened, Clicked
+
+5. **Rate Limiting**: Prevent notification fatigue by limiting frequency per user
+
+6. **Template Management**: Support customizable notification templates with variable substitution
+
+7. **Priority Levels**: Support different priority levels (critical, high, normal, low)
+
+### 2.2 Non-Functional Requirements (NFRs)
+
+1. **Resiliency**: The system must not lose any notification, even if third-party
+   providers ($\text{APNS}$, $\text{FCM}$, $\text{SendGrid}$) are temporarily down
+
+2. **Scalability**: Must handle hundreds of millions of notifications per day, with high variance in traffic
+
+3. **Low Latency (Real-Time)**: Web/Push notifications must arrive in $<2$ seconds
+
+4. **High Availability**: $99.9\%$ uptime for notification ingestion (can tolerate eventual delivery for non-critical
+   notifications)
+
+5. **Idempotency**: Duplicate events should not result in duplicate notifications to users
+
+6. **Observability**: Comprehensive logging and monitoring of delivery rates, failures, and latencies
+
+### 2.3 Scale Estimation
+
+| Metric                     | Assumption                                | Calculation                              | Result                                               |
+|----------------------------|-------------------------------------------|------------------------------------------|------------------------------------------------------|
+| **Total Users**            | $100$ Million $\text{DAU}$                | -                                        | -                                                    |
+| **Daily Notifications**    | $1$ Billion $\text{events}$               | $\frac{1 \text{B}}{86400 \text{ s/day}}$ | $\sim 11,574$ QPS (average)                          |
+| **Peak Throughput**        | Peak hours are $5$x $\text{average}$      | $11,574 \times 5$                        | $\sim 57,870$ $\text{QPS}$ $\text{peak}$             |
+| **Channel Distribution**   | Email: 40%, Push: 35%, SMS: 15%, Web: 10% | -                                        | $\sim 400$ M emails, $350$ M push, $150$ M SMS daily |
+| **Database Writes (Logs)** | Every notification generates a log entry  | $1$ B writes/day × $500$ bytes/entry     | $\sim 500$ GB/day, $\sim 183$ TB/year                |
+| **Notification Payload**   | Average payload size                      | $\sim 1$ KB per notification             | $\sim 1$ TB/day data transfer                        |
+| **WebSocket Connections**  | $10\%$ of DAU online simultaneously       | $10$ M concurrent connections            | Need connection pooling                              |
+
+**Key Observations:**
+
+- **Write-Heavy Workload**: $1$ billion writes per day for logging requires horizontally scalable database
+- **Burst Handling**: Must handle $5$x average load during peak events
+- **Multi-Region**: $100$ M global users require geo-distributed deployment
+
+---
+
+## 3. High-Level Architecture
+
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
+
+The system uses an event-driven architecture with message queues to decouple notification generation from delivery,
+ensuring resilience and scalability.
 
 ```
-Event Sources → API Gateway → Notification Service → Kafka Topics
-                                                        ↓
-                              ┌─────────────────────────┼─────────────────────┐
-                              ▼                         ▼                     ▼
-                         Email Worker              SMS Worker           Push Worker
-                              ↓                         ↓                     ↓
-                         SendGrid                   Twilio               FCM/APNS
-                         
-                         Web Worker → WebSocket Server → Browser/Mobile App
-                         
-                         All Workers → Cassandra (Logs)
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              EVENT SOURCES                                       │
+│  (Order Service, Social Service, Payment Service, Marketing Service, etc.)      │
+└────────────┬────────────────────────────────────────────────────────────────────┘
+             │ REST API / gRPC
+             │ POST /notifications
+             ▼
+┌────────────────────────────┐
+│     API Gateway            │ ◄────── Authentication (JWT)
+│  - Rate Limiting           │         Authorization
+│  - Request Validation      │         Load Balancing
+│  - Auth/Authz              │
+└────────────┬───────────────┘
+             │
+             ▼
+┌────────────────────────────┐
+│  Notification Service      │
+│  - Fetch User Preferences  │◄─────── Redis Cache (User Preferences)
+│  - Deduplicate Events      │         PostgreSQL (User Settings)
+│  - Enrich with Template    │
+│  - Route to Channels       │
+└────────────┬───────────────┘
+             │
+             │ Publish Event
+             ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                      Kafka Message Stream                             │
+│  Topics: email-notifications, sms-notifications,                     │
+│          push-notifications, web-notifications                        │
+└────┬──────────┬──────────┬──────────┬─────────────────────────────────┘
+     │          │          │          │
+     ▼          ▼          ▼          ▼
+┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────────┐
+│  Email  │ │   SMS   │ │  Push   │ │   Web/WSS    │
+│ Worker  │ │ Worker  │ │ Worker  │ │   Worker     │
+│         │ │         │ │         │ │              │
+│ (Pool)  │ │ (Pool)  │ │ (Pool)  │ │  (Pool)      │
+└────┬────┘ └────┬────┘ └────┬────┘ └───────┬──────┘
+     │          │          │              │
+     ▼          ▼          ▼              ▼
+┌─────────┐ ┌─────────┐ ┌─────────┐ ┌────────────────┐
+│SendGrid │ │ Twilio  │ │FCM/APNS │ │  WebSocket     │
+│  (SMTP) │ │  (SMS)  │ │ (Push)  │ │   Server       │
+└─────────┘ └─────────┘ └─────────┘ └────────┬───────┘
+                                              │
+     ┌────────────────────────────────────────┘
+     │
+     ▼ Persistent Connection
+┌──────────────────┐
+│  Browser/Mobile  │
+│   (End Users)    │
+└──────────────────┘
+
+                 │
+                 ▼ Log Delivery Status
+      ┌──────────────────────────┐
+      │   Cassandra (Logs DB)    │
+      │  - Notification History   │
+      │  - Delivery Status        │
+      │  - User Engagement        │
+      └──────────────────────────┘
+
+      ┌──────────────────────────┐
+      │    Monitoring Stack       │
+      │  - Prometheus (Metrics)   │
+      │  - Grafana (Dashboards)   │
+      │  - ELK (Log Aggregation)  │
+      └──────────────────────────┘
 ```
 
-## Key Components
+### 3.1 Component Overview
 
-1. **Event Sources**: Microservices that trigger notifications
-2. **API Gateway**: Authentication, rate limiting, load balancing
-3. **Notification Service**: Core orchestration (preferences, routing, deduplication)
-4. **Kafka**: Message stream for guaranteed delivery and buffering
-5. **Channel Workers**: Dedicated workers for Email, SMS, Push, Web
-6. **Third-Party Providers**: SendGrid, Twilio, FCM, APNS
-7. **WebSocket Server**: Real-time in-app notifications
-8. **Cassandra**: High-throughput logging database
+1. **Event Sources**: Microservices that trigger notifications (Order Service, Social Service, etc.)
+2. **API Gateway**: Entry point for notification requests with rate limiting and authentication
+3. **Notification Service**: Core orchestration service that fetches preferences, deduplicates, and routes to channels
+4. **Kafka Message Stream**: Central buffer ensuring no notification is lost, enabling retry and replay
+5. **Channel Workers**: Dedicated microservices for each channel (Email, SMS, Push, Web)
+6. **Third-Party Providers**: External services (SendGrid, Twilio, FCM, APNS)
+7. **WebSocket Server**: Maintains persistent connections for real-time in-app notifications
+8. **Cassandra Logs DB**: High-throughput database for notification history and status tracking
 
-## Core Design Decisions
+---
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| **Communication Pattern** | Kafka (Async) | Handle 57k QPS peaks, guaranteed delivery, retry capability |
-| **Logging Database** | Cassandra | 1B writes/day, horizontal scalability, time-series optimized |
-| **Real-Time Channel** | WebSockets | Low latency (<100ms), efficient, bi-directional |
-| **Worker Architecture** | Multi-Channel | Independent scaling, failure isolation per channel |
-| **Caching Layer** | Redis | Reduce DB load, <1ms lookup for preferences |
-| **Resiliency** | DLQ + Circuit Breaker | No message loss, protect against third-party failures |
+## 4. Data Model
 
-## Data Model Overview
+### 4.1 User Preferences (PostgreSQL)
 
-### User Preferences (PostgreSQL)
+Stores user notification preferences and settings.
+
 ```sql
+CREATE TABLE users (
+    user_id BIGINT PRIMARY KEY,
+    email VARCHAR(255),
+    phone_number VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE user_notification_preferences (
     user_id BIGINT PRIMARY KEY,
     email_enabled BOOLEAN DEFAULT TRUE,
     sms_enabled BOOLEAN DEFAULT TRUE,
     push_enabled BOOLEAN DEFAULT TRUE,
     web_enabled BOOLEAN DEFAULT TRUE,
-    frequency_limit INT DEFAULT 50,
+    frequency_limit INT DEFAULT 50, -- max notifications per day
     quiet_hours_start TIME,
-    quiet_hours_end TIME
+    quiet_hours_end TIME,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
+
+CREATE TABLE notification_subscriptions (
+    subscription_id BIGINT PRIMARY KEY,
+    user_id BIGINT,
+    category VARCHAR(50), -- e.g., 'orders', 'social', 'marketing'
+    channel VARCHAR(20), -- 'email', 'sms', 'push', 'web'
+    enabled BOOLEAN DEFAULT TRUE,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE INDEX idx_user_prefs ON user_notification_preferences(user_id);
+CREATE INDEX idx_subscriptions_user ON notification_subscriptions(user_id);
 ```
 
-### Notification Logs (Cassandra)
+### 4.2 Notification Templates (PostgreSQL)
+
+```sql
+CREATE TABLE notification_templates (
+    template_id VARCHAR(100) PRIMARY KEY,
+    template_name VARCHAR(255),
+    channel VARCHAR(20), -- 'email', 'sms', 'push', 'web'
+    subject VARCHAR(500), -- for email
+    body_template TEXT, -- with {{variables}}
+    priority VARCHAR(20) DEFAULT 'normal', -- 'critical', 'high', 'normal', 'low'
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_templates_channel ON notification_templates(channel);
+```
+
+### 4.3 Notification Logs (Cassandra)
+
+High-volume append-only logs for notification history and delivery status.
+
 ```sql
 CREATE TABLE notification_logs (
     notification_id UUID,
     user_id BIGINT,
-    channel TEXT,
-    status TEXT, -- 'sent', 'delivered', 'failed', 'opened'
+    channel TEXT, -- 'email', 'sms', 'push', 'web'
+    template_id TEXT,
+    status TEXT, -- 'sent', 'delivered', 'failed', 'opened', 'clicked'
     created_at TIMESTAMP,
     delivered_at TIMESTAMP,
+    error_message TEXT,
+    metadata MAP<TEXT, TEXT>, -- additional context
     PRIMARY KEY ((user_id), created_at, notification_id)
 ) WITH CLUSTERING ORDER BY (created_at DESC);
+
+-- Query by notification_id for status lookup
+CREATE TABLE notification_status (
+    notification_id UUID PRIMARY KEY,
+    user_id BIGINT,
+    channel TEXT,
+    status TEXT,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
 ```
 
-## Why This Over That?
-
-### Why Kafka over Synchronous REST?
-- **Problem**: Must handle 57k QPS peaks without overwhelming workers
-- **Solution**: Kafka buffers traffic, provides guaranteed delivery and retry
-- **Trade-off**: Adds ~100ms latency (acceptable for most notifications)
-
-### Why Cassandra over PostgreSQL for Logs?
-- **Problem**: 1 billion writes per day overwhelms RDBMS
-- **Solution**: Cassandra provides high write throughput, horizontal scaling
-- **Trade-off**: No complex joins, eventual consistency
-
-### Why WebSockets over Long Polling?
-- **Problem**: Need <2 second latency for real-time notifications
-- **Solution**: WebSockets provide <100ms latency with persistent connections
-- **Trade-off**: More complex connection management
-
-### Why Separate Workers per Channel?
-- **Problem**: Each channel has different rate limits and failure modes
-- **Solution**: Independent workers allow per-channel scaling and isolation
-- **Trade-off**: More microservices to manage
-
-## Workflow Summary
-
-### 1. Notification Creation
-```
-Event Source → POST /notifications
-  → API Gateway (auth + rate limit)
-  → Notification Service:
-      - Check idempotency (Redis)
-      - Fetch user preferences (Redis/PostgreSQL)
-      - Fetch template (Redis/PostgreSQL)
-      - Route to channels
-  → Publish to Kafka topics
-  → Return 202 Accepted
-```
-
-### 2. Notification Delivery
-```
-Kafka Topic → Channel Worker:
-  - Email Worker → SendGrid API → Email delivered
-  - SMS Worker → Twilio API → SMS delivered
-  - Push Worker → FCM/APNS → Push notification delivered
-  - Web Worker → WebSocket Server → In-app notification delivered
-  
-All Workers → Log status to Cassandra
-```
-
-### 3. Failure Handling
-```
-Worker → Third-Party API (fails)
-  → Retry with exponential backoff (3 attempts)
-  → If still failing:
-      - Circuit Breaker opens
-      - Move to Dead Letter Queue
-      - Alert monitoring system
-```
-
-*See [sequence-diagrams.md](./sequence-diagrams.md) for detailed flows*
-
-## Key Bottlenecks and Solutions
-
-### 1. Third-Party Rate Limits
-**Problem**: SendGrid allows 10k emails/minute, Twilio limits SMS to 100/second
-
-**Solutions**:
-- Token Bucket rate limiter per worker
-- Circuit Breaker to prevent overwhelming APIs
-- Multiple providers with failover
-- *See pseudocode.md::TokenBucket and CircuitBreaker*
-
-### 2. WebSocket Connection Management
-**Problem**: 10M concurrent connections require significant resources
-
-**Solutions**:
-- Horizontal scaling: 1,000 servers × 10k connections each
-- Redis pub/sub for cross-server communication
-- Sticky sessions for connection affinity
-- Heartbeat mechanism to detect disconnections
-
-### 3. Kafka Consumer Lag
-**Problem**: Adding workers triggers partition rebalancing
-
-**Solutions**:
-- Over-partition: 12 partitions for 6 workers
-- Incremental scaling
-- Cooperative rebalancing (Kafka 2.4+)
-- Monitor lag metrics
-
-### 4. Cassandra Write Bottleneck
-**Problem**: 1B writes/day may overwhelm cluster
-
-**Solutions**:
-- Horizontal scaling (add nodes)
-- Batch writes (100 logs per batch)
-- Async writes (don't wait for confirmation)
-- TTL for old logs (delete after 1 year)
-
-### 5. Geo-Partitioning for Compliance
-**Problem**: Data residency laws (GDPR) require regional storage
-
-**Solutions**:
-- Regional Kafka clusters (US, EU, APAC)
-- Regional Cassandra clusters
-- Regional workers for low latency
-- Cross-region replication for templates
-
-*See [hld-diagram.md](./hld-diagram.md) for scaling architecture diagrams*
-
-## Common Anti-Patterns
-
-> 📚 **Note:** For detailed pseudocode implementations of anti-patterns and their solutions, see **[3.2.2-design-notification-service.md](./3.2.2-design-notification-service.md#7-common-anti-patterns)** and **[pseudocode.md](./pseudocode.md)**.
-
-Below are high-level descriptions of common mistakes and their solutions:
-
-### Anti-Pattern 1: Synchronous Notification Delivery
-
-**Problem:**
-
-❌ Blocking the user while sending notifications
-
-```
-// BAD: Synchronous delivery
-function createOrder(order):
-  saveOrder(order)
-  sendEmailNotification(order.user_id, order.id)  // Blocks for 2-3 seconds!
-  sendSMSNotification(order.user_id)              // Blocks for 1-2 seconds!
-  return "Order created successfully"
-
-User Experience: Waits 3-5 seconds for order confirmation!
-```
-
-**Solution:** ✅ Use async message queue, return immediately
-
-```
-// GOOD: Asynchronous delivery
-function createOrder(order):
-  saveOrder(order)
-  
-  // Publish to Kafka (non-blocking, <10ms)
-  kafka.publish("notifications", {
-    type: "ORDER_CREATED",
-    user_id: order.user_id,
-    order_id: order.id
-  })
-  
-  return "Order created successfully"  // Returns in <50ms
-
-// Separate Notification Worker
-worker.consume("notifications", function(event):
-  if event.type == "ORDER_CREATED":
-    sendEmail(event.user_id, "Order Confirmation", event.order_id)
-    sendSMS(event.user_id, "Your order is confirmed!")
-)
-```
-
-*See `pseudocode.md::processNotification()` for implementation*
-
----
-
-### Anti-Pattern 2: No Idempotency (Duplicate Notifications)
-
-**Problem:** ❌ Duplicate events cause duplicate notifications
-
-```
-// Scenario: User clicks "Confirm Order" button twice
-POST /orders → OrderService → Notification (email sent)
-POST /orders → OrderService → Notification (email sent again!) ❌
-
-User receives: 2 identical "Order Confirmed" emails
-```
-
-**Solution:** ✅ Use idempotency keys with Redis
-
-```
-function processNotification(event):
-  idempotency_key = event.idempotency_key  // e.g., "order:12345:notification"
-  
-  // Check if already processed
-  if redis.EXISTS(idempotency_key):
-    return "ALREADY_PROCESSED"  // Skip duplicate
-  
-  // Process notification
-  sendNotification(event)
-  
-  // Mark as processed (24h TTL)
-  redis.SETEX(idempotency_key, 86400, "1")
-  
-  return "SUCCESS"
-```
-
-**Key Points:**
-- Use unique idempotency key: `{resource_type}:{resource_id}:{action}`
-- Set TTL to prevent Redis memory bloat (24 hours typical)
-- Store in cache before calling third-party APIs
-
-*See `pseudocode.md::checkIdempotency()` for implementation*
-
----
-
-### Anti-Pattern 3: No Rate Limiting (API Throttling)
-
-**Problem:** ❌ Overwhelming third-party APIs leads to blocked API keys
-
-```
-// Example: SendGrid rate limit is 10,000 emails/min
-// Black Friday Sale: 50,000 orders in 1 minute
-
-for order in orders:  // 50,000 iterations
-  sendgrid.send_email(order.user_email, "Order Confirmed")
-
-Result: 
-- First 10,000 emails sent ✅
-- Next 40,000 emails: HTTP 429 (Too Many Requests) ❌
-- SendGrid blocks API key for 10 minutes!
-```
-
-**Solution:** ✅ Token Bucket rate limiter per third-party service
-
-```
-class TokenBucket:
-  def __init__(self, capacity, refill_rate):
-    self.capacity = capacity       // 10,000 tokens
-    self.tokens = capacity
-    self.refill_rate = refill_rate // 166.67 tokens/sec (10k/min)
-    self.last_refill = now()
-  
-  def consume(self, tokens=1):
-    self.refill()
-    if self.tokens >= tokens:
-      self.tokens -= tokens
-      return true  // Allowed
-    else:
-      return false  // Rate limited, retry later
-
-email_worker:
-  bucket = TokenBucket(10000, 166.67)  // SendGrid limits
-  
-  for notification in kafka_stream:
-    if bucket.consume(1):
-      sendgrid.send_email(notification)
-    else:
-      sleep(1)  // Wait for token refill
-      requeue(notification)
-```
-
-**Benefits:**
-- Never exceed third-party rate limits
-- Smooth out traffic bursts
-- Prevent API key bans
-
-*See `pseudocode.md::TokenBucket` for full implementation*
-
----
-
-### Anti-Pattern 4: No Circuit Breaker (Cascading Failures)
-
-> 📊 **See solution diagram:** [Circuit Breaker Flow](./sequence-diagrams.md#circuit-breaker-flow)
-
-**Problem:** ❌ Continuous retries during third-party outage overwhelm the system
-
-```
-// Scenario: Twilio SMS service is down (100% failure rate)
-// SMS Worker keeps retrying every message:
-
-for notification in kafka_stream:
-  try:
-    twilio.send_sms(notification)  // Fails after 10-second timeout
-  except TimeoutError:
-    retry_with_backoff(notification)  // Retries 3 times (30 seconds wasted)
-
-Result:
-- Worker is stuck retrying failed SMS for 30 seconds each
-- Kafka consumer lag grows: 10,000 messages behind
-- Other notifications (Email, Push) are delayed
-- System appears unresponsive
-```
-
-**Solution:** ✅ Circuit Breaker to fail fast during outages
-
-```
-class CircuitBreaker:
-  states = [CLOSED, OPEN, HALF_OPEN]
-  
-  def call(self, function, *args):
-    if self.state == OPEN:
-      if (now() - self.last_failure_time) > self.timeout:
-        self.state = HALF_OPEN  // Try one request
-      else:
-        raise CircuitOpenError()  // Fail fast, don't retry
-    
-    try:
-      result = function(*args)
-      self.on_success()
-      return result
-    except Exception as e:
-      self.on_failure()
-      raise e
-  
-  def on_failure(self):
-    self.failure_count += 1
-    if self.failure_count >= self.threshold:  // e.g., 5 failures
-      self.state = OPEN  // Stop calling for 60 seconds
-      self.last_failure_time = now()
-
-// Usage
-circuit_breaker = CircuitBreaker(threshold=5, timeout=60)
-
-for notification in kafka_stream:
-  try:
-    circuit_breaker.call(twilio.send_sms, notification)
-  except CircuitOpenError:
-    move_to_dead_letter_queue(notification)  // Don't retry
-    continue  // Process next message immediately
-```
-
-**Benefits:**
-- Fail fast (< 1ms) instead of waiting for timeout (10 seconds)
-- Prevent cascading failures
-- Allow third-party service to recover
-- Continue processing other notifications
-
-*See `pseudocode.md::CircuitBreaker` for full implementation*
-
----
-
-### Anti-Pattern 5: Single Worker for All Channels
-
-**Problem:** ❌ Cannot scale channels independently
-
-```
-// BAD: Single worker handles all channels
-worker:
-  for notification in kafka_stream:
-    if notification.channel == "EMAIL":
-      send_email(notification)  // Takes 500ms
-    elif notification.channel == "SMS":
-      send_sms(notification)  // Takes 200ms
-    elif notification.channel == "PUSH":
-      send_push(notification)  // Takes 50ms
-    elif notification.channel == "WEB":
-      send_websocket(notification)  // Takes 10ms
-
-Problem:
-- Slow email delivery (500ms) blocks fast push notifications (50ms)
-- Cannot scale email workers independently
-- One channel failure affects all channels
-```
-
-**Solution:** ✅ Separate workers per channel
-
-```
-// GOOD: Dedicated workers per channel
-Kafka Topics:
-- email-notifications → Email Worker Pool (10 workers)
-- sms-notifications → SMS Worker Pool (5 workers)
-- push-notifications → Push Worker Pool (20 workers)
-- web-notifications → WebSocket Worker Pool (50 workers)
-
-email_worker:
-  for notification in kafka.consume("email-notifications"):
-    send_email(notification)
-
-sms_worker:
-  for notification in kafka.consume("sms-notifications"):
-    send_sms(notification)
-
-// Scale independently:
-- Email slow? Add more email workers
-- Push notifications spike? Add more push workers
-- SMS fails? Doesn't affect email/push
-```
-
-**Benefits:**
-- Independent scaling per channel
-- Failure isolation
-- Optimized worker configuration (timeouts, retries) per channel
-
----
-
-### Anti-Pattern 6: Storing Sensitive Data in Logs
-
-**Problem:** ❌ Logging full notification payload exposes PII
-
-```
-// BAD: Log full payload
-logger.info("Sending notification", {
-  user_id: 12345,
-  email: "john.doe@example.com",  // PII ❌
-  phone: "+1-555-1234",            // PII ❌
-  message: "Your password reset code is: 789456"  // Sensitive ❌
-})
-
-Cassandra notification_logs:
-INSERT INTO notification_logs VALUES (
-  ...,
-  payload: '{"email":"john.doe@example.com","phone":"+1-555-1234",...}'
-)
-
-Risk:
-- GDPR violation (storing PII without consent)
-- Security risk (logs accessible by many engineers)
-- Compliance issues (PCI DSS for payment notifications)
-```
-
-**Solution:** ✅ Redact sensitive fields, hash user identifiers
-
-```
-// GOOD: Redact PII and sensitive data
-logger.info("Sending notification", {
-  user_id_hash: sha256("12345"),  // Hash user_id
-  email: "j****e@example.com",    // Mask email
-  phone: "+1-***-1234",            // Mask phone
-  message_type: "PASSWORD_RESET",  // Don't log content
-  notification_id: "notif_abc123"
-})
-
-Cassandra notification_logs:
-INSERT INTO notification_logs VALUES (
-  notification_id: "notif_abc123",
-  user_id_hash: sha256(user_id),  // Can't reverse to actual user
-  channel: "EMAIL",
-  status: "SENT",
-  created_at: now()
-  // No sensitive payload stored
-)
-```
-
-**Best Practices:**
-- Hash user identifiers (user_id → sha256(user_id))
-- Mask email: `john.doe@example.com` → `j****e@example.com`
-- Mask phone: `+1-555-1234` → `+1-***-1234`
-- Never log message content (only metadata)
-- Set log retention to 30 days (GDPR compliance)
-
----
-
-### Anti-Pattern 7: No Retry Logic with Exponential Backoff
-
-**Problem:** ❌ Immediate retries overwhelm failing services
-
-```
-// BAD: Retry immediately 3 times
-function send_notification(notification):
-  for attempt in range(3):
-    try:
-      third_party_api.send(notification)
-      return SUCCESS
-    except TemporaryError:
-      continue  // Retry immediately ❌
-
-Result:
-- If API is overloaded, 3 rapid requests make it worse
-- No time for service to recover
-- Wastes resources
-```
-
-**Solution:** ✅ Exponential backoff with jitter
-
-```
-// GOOD: Exponential backoff
-function send_notification_with_retry(notification, max_retries=3):
-  for attempt in range(max_retries):
-    try:
-      third_party_api.send(notification)
-      return SUCCESS
-    except TemporaryError as e:
-      if attempt == max_retries - 1:
-        raise e  // Final attempt failed
-      
-      // Exponential backoff: 2^attempt seconds
-      delay = (2 ** attempt) + random.uniform(0, 1)  // Add jitter
-      // Attempt 0: 1-2 seconds
-      // Attempt 1: 2-3 seconds
-      // Attempt 2: 4-5 seconds
-      
-      sleep(delay)
-
-Retry Timeline:
-0s: Initial attempt (fails)
-1-2s: Retry 1 (fails)
-3-5s: Retry 2 (fails)
-7-12s: Retry 3 (final attempt)
-```
-
-**Benefits:**
-- Give service time to recover
-- Jitter prevents thundering herd
-- Standard industry practice (AWS, Google use this)
-
-*See `pseudocode.md::retryWithBackoff()` for implementation*
-
----
-
-### Anti-Pattern 8: Hardcoded Notification Templates
-
-**Problem:** ❌ Changing notification text requires code deployment
-
-```
-// BAD: Hardcoded template
-function send_order_confirmation(order):
-  message = "Hello, your order #" + order.id + " is confirmed!"
-  send_email(order.user_email, "Order Confirmed", message)
-
-Problem:
-- Want to A/B test subject lines? Need code change
-- Want to add user's name? Need code change
-- Want to localize to Spanish? Need code change
-- Marketing wants to update copy? Need engineering time
-```
-
-**Solution:** ✅ Database-stored templates with variable substitution
-
-```
-// GOOD: Template-based notifications
-PostgreSQL templates table:
-CREATE TABLE notification_templates (
-  template_id VARCHAR PRIMARY KEY,
-  channel VARCHAR,
-  subject VARCHAR,
-  body TEXT,
-  locale VARCHAR DEFAULT 'en',
-  variables JSONB
+**Why Cassandra?**
+
+- Extremely high write throughput ($1$ billion writes/day)
+- Time-series data with natural partitioning by `user_id` and `created_at`
+- Horizontal scalability without complex sharding logic
+- Trade-off: Limited ad-hoc query capabilities (no joins)
+
+### 4.4 Device Tokens (Redis + PostgreSQL)
+
+For push notifications, store device tokens.
+
+```sql
+CREATE TABLE device_tokens (
+    token_id BIGINT PRIMARY KEY,
+    user_id BIGINT,
+    device_token VARCHAR(500), -- FCM/APNS token
+    platform VARCHAR(20), -- 'ios', 'android', 'web'
+    device_id VARCHAR(255),
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_used_at TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
-INSERT INTO notification_templates VALUES (
-  'ORDER_CONFIRMATION',
-  'EMAIL',
-  'Order {{order_id}} Confirmed! 🎉',
-  'Hello {{user_name}}, your order #{{order_id}} is confirmed!',
-  'en',
-  '["user_name", "order_id"]'
-);
-
-// Code
-function send_order_confirmation(order):
-  template = get_template("ORDER_CONFIRMATION", locale=order.user_locale)
-  
-  message = template.render({
-    "user_name": order.user_name,
-    "order_id": order.id
-  })
-  
-  send_email(order.user_email, template.subject, message)
-
-Benefits:
-- Non-engineers can edit templates
-- Easy A/B testing (create template variants)
-- Localization (store templates per locale)
-- Version control (track template changes)
+CREATE INDEX idx_device_tokens_user ON device_tokens(user_id);
+CREATE INDEX idx_device_tokens_token ON device_tokens(device_token);
 ```
 
-*See `pseudocode.md::enrichTemplate()` for implementation*
+**Caching Strategy**: Cache active device tokens in Redis for fast lookup.
 
 ---
 
-## Alternative Approaches
+## 5. Component Design
 
-### 1. Serverless (AWS Lambda)
-**Pros**: Auto-scaling, no server management, pay per use  
-**Cons**: Cold starts (1-3s), hard to maintain WebSocket connections  
-**When to Use**: Small scale (<10M notifications/day)
+### 5.1 API Gateway
 
-### 2. Pull-Based (Polling)
-**Pros**: Simpler, firewall-friendly, stateless  
-**Cons**: Higher latency (30s+), wasted resources, battery drain  
-**When to Use**: Non-critical notifications with >30s latency acceptable
+**Responsibilities:**
 
-### 3. Single Database (PostgreSQL)
-**Pros**: Simplicity, ACID guarantees, powerful queries  
-**Cons**: Doesn't scale to 1B writes/day, expensive  
-**When to Use**: Small scale (<1M notifications/day)
+- Request validation and rate limiting (protect against notification spam)
+- Authentication (JWT) and authorization
+- Load balancing across Notification Service instances
 
-### 4. RabbitMQ Instead of Kafka
-**Pros**: Lower latency (~5ms), simpler setup  
-**Cons**: Lower throughput (~20k msg/s), no message replay  
-**When to Use**: Lower scale or need advanced routing
+**Rate Limiting**: Token Bucket algorithm per API key/user to prevent abuse
 
-*See [this-over-that.md](./this-over-that.md) for detailed comparisons*
+- *See pseudocode.md::TokenBucket class for implementation*
 
-## Monitoring
+### 5.2 Notification Service
 
-### Key Metrics
-- **Business**: Delivery rate, latency (P50/P95/P99), open rate
-- **System**: Kafka lag, worker throughput, cache hit rate
-- **Third-Party**: API latency, error rate, cost
+**Core orchestration service** that processes incoming notification requests.
 
-### Critical Alerts
-- Consumer lag > 10 minutes
-- Worker error rate > 10%
-- DLQ message count > 10,000
-- Cassandra write latency > 100ms
+**Responsibilities:**
 
-### Dashboards
-- Overview: Total notifications, delivery rate, latency
-- Per-Channel: Email, SMS, Push, Web metrics
-- Kafka: Consumer lag, throughput, partitions
-- Third-Party: SendGrid, Twilio, FCM/APNS status
+1. **Fetch User Preferences**: Query Redis cache (fallback to PostgreSQL)
+2. **Deduplicate Events**: Use idempotency key to prevent duplicate notifications
+3. **Enrich with Template**: Fetch template and substitute variables
+4. **Route to Channels**: Determine which channels to use based on user preferences
+5. **Publish to Kafka**: Send notification events to appropriate Kafka topics
 
-## Deep Dive: Handling Edge Cases
+**Key Operations:**
 
-### Edge Case 1: Handling Webhook Delivery Failures
+- *See pseudocode.md::NotificationService.processNotification() for implementation*
+- *See pseudocode.md::DeduplicationService.isDuplicate() for deduplication logic*
 
-**Problem:** Third-party services (FCM, APNS) deliver push notifications but our tracking fails.
+**Caching Layer (Redis)**:
 
-**Scenario:**
-```
-1. Push Worker sends notification to FCM → Success (FCM returns 200 OK)
-2. Worker tries to log delivery status to Cassandra → Cassandra timeout ❌
-3. Worker crashes before logging → Notification sent but not tracked!
-```
+- Cache user preferences (TTL: $5$ minutes)
+- Cache notification templates (TTL: $1$ hour)
+- Cache device tokens (TTL: $10$ minutes)
 
-**Solution:** Use idempotent logging with retry
+### 5.3 Kafka Message Stream
+
+**Why Kafka over Synchronous REST?**
+
+The system must handle huge bursts of traffic ($\sim 57$k QPS peak) and guarantee delivery even if downstream services
+fail. Kafka provides:
+
+- **Buffering**: Absorbs traffic spikes without overwhelming workers
+- **Guaranteed Delivery**: Messages are persisted and can be replayed
+- **Retry Mechanism**: Workers can retry failed deliveries
+- **Scalability**: Partitions allow horizontal scaling of consumers
+
+**Trade-off**: Adds a small delay ($\sim 100$ ms) to the notification process, but this is acceptable for non-critical
+notifications.
+
+**Topic Structure:**
 
 ```
-function send_push_notification(notification):
-  // 1. Send to FCM
-  response = fcm.send(notification)
-  
-  // 2. Log delivery (with retry)
-  log_delivery_with_retry(notification.id, response.status, max_retries=5)
-  
-function log_delivery_with_retry(notification_id, status, max_retries):
-  for attempt in range(max_retries):
-    try:
-      cassandra.insert({
-        notification_id: notification_id,
-        status: status,
-        timestamp: now()
-      })
-      return SUCCESS
-    except CassandraTimeout:
-      if attempt == max_retries - 1:
-        // Final fallback: Log to local file for batch upload later
-        append_to_local_log_file(notification_id, status)
-      else:
-        sleep(2 ** attempt)  // Exponential backoff
+- email-notifications (12 partitions)
+- sms-notifications (6 partitions)
+- push-notifications (12 partitions)
+- web-notifications (6 partitions)
+- dlq-email (dead letter queue)
+- dlq-sms
+- dlq-push
+- dlq-web
 ```
 
-**Benefits:**
-- Never lose tracking data
-- Eventual consistency acceptable (logs can be delayed by minutes)
-- Local fallback prevents complete data loss
+**Partitioning Strategy**: Partition by `user_id` to ensure ordering per user.
 
----
+### 5.4 Channel Workers
 
-### Edge Case 2: Dealing with Invalid Device Tokens
+Each channel has dedicated worker microservices that consume from Kafka and deliver notifications.
 
-**Problem:** Mobile app device tokens expire or become invalid (user uninstalls app).
+#### 5.4.1 Email Worker
 
-**Scenario:**
-```
-Push Worker → FCM.send(token="expired_token_123")
-FCM Response: HTTP 400 "Invalid Registration Token"
+**Responsibilities:**
 
-Problem:
-- Should we retry? No, token is permanently invalid
-- Should we keep sending? No, wastes API calls
-- Should we delete token? Yes, but how?
-```
+- Consume from `email-notifications` topic
+- Call SendGrid/AWS SES API
+- Handle rate limits from email provider
+- Log delivery status to Cassandra
 
-**Solution:** Automated token cleanup based on FCM/APNS feedback
+**Circuit Breaker**: If SendGrid API fails repeatedly, open circuit and route to DLQ
 
-```
-function send_push_with_token_cleanup(notification):
-  response = fcm.send(notification.device_token, notification.message)
-  
-  if response.status == "INVALID_TOKEN":
-    // Token is permanently invalid
-    delete_device_token(notification.user_id, notification.device_token)
-    log_metric("push.invalid_token", 1)
-    return PERMANENT_FAILURE
-  
-  elif response.status == "NOT_REGISTERED":
-    // User uninstalled app
-    delete_device_token(notification.user_id, notification.device_token)
-    return PERMANENT_FAILURE
-  
-  elif response.status == "MESSAGE_TOO_BIG":
-    // Notification payload exceeds 4KB limit
-    truncate_and_retry(notification)
-    return RETRY
-  
-  elif response.status == "SUCCESS":
-    return SUCCESS
+- *See pseudocode.md::CircuitBreaker class for implementation*
 
-function delete_device_token(user_id, token):
-  postgresql.DELETE_FROM("device_tokens", where={
-    user_id: user_id,
-    token: token
-  })
-  redis.DEL("device:token:" + token)  // Remove from cache
-```
+**Retry Strategy**: Exponential backoff with max 3 retries
 
-**Cleanup Strategy:**
-- Immediate deletion for invalid tokens
-- Batch cleanup job runs daily to remove tokens with > 30 days of failures
-- Monitor "invalid_token" metric (should be < 5%)
+- *See pseudocode.md::EmailWorker.sendEmail() for implementation*
 
----
+#### 5.4.2 SMS Worker
 
-### Edge Case 3: User Preference Changes Mid-Delivery
+**Responsibilities:**
 
-**Problem:** User opts out of notifications while fanout is in progress.
+- Consume from `sms-notifications` topic
+- Call Twilio/AWS SNS API
+- Handle strict rate limits (Twilio: $\sim 100$ requests/second)
+- Log delivery status
 
-**Scenario:**
-```
-Timeline:
-0ms: User follows celebrity with 5M followers
-100ms: Celebrity posts tweet
-200ms: Fanout Worker starts processing (5M notifications queued)
-5s: User realizes mistake, unfollows celebrity
-10s: Fanout still sending notifications to user ❌
+**Token Bucket Rate Limiter**: Prevent overwhelming Twilio API
 
-Problem: User receives 1,000+ notifications before fanout completes
-```
+- *See pseudocode.md::RateLimiter class for implementation*
 
-**Solution:** Just-in-time preference checking + rate limiting
+#### 5.4.3 Push Notification Worker
 
-```
-// Notification Worker
-function process_notification(notification):
-  // 1. Just-in-time preference check (even if cached earlier)
-  preferences = get_user_preferences(notification.user_id)
-  
-  if not preferences.enabled:
-    return "USER_OPTED_OUT"  // Skip delivery
-  
-  // 2. Per-user rate limiting
-  rate_key = "notif:rate:" + notification.user_id
-  count = redis.INCR(rate_key)
-  redis.EXPIRE(rate_key, 3600)  // 1-hour window
-  
-  if count > preferences.hourly_limit:  // e.g., 50 notifications/hour
-    return "RATE_LIMITED"  // Skip delivery
-  
-  // 3. Check quiet hours
-  if is_quiet_hours(preferences.quiet_hours_start, preferences.quiet_hours_end):
-    requeue_for_later(notification)
-    return "DEFERRED"
-  
-  // 4. Send notification
-  send_notification(notification)
-```
+**Responsibilities:**
 
-**Trade-off:**
-- Adds 5ms latency (Redis cache lookup)
-- Prevents notification fatigue
-- Respects user preferences in real-time
+- Consume from `push-notifications` topic
+- Call FCM (Android) or APNS (iOS) APIs
+- Handle device token expiration and cleanup
+- Batch notifications to reduce API calls
 
-*See `pseudocode.md::checkUserPreferences()` for implementation*
+**Batch Processing**: Group notifications by device to reduce API calls
 
----
+- *See pseudocode.md::PushWorker.batchSend() for implementation*
 
-### Edge Case 4: Multi-Region Data Residency (GDPR Compliance)
+**Device Token Cleanup**: Remove invalid tokens from database
 
-**Problem:** EU users' notification logs must stay in EU (GDPR).
+#### 5.4.4 Web/WebSocket Worker
 
-**Scenario:**
-```
-User in Germany (user_id=12345, region=EU)
-Notification Service in US → Sends notification
-Cassandra US Cluster → Stores log ❌ GDPR violation!
+**Responsibilities:**
 
-Compliance Issue:
-- GDPR requires EU data to stay in EU
-- Fines up to 4% of global revenue
-```
+- Consume from `web-notifications` topic
+- Maintain persistent WebSocket connections with browsers/mobile apps
+- Push notifications to connected clients in real-time
+- Fall back to polling for disconnected clients
 
-**Solution:** Regional data partitioning
+**Connection Management**: Use Redis to track which WebSocket server holds each user's connection
 
-```
-// Routing Table (PostgreSQL)
-CREATE TABLE user_regions (
-  user_id BIGINT PRIMARY KEY,
-  region VARCHAR,  // 'US', 'EU', 'APAC'
-  created_at TIMESTAMP
-);
+- *See pseudocode.md::WebSocketManager for implementation*
 
-// Notification Service
-function process_notification(notification):
-  // 1. Lookup user region
-  region = get_user_region(notification.user_id)
-  
-  // 2. Route to regional Kafka cluster
-  kafka_cluster = get_regional_kafka(region)
-  kafka_cluster.publish("notifications-" + region, notification)
+### 5.5 WebSocket Server
 
-// Regional Workers (deployed per region)
-EU_Worker:
-  kafka = connect_to_kafka("kafka-eu.example.com")
-  cassandra = connect_to_cassandra("cassandra-eu.example.com")
-  
-  for notification in kafka.consume("notifications-EU"):
-    send_notification(notification)
-    cassandra.log(notification)  // Logs stay in EU ✅
+**Real-Time Delivery** for in-app notifications and browser push.
 
-// Regional Cassandra Clusters
-Cassandra-US: US datacenter (Virginia)
-Cassandra-EU: EU datacenter (Frankfurt) → GDPR compliant
-Cassandra-APAC: Asia datacenter (Singapore)
-```
+**Why WebSockets over Long Polling?**
+
+- True bi-directional real-time communication
+- Lower latency ($<100$ ms vs $1$-$5$ seconds for polling)
+- Minimal overhead (no repeated HTTP handshakes)
+- Battery efficient on mobile devices
+
+**Trade-off**: More complex connection management, requires sticky sessions
 
 **Architecture:**
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Kafka-US    │     │  Kafka-EU    │     │  Kafka-APAC  │
-└──────┬───────┘     └──────┬───────┘     └──────┬───────┘
-       │                    │                    │
-       ▼                    ▼                    ▼
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Workers-US  │     │  Workers-EU  │     │  Workers-APAC│
-└──────┬───────┘     └──────┬───────┘     └──────┬───────┘
-       │                    │                    │
-       ▼                    ▼                    ▼
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│Cassandra-US  │     │Cassandra-EU  │     │Cassandra-APAC│
-└──────────────┘     └──────────────┘     └──────────────┘
-```
 
-**Benefits:**
-- GDPR compliant (EU data in EU)
-- Low latency (workers close to users)
-- Fault isolation (EU outage doesn't affect US)
+- Load balancer with sticky sessions (hash by user_id)
+- Redis pub/sub for cross-server communication
+- Heartbeat mechanism to detect disconnections
 
-**Trade-off:**
-- Higher infrastructure cost (3× clusters)
-- More complex deployment
-- Cross-region analytics require data aggregation
+**Scaling**: $10$ M concurrent connections → $1,000$ servers with $10$k connections each
 
----
+### 5.6 Dead Letter Queue (DLQ)
 
-## Interview Discussion Points
+**Why DLQ?**
 
-### Question 1: How would you handle 10× scale (10 billion notifications/day)?
+If a Push Worker repeatedly fails to deliver to an endpoint (e.g., FCM token is expired), the message is moved to a DLQ
+for:
 
-**Answer:**
+- Manual investigation
+- Delayed batch retries
+- Device token cleanup
 
-**Current Scale:** 1B notifications/day, 11,574 QPS average, 57,870 QPS peak
+**Trade-off**: Requires dedicated monitoring system for the DLQ.
 
-**10× Scale:** 10B notifications/day, 115,740 QPS average, 578,700 QPS peak
+**DLQ Topics:**
 
-**Challenges:**
+- `dlq-email`: Failed email deliveries
+- `dlq-sms`: Failed SMS deliveries
+- `dlq-push`: Failed push notifications
+- `dlq-web`: Failed web notifications
 
-1. **Kafka Throughput Bottleneck**
-   - Current: 1 Kafka cluster, 12 partitions per topic
-   - At 10×: Need 578k messages/sec
-   - **Solution:**
-     - Increase partitions: 12 → 120 partitions
-     - Scale Kafka brokers: 3 → 30 brokers
-     - Use Kafka quotas to prevent producer overload
-     - Cost: $10k → $100k/month
-
-2. **Cassandra Write Bottleneck**
-   - Current: 10B writes/day = 115k writes/sec
-   - At 10×: 100B writes/day = 1.15M writes/sec
-   - **Solution:**
-     - Scale Cassandra cluster: 6 nodes → 60 nodes
-     - Increase replication factor:2 → 3 for durability
-     - Use batched writes (100 inserts per batch)
-     - Add write-optimized instance types (i3.8xlarge)
-     - Cost: $15k → $150k/month
-
-3. **Worker Scaling**
-   - Current: 50 workers total across all channels
-   - At 10×: Need 500 workers
-   - **Solution:**
-     - Auto-scaling groups based on Kafka consumer lag
-     - Kubernetes HPA (Horizontal Pod Autoscaler)
-     - Target metric: Consumer lag < 1,000 messages
-     - Cost: $20k → $200k/month
-
-4. **Redis Cache Bottleneck (User Preferences)**
-   - Current: 100M users, 10 GB cache
-   - At 10×: 1B users, 100 GB cache
-   - **Solution:**
-     - Shard Redis: 1 cluster → 10 sharded clusters
-     - Use Redis Cluster mode (automatic sharding)
-     - Consistent hashing for user_id → shard mapping
-     - Cost: $5k → $50k/month
-
-5. **Third-Party Rate Limits**
-   - Current: SendGrid 10k emails/min
-   - At 10×: Need 100k emails/min
-   - **Solution:**
-     - Negotiate enterprise contracts (higher limits)
-     - Use multiple third-party providers (SendGrid + Mailgun + Amazon SES)
-     - Distribute load across providers (33% each)
-     - Failover if one provider is down
-
-**Total Cost Estimate:**
-- Current (1B/day): ~$50k/month
-- 10× Scale (10B/day): ~$500k/month
-- **Cost per notification: $0.000005 (half a cent per 1,000 notifications)**
+**Alerting**: Trigger alerts if DLQ message count exceeds threshold.
 
 ---
 
-### Question 2: How do you prevent notification spam and fatigue?
+## 6. Why This Over That? (Key Design Decisions)
 
-**Answer:**
+### 6.1 Why Kafka over Synchronous REST APIs?
 
-**Problem:** Users overwhelmed by notifications → unsubscribe or uninstall app.
+**Decision**: Use Kafka as the central message stream between Notification Service and Channel Workers.
 
-**Multi-Layer Solution:**
+**Rationale:**
 
-**1. Frequency Limiting (Per-User Rate Limiting)**
-```
-Per-User Limits:
-- Max 50 notifications per hour
-- Max 200 notifications per day
-- Max 1,000 notifications per week
+1. **Traffic Bursts**: Must handle peak loads of $57$k QPS during major events (e.g., product launches)
+2. **Guaranteed Delivery**: Kafka persists messages, ensuring no notification is lost even if workers are down
+3. **Retry Mechanism**: Workers can retry failed deliveries without losing messages
+4. **Decoupling**: Notification Service doesn't need to wait for channel workers to respond
+5. **Scalability**: Add more worker instances without changing producer code
 
-Implementation:
-function should_send_notification(user_id):
-  hour_key = "notif:hour:" + user_id
-  day_key = "notif:day:" + user_id
-  
-  hour_count = redis.INCR(hour_key)
-  redis.EXPIRE(hour_key, 3600)  // 1 hour TTL
-  
-  day_count = redis.INCR(day_key)
-  redis.EXPIRE(day_key, 86400)  // 1 day TTL
-  
-  if hour_count > 50 or day_count > 200:
-    return false  // Skip notification
-  
-  return true
-```
+**Trade-offs Accepted:**
 
-**2. Intelligent Batching (Digest Mode)**
-```
-Instead of:
-- 10:00 AM: "John liked your post"
-- 10:05 AM: "Sarah commented on your post"
-- 10:10 AM: "Mike shared your post"
-= 3 separate notifications (annoying!)
+- Adds $\sim 100$ ms latency (acceptable for most notifications)
+- Increased system complexity (requires Kafka cluster management)
+- Eventual consistency (notifications may arrive slightly out of order)
 
-Batching:
-- Queue notifications for 30 minutes
-- Send single digest: "John, Sarah, and 2 others interacted with your post"
-= 1 notification (better UX!)
+**When to Reconsider**: If all notifications require < $50$ ms latency (unlikely for this use case)
 
-Implementation:
-function queue_notification(notification):
-  digest_key = "digest:" + notification.user_id + ":" + notification.type
-  redis.LPUSH(digest_key, notification)
-  redis.EXPIRE(digest_key, 1800)  // 30-minute batch window
-  
-  // Schedule digest job
-  schedule_job(send_digest, user_id=notification.user_id, delay=1800)
+### 6.2 Why Cassandra over PostgreSQL for Logs?
 
-function send_digest(user_id):
-  notifications = redis.LRANGE("digest:" + user_id + ":*", 0, -1)
-  
-  if len(notifications) == 1:
-    send_individual_notification(notifications[0])
-  else:
-    send_digest_notification(user_id, notifications)
-```
+**Decision**: Use Cassandra for notification logs instead of PostgreSQL.
 
-**3. Quiet Hours**
-```
-User Preferences:
-- Quiet hours: 10 PM - 8 AM
-- Only allow critical notifications (e.g., security alerts)
+**Rationale:**
 
-Implementation:
-function should_send_now(notification, preferences):
-  if is_quiet_hours(preferences.quiet_hours_start, preferences.quiet_hours_end):
-    if notification.priority == "CRITICAL":
-      return true  // Send security alerts immediately
-    else:
-      defer_until_morning(notification, preferences.quiet_hours_end)
-      return false
-  
-  return true
-```
+1. **Write-Heavy Workload**: $1$ billion writes per day overwhelms traditional RDBMS
+2. **Time-Series Data**: Natural partitioning by `user_id` and `created_at`
+3. **Horizontal Scalability**: Easily add nodes to handle increased load
+4. **Append-Only**: No updates needed, perfect for Cassandra's strengths
+5. **Cost**: More cost-effective at scale than vertical scaling PostgreSQL
 
-**4. Smart Prioritization (Only Send High-Value Notifications)**
-```
-Machine Learning Model:
-- Train model on historical data: (notification, user) → engagement_score
-- Features: notification_type, user_activity, time_of_day, device_type
-- Predict: Will user engage with this notification? (click/open rate)
+**Trade-offs Accepted:**
 
-function should_send_notification(notification, user):
-  engagement_score = ml_model.predict(notification, user)
-  
-  if engagement_score > 0.3:  // 30% predicted engagement
-    send_notification(notification)
-  else:
-    skip_notification(notification)  // Don't annoy user with low-value notif
+- No complex joins (must denormalize data)
+- Eventual consistency (logs may take a few seconds to appear)
+- Limited ad-hoc queries (need predefined query patterns)
 
-Result:
-- 50% fewer notifications sent
-- 2× higher engagement rate
-- Happier users
-```
+**When to Reconsider**: If complex analytics queries are required (consider adding data warehouse for analytics)
 
-**5. User Control (Granular Preferences)**
-```
-PostgreSQL user_preferences:
-{
-  email_enabled: true,
-  sms_enabled: false,  // User opted out of SMS
-  push_enabled: true,
-  
-  // Granular control
-  notification_types: {
-    "NEW_FOLLOWER": true,
-    "COMMENT": true,
-    "LIKE": false,  // Don't send likes notifications
-    "MENTION": true
-  },
-  
-  frequency: "DIGEST",  // Options: INSTANT, DIGEST, DAILY
-  quiet_hours: "22:00-08:00"
-}
-```
+### 6.3 Why WebSockets over Long Polling?
 
-**Monitoring:**
-- Track notification fatigue metrics:
-  - Opt-out rate (should be < 2%)
-  - App uninstall rate after notification spike
-  - Engagement rate (should be > 20%)
+**Decision**: Use WebSockets for real-time web notifications.
+
+**Rationale:**
+
+1. **Latency**: WebSockets provide $<100$ ms latency vs $1$-$5$ seconds for long polling
+2. **Efficiency**: No repeated HTTP handshakes
+3. **Battery Life**: More efficient on mobile devices
+4. **Bi-directional**: Can receive acknowledgments from clients
+5. **Industry Standard**: Used by Slack, WhatsApp, Facebook for real-time features
+
+**Trade-offs Accepted:**
+
+- More complex connection management (sticky sessions, connection tracking)
+- Requires dedicated WebSocket servers
+- Fallback mechanism needed for older browsers
+
+**When to Reconsider**: If clients are mostly behind corporate firewalls that block WebSockets (rare today)
+
+### 6.4 Why Multi-Channel Workers over Single Worker?
+
+**Decision**: Separate worker microservices for each channel (Email, SMS, Push, Web).
+
+**Rationale:**
+
+1. **Independent Scaling**: Scale Email workers independently of SMS workers based on load
+2. **Failure Isolation**: Email failures don't affect Push notifications
+3. **Rate Limiting**: Each channel has different rate limits from providers
+4. **Specialized Logic**: Each channel has unique requirements (e.g., device token cleanup for Push)
+5. **Team Ownership**: Different teams can own different channels
+
+**Trade-offs Accepted:**
+
+- More microservices to manage (increased operational complexity)
+- Code duplication for common logic (mitigated by shared libraries)
+- More Kafka topics to maintain
+
+**When to Reconsider**: For very small scale ($<1$ M notifications/day), a single worker with multiple handlers may
+suffice
+
+### 6.5 Why Redis Cache for User Preferences?
+
+**Decision**: Cache user notification preferences in Redis.
+
+**Rationale:**
+
+1. **Reduced DB Load**: User preferences are read on every notification (high read QPS)
+2. **Latency**: Redis provides $<1$ ms lookup vs $10$-$50$ ms for PostgreSQL
+3. **Scalability**: Redis cluster can handle millions of reads per second
+4. **Consistency**: Preferences don't change frequently, TTL of $5$ minutes is acceptable
+5. **Cost**: Reduces load on PostgreSQL, allowing smaller DB instances
+
+**Trade-offs Accepted:**
+
+- Stale data for up to $5$ minutes (user changes preference, still receives notifications)
+- Additional system component (Redis cluster to manage)
+- Cache invalidation complexity (need to invalidate on preference update)
+
+**When to Reconsider**: If real-time preference updates are critical (reduce TTL or use cache invalidation)
+
+### 6.6 Why Template-Based Notifications?
+
+**Decision**: Store notification templates in database and substitute variables at runtime.
+
+**Rationale:**
+
+1. **Content Management**: Non-engineers can update templates without code changes
+2. **A/B Testing**: Easily test different notification copy
+3. **Localization**: Support multiple languages with template variants
+4. **Consistency**: Ensure consistent branding and messaging
+5. **Reusability**: Same template can be used across multiple event types
+
+**Trade-offs Accepted:**
+
+- Additional database lookup for each notification
+- Template parsing overhead ($\sim 10$ ms)
+- More complex notification service logic
+
+**When to Reconsider**: For very simple systems with static notification content
 
 ---
 
-### Question 3: How do you ensure exactly-once delivery?
+## 7. Detailed Workflow
 
-**Answer:**
+### 7.1 Notification Creation Flow
 
-**Challenge:** Prevent duplicate notifications to users.
+1. **Event Source** (e.g., Order Service) triggers notification:
+   ```
+   POST /api/v1/notifications
+   {
+     "user_id": 123456,
+     "event_type": "order_confirmed",
+     "template_id": "order_confirmation",
+     "variables": {
+       "order_id": "ORD-789",
+       "total_amount": "$99.99"
+     },
+     "priority": "high",
+     "idempotency_key": "order-789-confirmation"
+   }
+   ```
 
-**Problem Scenarios:**
+2. **API Gateway** validates request, checks rate limits, forwards to Notification Service
 
-1. **Producer Retries (Kafka)**
-```
-Scenario:
-- Notification Service publishes to Kafka
-- Kafka acknowledges but network fails before acknowledgment reaches producer
-- Producer retries → Duplicate message in Kafka ❌
+3. **Notification Service**:
+    - Check idempotency key in Redis (TTL: $24$ hours)
+    - If duplicate, return $200$ OK (idempotent)
+    - Fetch user preferences from Redis (cache miss → PostgreSQL)
+    - Fetch template from cache (cache miss → PostgreSQL)
+    - Substitute variables in template
+    - Determine channels based on user preferences
+    - Publish to Kafka topics (email, push, web)
+    - Return $202$ Accepted
 
-Solution: Idempotent Producer (Kafka 0.11+)
-kafka_producer = KafkaProducer(enable_idempotence=true)
-// Kafka automatically deduplicates based on sequence number
-```
+4. **Kafka** persists messages across partitions
 
-2. **Consumer Retries**
-```
-Scenario:
-- Worker processes notification, sends email
-- Worker crashes before committing Kafka offset
-- Kafka redelivers message → Duplicate email sent ❌
+5. **Channel Workers** consume messages:
+    - Email Worker → SendGrid API
+    - Push Worker → FCM/APNS APIs
+    - Web Worker → WebSocket Server
 
-Solution: Idempotency Key
-function process_notification(notification):
-  idempotency_key = "notif:" + notification.id
-  
-  if redis.EXISTS(idempotency_key):
-    return "ALREADY_PROCESSED"
-  
-  send_notification(notification)
-  
-  redis.SETEX(idempotency_key, 86400, "1")  // 24h TTL
-  kafka.commit_offset()
-```
+6. **Third-Party APIs** deliver notification to end user
 
-3. **Third-Party API Retries**
-```
-Scenario:
-- Worker sends email to SendGrid
-- SendGrid processes email but response times out
-- Worker retries → Duplicate email ❌
+7. **Workers** log delivery status to Cassandra
 
-Solution: API Idempotency Keys
-sendgrid.send_email(
-  to: user.email,
-  subject: "Order Confirmed",
-  body: message,
-  idempotency_key: "order:" + order.id + ":notification"  // SendGrid deduplicates
-)
-```
+**Total Latency**: $\sim 200$ ms for API response, $\sim 2$ seconds for actual delivery
 
-**Complete Exactly-Once Flow:**
-```
-1. Producer (Notification Service):
-   - Enable idempotent producer (Kafka handles dedup)
-   
-2. Consumer (Worker):
-   - Check idempotency key before processing
-   - Process notification
-   - Store idempotency key
-   - Commit Kafka offset (atomic with idempotency key)
-   
-3. Third-Party API:
-   - Use API's idempotency key feature
-   - If API doesn't support: Store API request ID in Redis
-```
+*See sequence-diagrams.md for detailed interaction flows*
 
-**Trade-off:**
-- Adds 5ms latency (Redis idempotency check)
-- Requires Redis storage (1 byte per notification × 24h × 1B notifications/day = 24 GB)
-- **Worth it:** Prevents annoying duplicate notifications
+### 7.2 Failure Handling
 
----
+**Scenario 1: Third-Party Provider Down (e.g., SendGrid outage)**
 
-### Question 4: How do you handle third-party provider downtime?
+- Email Worker cannot reach SendGrid API
+- Circuit Breaker opens after $5$ consecutive failures
+- Messages accumulate in Kafka (up to retention period, e.g., $7$ days)
+- When SendGrid recovers, Circuit Breaker closes
+- Workers resume processing from last committed offset
+- **Result**: No messages lost, delivery delayed
 
-**Answer:**
+**Scenario 2: Device Token Expired (Push Notification)**
 
-**Scenario:** SendGrid email service is completely down for 4 hours.
+- Push Worker receives error from FCM: "Invalid device token"
+- Worker marks token as inactive in database
+- Message moved to DLQ for manual investigation
+- User receives notification via fallback channel (email or web)
+- **Result**: Graceful degradation, user still notified
 
-**Multi-Layer Strategy:**
+**Scenario 3: WebSocket Connection Lost**
 
-**1. Circuit Breaker (Fail Fast)**
-```
-When SendGrid fails:
-- After 5 consecutive failures: Open circuit
-- Stop sending requests to SendGrid for 60 seconds
-- Move messages to Dead Letter Queue
-- Alert on-call engineer
-```
+- WebSocket server detects disconnection via heartbeat
+- Server removes connection from Redis registry
+- Next notification for that user triggers fallback mechanism:
+    - Store notification in database
+    - User fetches on next app open via REST API
+- **Result**: Notification stored for later retrieval
 
-**2. Multi-Provider Failover**
-```
-Email Providers (in priority order):
-1. SendGrid (primary, 70% of traffic)
-2. Mailgun (secondary, 20% of traffic)
-3. Amazon SES (fallback, 10% of traffic)
-
-function send_email_with_failover(notification):
-  providers = [SendGrid, Mailgun, AmazonSES]
-  
-  for provider in providers:
-    if circuit_breaker[provider].is_open():
-      continue  // Skip failed provider
-    
-    try:
-      provider.send_email(notification)
-      return SUCCESS
-    except Exception as e:
-      circuit_breaker[provider].record_failure()
-      continue  // Try next provider
-  
-  // All providers failed
-  move_to_dead_letter_queue(notification)
-```
-
-**3. Dead Letter Queue Processing**
-```
-DLQ Worker (runs hourly):
-  dlq_messages = kafka.consume("dlq-email", limit=10000)
-  
-  for message in dlq_messages:
-    age_hours = (now() - message.timestamp) / 3600
-    
-    if age_hours < 24:
-      // Retry with exponential backoff
-      retry_notification(message)
-    elif age_hours < 168:  // 7 days
-      // Move to cold DLQ for manual review
-      cold_storage.archive(message)
-    else:
-      // Too old, discard
-      delete_notification(message)
-```
-
-**4. Degraded Mode Operation**
-```
-When primary provider is down:
-- Continue serving requests (don't fail user requests)
-- Use secondary providers
-- Send critical notifications only (priority > HIGH)
-- Defer non-critical notifications to DLQ
-- Display status page: "Email notifications delayed, we're working on it"
-```
-
-**5. Monitoring and Alerting**
-```
-PagerDuty Alerts:
-- Critical: Circuit breaker opened for primary provider → Page on-call
-- Warning: DLQ message count > 10,000 → Slack alert
-- Info: Secondary provider usage > 50% → Email alert
-
-Runbook:
-1. Check provider status page (status.sendgrid.com)
-2. If provider outage: Wait for recovery, monitor DLQ
-3. If our issue: Check API keys, rate limits, account status
-4. If prolonged outage (> 4 hours): Switch to secondary provider as primary
-```
-
-**Cost Trade-off:**
-- Multi-provider setup: 20% higher cost (maintaining relationships with 3 providers)
-- **Worth it:** 99.99% uptime vs 99.5% with single provider
+*See sequence-diagrams.md for detailed failure scenarios*
 
 ---
 
-### Question 5: How do you implement A/B testing for notifications?
+## 8. Bottlenecks and Scaling
 
-**Answer:**
+### 8.1 Third-Party Rate Limits
 
-**Goal:** Test different notification copy, subject lines, send times to optimize engagement.
+**Problem**: External providers (Twilio, SendGrid) impose strict rate limits that can block delivery.
 
-**Example A/B Test:** Which subject line has higher open rate?
-- **Variant A:** "Your order is confirmed!"
-- **Variant B:** "Great news! Your order #{{order_id}} is on the way 🎉"
+**Solutions**:
 
-**Implementation:**
+1. **Token Bucket Rate Limiter**: Implement local rate limiter in each worker to stay below provider limits
+    - *See pseudocode.md::TokenBucket class*
+2. **Circuit Breaker**: Prevent overwhelming third-party APIs during outages
+    - *See pseudocode.md::CircuitBreaker class*
+3. **Multiple Providers**: Use multiple SMS providers (Twilio + AWS SNS) with failover
+4. **Batch APIs**: Use batch APIs where available (FCM supports batch sends)
 
-**1. Template Variants (Database)**
-```
-PostgreSQL notification_templates:
-CREATE TABLE notification_templates (
-  template_id VARCHAR PRIMARY KEY,
-  variant VARCHAR,  // 'A', 'B', 'control'
-  channel VARCHAR,
-  subject VARCHAR,
-  body TEXT,
-  enabled BOOLEAN,
-  traffic_percentage INT  // % of users who see this variant
-);
+**Example**: Twilio allows $100$ requests/second. With $5$ SMS workers, each worker limits to $20$ requests/second.
 
-INSERT INTO notification_templates VALUES
-('ORDER_CONFIRMATION', 'A', 'EMAIL', 'Your order is confirmed!', '...', true, 50),
-('ORDER_CONFIRMATION', 'B', 'EMAIL', 'Great news! Your order #{{order_id}} is on the way 🎉', '...', true, 50);
-```
+### 8.2 WebSocket Connection Management
 
-**2. User Assignment (Consistent Hashing)**
-```
-function get_template_variant(template_id, user_id):
-  // Consistent assignment: same user always gets same variant
-  hash = murmurhash(template_id + ":" + user_id)
-  bucket = hash % 100  // 0-99
-  
-  // Example: Variant A gets 0-49, Variant B gets 50-99
-  if bucket < 50:
-    return get_template(template_id, variant='A')
-  else:
-    return get_template(template_id, variant='B')
+**Problem**: $10$ M concurrent connections require significant server resources.
 
-function send_notification(user_id, template_id):
-  template = get_template_variant(template_id, user_id)
-  message = template.render(user_data)
-  send_email(user.email, template.subject, message)
-  
-  // Track variant for analytics
-  log_notification(
-    user_id: user_id,
-    template_id: template_id,
-    variant: template.variant,
-    timestamp: now()
-  )
-```
+**Solutions**:
 
-**3. Analytics Tracking**
-```
-Cassandra analytics table:
-CREATE TABLE notification_analytics (
-  experiment_id VARCHAR,
-  variant VARCHAR,
-  event_type VARCHAR,  // 'SENT', 'DELIVERED', 'OPENED', 'CLICKED'
-  user_id BIGINT,
-  timestamp TIMESTAMP,
-  PRIMARY KEY ((experiment_id, variant), timestamp)
-);
+1. **Horizontal Scaling**: Deploy $1,000$ WebSocket servers, each handling $10$k connections
+2. **Connection Pooling**: Reuse connections within server
+3. **Redis Pub/Sub**: Track which server holds each user's connection for efficient routing
+4. **Heartbeat**: Detect and close stale connections to free resources
+5. **Load Balancing**: Use sticky sessions (hash by user_id) to route reconnections to same server
 
-Track events:
-- SENT: Notification sent
-- DELIVERED: Third-party confirmed delivery
-- OPENED: User opened email (tracking pixel)
-- CLICKED: User clicked link in email
-```
+**Resource Requirements**: Each connection uses $\sim 10$ KB memory → $10$k connections = $100$ MB per server
 
-**4. Results Dashboard**
-```
-Query after 7 days (10,000 users per variant):
+### 8.3 Kafka Partition Rebalancing
 
-Variant A (Control):
-- Sent: 10,000
-- Delivered: 9,500 (95%)
-- Opened: 1,900 (20% open rate)
-- Clicked: 380 (4% CTR)
+**Problem**: Adding new worker instances triggers partition rebalancing, causing temporary slowdown.
 
-Variant B (New Copy):
-- Sent: 10,000
-- Delivered: 9,500 (95%)
-- Opened: 2,850 (30% open rate) ⬆️ 50% improvement!
-- Clicked: 570 (6% CTR) ⬆️ 50% improvement!
+**Solutions**:
 
-Decision: Roll out Variant B to 100% of users
-```
+1. **Over-Partition**: Use more partitions than workers (e.g., $12$ partitions for $6$ workers) to minimize rebalance
+   impact
+2. **Incremental Rebalancing**: Add workers gradually, not all at once
+3. **Cooperative Rebalancing**: Use Kafka's cooperative rebalancing protocol (Kafka 2.4+)
+4. **Monitor Lag**: Alert if consumer lag exceeds threshold during rebalance
 
-**5. Statistical Significance**
-```
-Use Chi-Square Test to determine if result is statistically significant:
+### 8.4 Cassandra Write Bottleneck
 
-function is_statistically_significant(variant_a, variant_b):
-  chi_square, p_value = chi_square_test(variant_a.opens, variant_b.opens)
-  
-  if p_value < 0.05:  // 95% confidence
-    return true  // Result is significant
-  else:
-    return false  // Not enough data, continue test
-```
+**Problem**: $1$ billion writes per day may overwhelm Cassandra cluster.
 
-**Best Practices:**
-- Run test for at least 7 days (capture weekly patterns)
-- Minimum sample size: 1,000 users per variant
-- Test one variable at a time (subject line OR body, not both)
-- Monitor for negative metrics (unsubscribe rate)
-- Use multivariate testing for complex scenarios
+**Solutions**:
+
+1. **Horizontal Scaling**: Add more Cassandra nodes (easy with Cassandra's architecture)
+2. **Batching**: Batch writes from workers (insert $100$ logs at once)
+3. **Async Writes**: Workers don't wait for Cassandra write confirmation
+4. **Compression**: Enable compression to reduce storage and I/O
+5. **TTL**: Set Time-To-Live on logs (e.g., delete logs older than $1$ year)
+
+**Capacity Planning**: $10$-node Cassandra cluster can handle $\sim 100$k writes/second
+
+### 8.5 Geo-Partitioning
+
+**Problem**: Global system needs to comply with data residency laws (e.g., GDPR in EU).
+
+**Future Scaling**:
+
+1. **Regional Kafka Clusters**: Deploy Kafka clusters in each region (US, EU, APAC)
+2. **Regional Cassandra Clusters**: Store logs in user's region
+3. **Regional Channel Workers**: Deploy workers in each region to reduce latency
+4. **Cross-Region Replication**: Replicate critical data (templates, preferences) across regions for redundancy
+
+**Partitioning Strategy**: Partition by `country_code` or `region` to ensure data residency compliance.
 
 ---
 
-## Real-World Examples
+## 9. Common Anti-Patterns
 
-- **Slack**: WebSockets for real-time, Kafka for events, Cassandra for history
-- **Uber**: WebSockets for driver location, push for ride status, SMS fallback
-- **Amazon**: SQS for queuing, DynamoDB for logs, A/B testing for copy
-- **Facebook**: Persistent connections, push notifications, multi-region deployment
+### ❌ Anti-Pattern 1: Synchronous Notification Delivery
 
-## Cost Analysis (AWS Example)
+**Problem**: Calling third-party APIs synchronously from application code:
 
-**Assumptions:**
-- 1 billion notifications/day
-- 11,574 QPS average, 57,870 QPS peak
-- 100M daily active users
-- 183 TB/year log storage
-
-| Component                         | Specification                        | Monthly Cost        |
-|-----------------------------------|--------------------------------------|---------------------|
-| **Notification Service (EC2)**    | 10× t3.xlarge (4 vCPU, 16 GB)       | $1,360              |
-| **Kafka Cluster**                 | 3× kafka.m5.xlarge                   | $1,092              |
-| **Email Workers (EC2)**           | 10× t3.medium (2 vCPU, 4 GB)        | $408                |
-| **SMS Workers (EC2)**             | 5× t3.medium                         | $204                |
-| **Push Workers (EC2)**            | 20× t3.medium                        | $816                |
-| **WebSocket Servers (EC2)**       | 50× t3.medium (10k connections each) | $2,040              |
-| **Redis (User Preferences)**      | cache.r5.large (13 GB RAM)           | $137                |
-| **Cassandra Cluster (Logs)**      | 6× i3.xlarge (4 vCPU, 30 GB RAM)     | $2,394              |
-| **PostgreSQL (Preferences)**      | db.r5.large (2 vCPU, 16 GB)          | $182                |
-| **Application Load Balancer**     | Standard ALB                         | $20                 |
-| **CloudWatch Monitoring**         | Logs + Metrics + Dashboards          | $200                |
-| **VPC, NAT Gateway**              | Multi-AZ setup                       | $90                 |
-| **Data Transfer**                 | 5 TB/month egress                    | $450                |
-| **Third-Party Providers**         |                                      |                     |
-| ├─ SendGrid (Email)               | 400M emails/month                    | $800                |
-| ├─ Twilio (SMS)                   | 150M SMS/month @ $0.01 each          | $1,500              |
-| ├─ FCM/APNS (Push)                | Free (first 20M/day)                 | $0                  |
-| **Total Infrastructure**          |                                      | **~$9,693/month**   |
-| **Total Third-Party**             |                                      | **~$2,300/month**   |
-| **Grand Total**                   |                                      | **~$12,000/month**  |
-
-**Cost Breakdown by Channel:**
 ```
-Per Notification Cost:
-- Email: $0.002 per email (SendGrid)
-- SMS: $0.01 per SMS (Twilio)
-- Push: Free (Google/Apple)
-- Web: ~$0.00001 per notification (infrastructure only)
-
-Cost per 1,000 notifications:
-- Email: $2.00
-- SMS: $10.00
-- Push: $0.00
-- Web: $0.01
+POST /orders → Order Service → SendGrid API (5 seconds) → Response to user
 ```
 
-**Cost Optimization:**
+**Why it's bad**:
 
-| Optimization                     | Savings       | Notes                                      |
-|----------------------------------|---------------|--------------------------------------------|
-| **Reserved Instances (1-year)**  | -40% EC2      | Save $2,000/month on EC2                   |
-| **Spot Instances for Workers**   | -70% EC2      | Use Spot for 50% of workers → Save $1,400/month |
-| **Cassandra on Local SSD**       | -30% storage  | Use i3 instances vs EBS → Save $700/month  |
-| **Push Instead of SMS**          | -90% per msg  | Encourage push over SMS → Save $1,350/month|
-| **Email Batching (Digest Mode)** | -50% emails   | Reduce email volume → Save $400/month      |
-| **Redis Cluster Tier**           | -25% cache    | Use open-source Redis vs ElastiCache → Save $35/month |
+- User waits for email to send before getting order confirmation
+- If SendGrid is down, order creation fails
+- No retry mechanism for failed deliveries
+- Cannot handle traffic spikes
 
-**Optimized Cost: ~$7,100/month** (~40% savings)
+✅ **Best Practice**: Async notification with message queue:
 
-**Cost per Notification:**
-- Current: $12,000 / 1B notifications = **$0.000012 per notification**
-- Optimized: $7,100 / 1B notifications = **$0.000007 per notification**
-- **Industry Benchmark:** $0.00001 per notification (we're 30% cheaper!)
+```
+POST /orders → Order Service → Kafka → Response (200ms)
+                ↓
+            Email Worker → SendGrid (async)
+```
 
----
+### ❌ Anti-Pattern 2: No Idempotency
 
-## Trade-offs Summary
+**Problem**: Duplicate events result in duplicate notifications to users.
 
-| Decision | Gain | Sacrifice |
-|----------|------|-----------|
-| Kafka for Async | Guaranteed delivery, scalability | ~100ms latency, complexity |
-| Cassandra for Logs | High write throughput | No joins, eventual consistency |
-| WebSockets | Low latency (<100ms) | Connection management complexity |
-| Multi-Channel Workers | Independent scaling | More microservices |
-| Redis Cache | <1ms lookup | Stale data (5 min TTL) |
-| Circuit Breaker | Fail fast, prevent cascading failures | Temporary notification delays |
-| Idempotency Keys | Prevent duplicate notifications | 5ms latency overhead, Redis storage |
-| Template-Based | Easy A/B testing, localization | DB lookup overhead (~10ms) |
+**Example**: User clicks "Submit Order" twice due to slow response → Receives 2 order confirmation emails.
 
----
+✅ **Best Practice**: Use idempotency keys:
 
-## Summary
+- *See pseudocode.md::DeduplicationService.isDuplicate()*
+- Store idempotency key in Redis with TTL
+- Return success for duplicate requests without re-sending
 
-A notification service requires careful balance between **real-time delivery**, **reliability**, and **cost**:
+### ❌ Anti-Pattern 3: Storing Notifications in RDBMS
 
-**Key Design Choices:**
+**Problem**: Using PostgreSQL for high-volume notification logs:
 
-1. ✅ **Kafka for Async Processing** to handle 57k QPS peaks and guarantee delivery
-2. ✅ **Multi-Channel Architecture** (Email, SMS, Push, Web) with independent workers for scalability
-3. ✅ **Cassandra for Logs** to handle 1B writes/day (115k writes/sec)
-4. ✅ **WebSockets for Real-Time** in-app notifications with < 100ms latency
-5. ✅ **Circuit Breaker + DLQ** for resilience against third-party failures
-6. ✅ **Idempotency Keys** to prevent duplicate notifications
-7. ✅ **Rate Limiting (Token Bucket)** to respect third-party API limits
-8. ✅ **Redis Cache** for user preferences (<1ms lookup)
+- PostgreSQL struggles with $> 10$k writes/second
+- Vertical scaling is expensive
+- Requires complex sharding for horizontal scaling
 
-**Performance Characteristics:**
+✅ **Best Practice**: Use Cassandra or similar NoSQL database optimized for write-heavy workloads.
 
-- **Throughput:** 11,574 QPS average, 57,870 QPS peak (5× average)
-- **Latency:** <2 seconds for real-time notifications (push, web)
-- **Latency:** <100ms for async delivery (email, SMS eventually sent)
-- **WebSocket Connections:** 10M concurrent connections supported
-- **Delivery Rate:** 99.9% for critical notifications, 99.5% overall
-- **Cassandra Write Throughput:** 115k writes/sec sustained
+### ❌ Anti-Pattern 4: Ignoring Rate Limits
 
-**Critical Components:**
+**Problem**: Workers send requests to third-party APIs without rate limiting:
 
-- **Kafka:** Must handle 57k QPS peaks, 12 partitions per topic minimum
-- **Cassandra:** Write-optimized, 6+ nodes for 1B writes/day
-- **WebSocket Server:** Sticky sessions, Redis pub/sub for cross-server communication
-- **Circuit Breaker:** Fail fast after 5 failures, 60-second timeout
-- **Dead Letter Queue:** Retry failed notifications, manual investigation
+- Twilio blocks API key after exceeding limit
+- All notifications fail until limit resets
+- Poor user experience
 
-**Scalability Path:**
+✅ **Best Practice**: Implement Token Bucket rate limiter:
 
-1. **0-1M notifications/day:** Single server, PostgreSQL, synchronous delivery
-2. **1M-100M/day:** Add Kafka, Redis cache, separate workers
-3. **100M-1B/day:** Scale to 50 workers, Cassandra for logs, multi-region
-4. **1B-10B/day:** 500 workers, sharded Redis, 10× Cassandra nodes, regional Kafka clusters
+- *See pseudocode.md::TokenBucket class*
+- Stay below provider limits with buffer (e.g., use $80\%$ of limit)
 
-**Common Pitfalls to Avoid:**
+### ❌ Anti-Pattern 5: No Circuit Breaker
 
-1. ❌ Synchronous notification delivery (blocks user requests)
-2. ❌ No idempotency handling (duplicate notifications)
-3. ❌ No rate limiting (overwhelm third-party APIs)
-4. ❌ No circuit breaker (cascading failures during outages)
-5. ❌ Single worker for all channels (cannot scale independently)
-6. ❌ Storing sensitive data in logs (GDPR violations)
-7. ❌ No retry logic with exponential backoff (overwhelm failing services)
-8. ❌ Hardcoded notification templates (requires deployment for copy changes)
+**Problem**: When third-party API is down, workers continuously retry:
 
-**Recommended Stack:**
+- Wastes resources on failing requests
+- Delays processing of other notifications
+- Increases load on already struggling provider
 
-- **API Gateway:** Kong or AWS API Gateway (auth, rate limiting)
-- **Message Queue:** Apache Kafka (fault-tolerant, high throughput)
-- **Notification Service:** Go or Java (stateless, horizontally scalable)
-- **Workers:** Python (asyncio) or Go (goroutines) for async I/O
-- **Cache:** Redis Cluster (user preferences, idempotency keys)
-- **Logs Database:** Cassandra or ScyllaDB (write-optimized)
-- **User Preferences:** PostgreSQL (ACID, relations)
-- **Third-Party Providers:** SendGrid (email), Twilio (SMS), FCM/APNS (push)
-- **WebSocket:** Socket.io or native WebSockets with sticky sessions
-- **Monitoring:** Prometheus + Grafana + PagerDuty + Distributed Tracing (Jaeger)
+✅ **Best Practice**: Implement Circuit Breaker pattern:
 
-**Cost Efficiency:**
+- *See pseudocode.md::CircuitBreaker class*
+- Open circuit after N consecutive failures
+- Periodically test with single request to detect recovery
 
-- Optimize with Reserved Instances (save 40% on EC2)
-- Use Spot Instances for non-critical workers (save 70%)
-- Encourage push over SMS (10× cheaper)
-- Implement digest mode for email (50% fewer emails)
-- **Optimized cost:** ~$7,100/month for 1B notifications/day ($0.000007 per notification)
+### ❌ Anti-Pattern 6: Single Worker for All Channels
 
-**Real-World Comparisons:**
+**Problem**: One worker handles Email, SMS, Push, and Web notifications:
 
-| Feature                  | Our Design               | Slack                | Uber                 | Amazon SNS         |
-|--------------------------|--------------------------|----------------------|----------------------|--------------------|
-| **Channels**             | Email, SMS, Push, Web    | Push, Web, Email     | Push, SMS            | Multi-channel      |
-| **Scale**                | 1B notifications/day     | Unknown (very high)  | Unknown (very high)  | Trillions/day      |
-| **Real-Time**            | WebSockets (<100ms)      | WebSockets           | WebSockets           | Pub/Sub            |
-| **Async Queue**          | Kafka                    | Kafka                | Proprietary          | AWS SQS/SNS        |
-| **Logs**                 | Cassandra                | Cassandra            | Cassandra            | DynamoDB           |
-| **Third-Party**          | SendGrid, Twilio, FCM    | In-house + third-party| Twilio, FCM, APNS   | Multiple providers |
-| **Cost (1B notif/day)**  | ~$7,100/month            | Unknown              | Unknown              | ~$10/month + usage |
+- Cannot scale channels independently
+- Failures in one channel affect all channels
+- Rate limiting becomes complex
 
-This design provides a **production-ready, scalable blueprint** for building a notification service that can handle billions of notifications per day across multiple channels while maintaining high reliability and cost efficiency! 🚀
+✅ **Best Practice**: Separate workers per channel with dedicated Kafka topics.
 
 ---
 
-## Getting Started
+## 10. Alternative Approaches
 
-1. **Read Main Document**: [3.2.2-design-notification-service.md](./3.2.2-design-notification-service.md)
-2. **Explore Diagrams**: [hld-diagram.md](./hld-diagram.md) and [sequence-diagrams.md](./sequence-diagrams.md)
-3. **Understand Decisions**: [this-over-that.md](./this-over-that.md)
-4. **Study Algorithms**: [pseudocode.md](./pseudocode.md)
+### 10.1 Alternative 1: Serverless Architecture (AWS Lambda)
 
-## References
+**Approach**: Replace workers with AWS Lambda functions triggered by Kafka or SQS.
 
-- **[2.3.1 Asynchronous Communication](../../02-components/2.3.1-asynchronous-communication.md)**
-- **[2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md)**
-- **[2.0.3 Real-Time Communication](../../02-components/2.0.3-real-time-communication.md)**
-- **[2.5.1 Rate Limiting Algorithms](../../02-components/2.5.1-rate-limiting-algorithms.md)**
-- **[3.2.1 Design Twitter Timeline](../3.2.1-twitter-timeline/)** - Similar fanout patterns
+**Pros**:
 
-## Getting Started
+- **Auto-Scaling**: Automatically scales to handle traffic spikes
+- **No Server Management**: Fully managed by AWS
+- **Cost**: Pay per invocation (can be cheaper at low volumes)
 
-1. **Read Main Document**: [3.2.2-design-notification-service.md](./3.2.2-design-notification-service.md)
-2. **Explore Diagrams**: [hld-diagram.md](./hld-diagram.md) and [sequence-diagrams.md](./sequence-diagrams.md)
-3. **Understand Decisions**: [this-over-that.md](./this-over-that.md)
-4. **Study Algorithms**: [pseudocode.md](./pseudocode.md)
+**Cons**:
 
-## References
+- **Cold Starts**: $\sim 1$-$3$ second latency for cold starts (problematic for real-time)
+- **Timeouts**: Lambda has $15$ minute max execution time
+- **Vendor Lock-In**: Hard to migrate away from AWS
+- **Connection Limits**: Hard to maintain persistent WebSocket connections
 
-- **[2.3.1 Asynchronous Communication](../../02-components/2.3.1-asynchronous-communication.md)**
-- **[2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md)**
-- **[2.0.3 Real-Time Communication](../../02-components/2.0.3-real-time-communication.md)**
-- **[2.5.1 Rate Limiting Algorithms](../../02-components/2.5.1-rate-limiting-algorithms.md)**
-- **[3.2.1 Design Twitter Timeline](../3.2.1-twitter-timeline/)** - Similar fanout patterns
+**When to Use**: Suitable for small to medium scale ($< 10$ M notifications/day) with bursty traffic.
 
+### 10.2 Alternative 2: Pull-Based Architecture
+
+**Approach**: Instead of pushing notifications, clients poll the server for new notifications.
+
+**Pros**:
+
+- **Simpler**: No WebSocket connection management
+- **Firewall-Friendly**: Works in restrictive corporate networks
+- **Stateless**: No need to track connections
+
+**Cons**:
+
+- **Higher Latency**: Polling interval (e.g., every $30$ seconds) delays notifications
+- **Wasted Resources**: Clients poll even when there are no notifications
+- **Battery Drain**: Frequent polling drains mobile battery
+
+**When to Use**: Suitable for non-critical notifications where latency > $30$ seconds is acceptable.
+
+### 10.3 Alternative 3: Single Database for Everything
+
+**Approach**: Use PostgreSQL for user preferences, templates, AND notification logs.
+
+**Pros**:
+
+- **Simplicity**: One database to manage
+- **ACID Guarantees**: Strong consistency for all data
+- **Powerful Queries**: Can run complex analytics queries
+
+**Cons**:
+
+- **Scalability**: PostgreSQL struggles with $1$ billion writes/day
+- **Cost**: Expensive to vertically scale
+- **Single Point of Failure**: Database outage affects entire system
+
+**When to Use**: Suitable for small scale ($< 1$ M notifications/day) where simplicity is prioritized over scalability.
+
+### 10.4 Alternative 4: Using RabbitMQ Instead of Kafka
+
+**Approach**: Use RabbitMQ as the message broker instead of Kafka.
+
+**Comparison**:
+
+| Aspect               | Kafka                            | RabbitMQ                                |
+|----------------------|----------------------------------|-----------------------------------------|
+| **Throughput**       | Very High ($> 1$ M msg/s)        | Moderate ($\sim 20$k msg/s)             |
+| **Message Ordering** | Guaranteed per partition         | Guaranteed per queue                    |
+| **Message Replay**   | Yes (retain logs)                | No (messages deleted after consumption) |
+| **Latency**          | $\sim 10$ ms                     | $\sim 5$ ms                             |
+| **Complexity**       | Higher                           | Lower                                   |
+| **Use Case**         | High-throughput, event streaming | Traditional message queue               |
+
+**When to Use RabbitMQ**: For smaller scale or when you need advanced routing (topic exchanges, fanout).
+
+**Why We Chose Kafka**: Higher throughput, message replay for debugging, and log retention for auditing.
+
+---
+
+## 11. Monitoring and Observability
+
+### 11.1 Key Metrics
+
+**Business Metrics**:
+
+- **Notification Volume**: Total notifications sent per day/hour (by channel)
+- **Delivery Rate**: Percentage of successfully delivered notifications
+- **Delivery Latency**: P50, P95, P99 latency from event trigger to delivery
+- **User Engagement**: Open rate, click rate for emails and push notifications
+
+**System Metrics**:
+
+- **API Gateway**: Request rate, error rate, latency
+- **Notification Service**: Processing rate, cache hit rate, error rate
+- **Kafka**: Consumer lag, partition count, throughput
+- **Workers**: Messages processed per second, error rate, retry rate
+- **Cassandra**: Write throughput, read latency, disk usage
+- **WebSocket**: Active connections, disconnection rate, message latency
+
+**Third-Party Metrics**:
+
+- **SendGrid**: Email delivery rate, bounce rate, spam rate
+- **Twilio**: SMS delivery rate, cost per SMS
+- **FCM/APNS**: Push delivery rate, invalid token rate
+
+### 11.2 Alerting Rules
+
+**Critical Alerts** (PagerDuty):
+
+- Consumer lag > $10$ minutes on any Kafka topic
+- Notification Service error rate > $5\%$
+- Any worker error rate > $10\%$
+- Cassandra write latency > $100$ ms
+- DLQ message count > $10,000$
+
+**Warning Alerts** (Slack):
+
+- Cache hit rate < $80\%$
+- Third-party API latency > $2$ seconds
+- WebSocket disconnection rate > $10\%$
+- Disk usage > $70\%$ on any node
+
+### 11.3 Dashboards
+
+**Grafana Dashboards**:
+
+1. **Overview Dashboard**: Total notifications, delivery rate, latency
+2. **Channel Dashboard**: Metrics per channel (Email, SMS, Push, Web)
+3. **Kafka Dashboard**: Consumer lag, throughput, partition distribution
+4. **Worker Dashboard**: Processing rate, error rate, retry rate per worker
+5. **Third-Party Dashboard**: API latency, error rate for SendGrid, Twilio, FCM/APNS
+
+### 11.4 Distributed Tracing
+
+Use **Jaeger** or **Zipkin** to trace notification flow:
+
+- Trace ID: Unique ID for each notification
+- Spans: API Gateway → Notification Service → Kafka → Worker → Third-Party API
+- Visualize end-to-end latency and identify bottlenecks
+
+### 11.5 Log Aggregation
+
+Use **ELK Stack** (Elasticsearch, Logstash, Kibana) for centralized logging:
+
+- Collect logs from all services
+- Query logs by `notification_id`, `user_id`, `channel`
+- Set up alerts for specific error patterns
+
+---
+
+## 12. Trade-offs Summary
+
+| Decision                     | What We Gain                                       | What We Sacrifice                                 |
+|------------------------------|----------------------------------------------------|---------------------------------------------------|
+| **Kafka for Async**          | Guaranteed delivery, scalability, retry capability | $\sim 100$ ms added latency, increased complexity |
+| **Cassandra for Logs**       | High write throughput, horizontal scalability      | No complex joins, eventual consistency            |
+| **WebSockets for Real-Time** | Low latency ($<100$ ms), efficient                 | Complex connection management, sticky sessions    |
+| **Multi-Channel Workers**    | Independent scaling, failure isolation             | More microservices, operational overhead          |
+| **Redis Cache**              | Low latency ($<1$ ms), reduced DB load             | Stale data (up to $5$ min), cache management      |
+| **Template-Based**           | Flexibility, localization, A/B testing             | Additional DB lookups, parsing overhead           |
+| **Circuit Breaker**          | Prevent cascading failures, fast recovery          | Some notifications may be delayed during recovery |
+| **Idempotency Keys**         | No duplicate notifications                         | Requires client to generate unique keys           |
+
+---
+
+## 13. Real-World Examples
+
+### 13.1 Slack Notifications
+
+**Architecture**:
+
+- WebSockets for real-time in-app notifications
+- Push notifications via FCM/APNS for mobile
+- Email notifications for mentions and digests
+- Kafka for event streaming
+- Cassandra for message history
+
+**Scale**: $> 10$ M daily active users, $> 2$ billion messages per day
+
+### 13.2 Uber Notifications
+
+**Architecture**:
+
+- Real-time driver location updates via WebSockets
+- Push notifications for ride status (driver arriving, trip started)
+- SMS fallback for critical notifications (payment issues)
+- Multi-region deployment for low latency
+- Redis for caching driver locations and user preferences
+
+**Scale**: $> 100$ M users globally, millions of rides per day
+
+### 13.3 Amazon Order Notifications
+
+**Architecture**:
+
+- Email for order confirmations and shipping updates
+- Push notifications via mobile app
+- SMS for delivery alerts
+- SQS (similar to Kafka) for message queuing
+- DynamoDB (NoSQL) for notification logs
+- A/B testing for notification copy to optimize engagement
+
+**Scale**: Hundreds of millions of orders per day
+
+### 13.4 Facebook Notifications
+
+**Architecture**:
+
+- Real-time notifications via persistent connections (similar to WebSockets)
+- Push notifications for mobile
+- Email digests for unread notifications
+- Sophisticated preference system (granular control per notification type)
+- Multi-region deployment with geo-partitioning
+
+**Scale**: $> 2$ billion users, trillions of notifications per year
+
+---
+
+## 14. References
+
+### Related System Design Components
+
+- **[2.3.1 Asynchronous Communication](../../02-components/2.3.1-asynchronous-communication.md)** - Queues vs Streams,
+  Pub/Sub models
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md)** - Partitions, Consumer Groups, Offset
+  Management
+- **[2.3.3 Advanced Message Queues](../../02-components/2.3.3-advanced-message-queues.md)** - RabbitMQ, SQS, Dead-Letter
+  Queues
+- **[2.0.3 Real-Time Communication](../../02-components/2.0.3-real-time-communication.md)** - WebSockets, SSE, Long
+  Polling
+- **[2.5.1 Rate Limiting Algorithms](../../02-components/2.5.1-rate-limiting-algorithms.md)** - Token Bucket, Leaky
+  Bucket
+- **[2.2.1 Caching Deep Dive](../../02-components/2.2.1-caching-deep-dive.md)** - Cache strategies, eviction policies
+- **[2.1.4 Database Scaling](../../02-components/2.1.4-database-scaling.md)** - Sharding, Replication strategies
+
+### Related Design Challenges
+
+- **[3.2.1 Twitter Timeline](../3.2.1-twitter-timeline/)** - Similar fanout and real-time notification patterns
+- **[3.1.2 Distributed Cache](../3.1.2-distributed-cache/)** - Caching strategies used in this design
+- **[3.3.1 Live Chat System](../3.3.1-live-chat-system/)** - WebSocket real-time communication patterns
+
+### External Resources
+
+- **Kafka Documentation:** [Apache Kafka](https://kafka.apache.org/documentation/) - Message queue and streaming
+  platform
+- **AWS SNS/SQS Documentation:** [Amazon SNS](https://docs.aws.amazon.com/sns/) - Managed notification and queue
+  services
+- **FCM Documentation:** [Firebase Cloud Messaging](https://firebase.google.com/docs/cloud-messaging) - Push
+  notifications for Android/iOS
+- **APNS Documentation:
+  ** [Apple Push Notification Service](https://developer.apple.com/documentation/usernotifications) - Push notifications
+  for iOS
+- **SendGrid Documentation:** [SendGrid API](https://docs.sendgrid.com/) - Email delivery service
+- **Twilio Documentation:** [Twilio API](https://www.twilio.com/docs) - SMS and voice communication
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Deep dive into distributed systems, message queues, and
+  event-driven architecture
+- *Building Microservices* by Sam Newman - Microservices patterns and best practices
+- *Kafka: The Definitive Guide* by Neha Narkhede - Comprehensive guide to Apache Kafka

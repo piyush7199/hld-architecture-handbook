@@ -1,6 +1,7 @@
 # Sequence Diagrams: Notification Service
 
-This document contains detailed sequence diagrams showing the interactions between components for various notification scenarios.
+This document contains detailed sequence diagrams showing the interactions between components for various notification
+scenarios.
 
 ## Table of Contents
 
@@ -26,7 +27,8 @@ This document contains detailed sequence diagrams showing the interactions betwe
 
 **Flow:**
 
-Shows the complete flow from order confirmation event to notification being queued for delivery across multiple channels.
+Shows the complete flow from order confirmation event to notification being queued for delivery across multiple
+channels.
 
 **Steps:**
 
@@ -65,53 +67,41 @@ sequenceDiagram
     participant EW as Email Worker
     participant PW as Push Worker
     participant WW as Web Worker
-    
     Note over OS: Order Completed Successfully
-    OS->>AG: POST /notifications<br/>{user_id, event_type, idempotency_key}
+    OS ->> AG: POST /notifications<br/>{user_id, event_type, idempotency_key}
     Note right of OS: 0ms
-    
-    AG->>AG: Validate JWT Token<br/>Check Rate Limit
+    AG ->> AG: Validate JWT Token<br/>Check Rate Limit
     Note right of AG: 10ms: Auth OK
-    
-    AG->>NS: Forward Request
+    AG ->> NS: Forward Request
     Note right of AG: 15ms
-    
-    NS->>RC: Check Idempotency Key
-    RC-->>NS: Not Duplicate
+    NS ->> RC: Check Idempotency Key
+    RC -->> NS: Not Duplicate
     Note right of RC: 25ms: Key not found
-    
-    NS->>RC: Get User Preferences<br/>key: user:prefs:123
-    RC-->>NS: {email: true, push: true,<br/>sms: false, web: true}
+    NS ->> RC: Get User Preferences<br/>key: user:prefs:123
+    RC -->> NS: {email: true, push: true,<br/>sms: false, web: true}
     Note right of RC: 30ms: Cache Hit
-    
-    NS->>RC: Get Template<br/>key: template:order_confirmation
-    RC-->>NS: {subject: "Order {{id}} Confirmed",<br/>body: "Your order {{id}} for {{amount}}"}
+    NS ->> RC: Get Template<br/>key: template:order_confirmation
+    RC -->> NS: {subject: "Order {{id}} Confirmed",<br/>body: "Your order {{id}} for {{amount}}"}
     Note right of RC: 35ms: Cache Hit
-    
-    NS->>NS: Substitute Variables<br/>{{id}} → ORD-789<br/>{{amount}} → $99.99
+    NS ->> NS: Substitute Variables<br/>{{id}} → ORD-789<br/>{{amount}} → $99.99
     Note right of NS: 40ms
-    
-    NS->>NS: Select Channels<br/>Email ✓, Push ✓, Web ✓<br/>SMS ✗ (user disabled)
+    NS ->> NS: Select Channels<br/>Email ✓, Push ✓, Web ✓<br/>SMS ✗ (user disabled)
     Note right of NS: 45ms
-    
+
     par Publish to Multiple Topics
-        NS->>K: Publish to email-notifications
-        NS->>K: Publish to push-notifications
-        NS->>K: Publish to web-notifications
+        NS ->> K: Publish to email-notifications
+        NS ->> K: Publish to push-notifications
+        NS ->> K: Publish to web-notifications
     end
     Note right of K: 55ms: All published
-    
-    NS->>AG: 202 Accepted<br/>{notification_id: UUID}
-    AG->>OS: 202 Accepted
+    NS ->> AG: 202 Accepted<br/>{notification_id: UUID}
+    AG ->> OS: 202 Accepted
     Note right of AG: 60ms: Total API Response Time
-    
-    Note over K,WW: Async Background Processing
-    
-    K->>EW: Consume email-notifications
-    K->>PW: Consume push-notifications
-    K->>WW: Consume web-notifications
-    
-    Note over EW,WW: Workers deliver notifications<br/>in parallel (1-5 seconds)
+    Note over K, WW: Async Background Processing
+    K ->> EW: Consume email-notifications
+    K ->> PW: Consume push-notifications
+    K ->> WW: Consume web-notifications
+    Note over EW, WW: Workers deliver notifications<br/>in parallel (1-5 seconds)
 ```
 
 ---
@@ -156,34 +146,25 @@ sequenceDiagram
     participant SG as SendGrid API
     participant CS as Cassandra<br/>Logs
     participant U as End User<br/>Email Client
-    
-    K->>EW: Consume Message (Batch: 100)<br/>{user_id, email, subject, body}
+    K ->> EW: Consume Message (Batch: 100)<br/>{user_id, email, subject, body}
     Note right of K: 0s: Worker polls
-    
-    EW->>RL: Check Token Availability
-    RL-->>EW: Tokens: 50/1000 available
+    EW ->> RL: Check Token Availability
+    RL -->> EW: Tokens: 50/1000 available
     Note right of RL: 0.1s: Can send
-    
-    EW->>CB: Check Circuit State
-    CB-->>EW: CLOSED (Healthy)
+    EW ->> CB: Check Circuit State
+    CB -->> EW: CLOSED (Healthy)
     Note right of CB: 0.1s: Circuit closed
-    
-    EW->>SG: POST /v3/mail/send<br/>{to, from, subject, body}
+    EW ->> SG: POST /v3/mail/send<br/>{to, from, subject, body}
     Note right of EW: 0.2s: HTTP POST
-    
-    SG-->>EW: 202 Accepted<br/>{message_id: "msg-xyz"}
+    SG -->> EW: 202 Accepted<br/>{message_id: "msg-xyz"}
     Note right of SG: 1s: SendGrid queued
-    
-    EW->>CS: INSERT INTO notification_logs<br/>{id, user_id, channel: 'email',<br/>status: 'sent', timestamp}
+    EW ->> CS: INSERT INTO notification_logs<br/>{id, user_id, channel: 'email',<br/>status: 'sent', timestamp}
     Note right of CS: 3.1s: Log written
-    
-    EW->>K: Commit Offset (Partition 3, Offset 12345)
+    EW ->> K: Commit Offset (Partition 3, Offset 12345)
     Note right of K: 3.2s: Message processed
-    
-    Note over SG,U: Background SMTP Delivery
-    SG->>U: SMTP Delivery to mail server
+    Note over SG, U: Background SMTP Delivery
+    SG ->> U: SMTP Delivery to mail server
     Note right of U: 3-5s: Email delivered
-    
     Note over CS: Update status to 'delivered'<br/>when webhook received
 ```
 
@@ -229,39 +210,29 @@ sequenceDiagram
     participant TW as Twilio API
     participant CS as Cassandra
     participant U as End User<br/>Mobile Phone
-    
-    K->>SW: Consume Message<br/>{user_id, phone, message}
+    K ->> SW: Consume Message<br/>{user_id, phone, message}
     Note right of K: 0s
-    
-    SW->>RL: Request Token
-    RL-->>SW: Token Available (78/100)
+    SW ->> RL: Request Token
+    RL -->> SW: Token Available (78/100)
     Note right of RL: 0.05s: Under limit
-    
-    SW->>CB: Check Circuit
-    CB-->>SW: CLOSED
+    SW ->> CB: Check Circuit
+    CB -->> SW: CLOSED
     Note right of CB: 0.05s
-    
-    SW->>TW: POST /2010-04-01/Accounts/{id}/Messages<br/>{To: +1234567890, Body: "Your OTP is 123456"}
+    SW ->> TW: POST /2010-04-01/Accounts/{id}/Messages<br/>{To: +1234567890, Body: "Your OTP is 123456"}
     Note right of SW: 0.1s
-    
-    TW-->>SW: 201 Created<br/>{sid: "SM-abc123", status: "queued"}
+    TW -->> SW: 201 Created<br/>{sid: "SM-abc123", status: "queued"}
     Note right of TW: 0.5s: Twilio accepted
-    
-    SW->>CS: INSERT notification_logs<br/>{id, status: 'sent', twilio_sid}
+    SW ->> CS: INSERT notification_logs<br/>{id, status: 'sent', twilio_sid}
     Note right of CS: 1.6s
-    
-    SW->>K: Commit Offset
+    SW ->> K: Commit Offset
     Note right of K: 1.6s
-    
-    Note over TW,U: Cellular Network Delivery
-    TW->>U: SMS via Carrier
+    Note over TW, U: Cellular Network Delivery
+    TW ->> U: SMS via Carrier
     Note right of U: 1.5-3s: SMS delivered
-    
-    U-->>TW: Delivery Receipt
-    TW->>SW: Webhook: Status Callback<br/>{sid, status: 'delivered'}
+    U -->> TW: Delivery Receipt
+    TW ->> SW: Webhook: Status Callback<br/>{sid, status: 'delivered'}
     Note right of TW: 2s
-    
-    SW->>CS: UPDATE notification_logs<br/>SET status = 'delivered'
+    SW ->> CS: UPDATE notification_logs<br/>SET status = 'delivered'
     Note right of CS: 2.1s: Final status
 ```
 
@@ -271,7 +242,8 @@ sequenceDiagram
 
 **Flow:**
 
-Shows push notification delivery to mobile devices via FCM (Android) and APNS (iOS), including batch processing and device token handling.
+Shows push notification delivery to mobile devices via FCM (Android) and APNS (iOS), including batch processing and
+device token handling.
 
 **Steps:**
 
@@ -307,41 +279,35 @@ sequenceDiagram
     participant FCM as FCM API<br/>(Firebase)
     participant CS as Cassandra
     participant D as End User<br/>Mobile Device
-    
-    K->>PW: Consume Messages (Batch: 200)
+    K ->> PW: Consume Messages (Batch: 200)
     Note right of K: 0s
-    
+
     loop For Each User
-        PW->>RC: Get Device Tokens<br/>key: device:tokens:user:123
-        RC-->>PW: [{token: "fcm-token-1", platform: "android"},<br/>{token: "apn-token-2", platform: "ios"}]
+        PW ->> RC: Get Device Tokens<br/>key: device:tokens:user:123
+        RC -->> PW: [{token: "fcm-token-1", platform: "android"},<br/>{token: "apn-token-2", platform: "ios"}]
     end
     Note right of RC: 0.1s: All tokens fetched
-    
-    PW->>PW: Group by Platform<br/>Android: 120<br/>iOS: 80
+    PW ->> PW: Group by Platform<br/>Android: 120<br/>iOS: 80
     Note right of PW: 0.2s: Batching
-    
-    PW->>FCM: POST /fcm/send (Batch: 100)<br/>{registration_ids: [...],<br/>notification: {title, body},<br/>data: {...}}
+    PW ->> FCM: POST /fcm/send (Batch: 100)<br/>{registration_ids: [...],<br/>notification: {title, body},<br/>data: {...}}
     Note right of PW: 0.3s: Batch API call
-    
-    FCM-->>PW: 200 OK<br/>{multicast_id: 123,<br/>success: 98,<br/>failure: 2,<br/>results: [{message_id: "..."}, {error: "InvalidRegistration"}]}
+    FCM -->> PW: 200 OK<br/>{multicast_id: 123,<br/>success: 98,<br/>failure: 2,<br/>results: [{message_id: "..."}, {error: "InvalidRegistration"}]}
     Note right of FCM: 1s: Batch response
-    
-    Note over FCM,D: FCM Pushes to Devices
-    FCM->>D: Push Notification<br/>(via persistent connection)
+    Note over FCM, D: FCM Pushes to Devices
+    FCM ->> D: Push Notification<br/>(via persistent connection)
     Note right of D: 1.5s: Notification received
-    
+
     loop For Each Result
         alt Success
-            PW->>CS: INSERT {id, status: 'delivered'}
+            PW ->> CS: INSERT {id, status: 'delivered'}
         else Invalid Token
-            PW->>CS: INSERT {id, status: 'failed', error: 'InvalidRegistration'}
-            PW->>RC: DELETE device:tokens:user:123:token-1
+            PW ->> CS: INSERT {id, status: 'failed', error: 'InvalidRegistration'}
+            PW ->> RC: DELETE device:tokens:user:123:token-1
             Note right of PW: Cleanup invalid token
         end
     end
     Note right of CS: 1.6s: All logged
-    
-    PW->>K: Commit Offset
+    PW ->> K: Commit Offset
     Note right of K: 1.7s: Batch processed
 ```
 
@@ -351,7 +317,8 @@ sequenceDiagram
 
 **Flow:**
 
-Shows real-time in-app notification delivery via WebSocket persistent connection, including cross-server message routing via Redis Pub/Sub.
+Shows real-time in-app notification delivery via WebSocket persistent connection, including cross-server message routing
+via Redis Pub/Sub.
 
 **Steps:**
 
@@ -388,36 +355,26 @@ sequenceDiagram
     participant WSS as WebSocket Server 42
     participant C as Browser/Mobile<br/>End User
     participant CS as Cassandra
-    
-    K->>WW: Consume Message<br/>{user_id: 123, notification: {...}}
+    K ->> WW: Consume Message<br/>{user_id: 123, notification: {...}}
     Note right of K: 0s
-    
-    WW->>CR: GET connection:user:123
-    CR-->>WW: "server:42"
+    WW ->> CR: GET connection:user:123
+    CR -->> WW: "server:42"
     Note right of CR: 0.05s: Server found
-    
-    WW->>PS: PUBLISH server:42:notifications<br/>{user_id: 123, notification: {...}}
+    WW ->> PS: PUBLISH server:42:notifications<br/>{user_id: 123, notification: {...}}
     Note right of PS: 0.1s: Pub/Sub publish
-    
-    PS->>WSS: Message Received (Subscribed)
+    PS ->> WSS: Message Received (Subscribed)
     Note right of WSS: 0.15s
-    
-    WSS->>WSS: Lookup Connection<br/>user:123 → socket:fd-7890
+    WSS ->> WSS: Lookup Connection<br/>user:123 → socket:fd-7890
     Note right of WSS: 0.18s
-    
-    WSS->>C: WebSocket Push<br/>{type: 'notification', data: {...}}
+    WSS ->> C: WebSocket Push<br/>{type: 'notification', data: {...}}
     Note right of C: 0.2s: <100ms latency
-    
-    C-->>WSS: ACK {notification_id: UUID}
+    C -->> WSS: ACK {notification_id: UUID}
     Note right of C: 0.3s: Client confirms
-    
-    WSS->>CS: INSERT notification_logs<br/>{id, status: 'delivered', ack_time: ...}
+    WSS ->> CS: INSERT notification_logs<br/>{id, status: 'delivered', ack_time: ...}
     Note right of CS: 0.35s
-    
-    WSS->>PS: PUBLISH acks:worker<br/>{notification_id, status: 'acked'}
-    PS->>WW: ACK Received
-    
-    WW->>K: Commit Offset
+    WSS ->> PS: PUBLISH acks:worker<br/>{notification_id, status: 'acked'}
+    PS ->> WW: ACK Received
+    WW ->> K: Commit Offset
     Note right of K: 0.4s: <500ms total
 ```
 
@@ -427,7 +384,8 @@ sequenceDiagram
 
 **Flow:**
 
-Shows how a single notification event is delivered across multiple channels (Email, Push, Web) in parallel based on user preferences.
+Shows how a single notification event is delivered across multiple channels (Email, Push, Web) in parallel based on user
+preferences.
 
 **Steps:**
 
@@ -435,9 +393,9 @@ Shows how a single notification event is delivered across multiple channels (Ema
 2. **Preference Lookup** (0.03s): User has email ✓, push ✓, web ✓, SMS ✗
 3. **Kafka Publish** (0.06s): Publishes to 3 topics simultaneously
 4. **Parallel Processing** (0-5s): Three workers consume and process independently
-   - **Email Worker** → SendGrid (3-5s)
-   - **Push Worker** → FCM (1-2s)
-   - **Web Worker** → WebSocket (0.5s)
+    - **Email Worker** → SendGrid (3-5s)
+    - **Push Worker** → FCM (1-2s)
+    - **Web Worker** → WebSocket (0.5s)
 5. **User Experience**: User sees notification in app first (0.5s), push arrives second (1-2s), email last (3-5s)
 
 **Performance:**
@@ -465,41 +423,35 @@ sequenceDiagram
     participant FCM as FCM
     participant WSS as WebSocket
     participant U as End User
-    
     Note over NS: Order Confirmed Event<br/>User Prefs: Email✓ Push✓ Web✓ SMS✗
-    
-    NS->>NS: Check Preferences<br/>Select Channels
+    NS ->> NS: Check Preferences<br/>Select Channels
     Note right of NS: 0.03s
-    
+
     par Publish to Multiple Topics
-        NS->>K: email-notifications
-        NS->>K: push-notifications
-        NS->>K: web-notifications
+        NS ->> K: email-notifications
+        NS ->> K: push-notifications
+        NS ->> K: web-notifications
     end
     Note right of K: 0.06s: All published
-    
-    NS-->>NS: Return 202 to caller
+    NS -->> NS: Return 202 to caller
     Note right of NS: 0.06s: API returns
-    
     Note over K: Parallel Async Processing
-    
+
     par Parallel Worker Processing
-        K->>EW: Consume Email
-        EW->>SG: Send Email
-        SG-->>U: Email Delivered
+        K ->> EW: Consume Email
+        EW ->> SG: Send Email
+        SG -->> U: Email Delivered
         Note right of U: 3-5s: Email arrives
-        
-        K->>PW: Consume Push
-        PW->>FCM: Send Push
-        FCM-->>U: Push Delivered
+        K ->> PW: Consume Push
+        PW ->> FCM: Send Push
+        FCM -->> U: Push Delivered
         Note right of U: 1-2s: Push arrives
-        
-        K->>WW: Consume Web
-        WW->>WSS: WebSocket Push
-        WSS-->>U: In-App Notification
+        K ->> WW: Consume Web
+        WW ->> WSS: WebSocket Push
+        WSS -->> U: In-App Notification
         Note right of U: 0.5s: Bell icon appears
     end
-    
+
     Note over U: User sees notification in app first,<br/>then push, then email
 ```
 
@@ -550,78 +502,63 @@ sequenceDiagram
     participant CB as Circuit Breaker<br/>State: CLOSED
     participant SG as SendGrid API<br/>(Down)
     participant M as Monitoring<br/>PagerDuty
-    
     Note over SG: SendGrid Outage Begins
-    
-    K->>EW: Message 1
-    EW->>CB: Check Circuit (CLOSED)
-    CB->>SG: POST /send
-    SG-->>CB: 503 Service Unavailable
+    K ->> EW: Message 1
+    EW ->> CB: Check Circuit (CLOSED)
+    CB ->> SG: POST /send
+    SG -->> CB: 503 Service Unavailable
     Note right of SG: 1s: Failure 1/5
-    
-    CB-->>EW: Retry (Backoff: 1s)
+    CB -->> EW: Retry (Backoff: 1s)
     Note right of EW: 2s: Retry Attempt 1
-    
-    EW->>SG: POST /send
-    SG-->>EW: 503 Service Unavailable
+    EW ->> SG: POST /send
+    SG -->> EW: 503 Service Unavailable
     Note right of SG: 3s: Failure 2/5
-    
-    EW->>EW: Backoff 2s
+    EW ->> EW: Backoff 2s
     Note right of EW: 5s: Retry Attempt 2
-    
-    EW->>SG: POST /send
-    SG-->>EW: 503 Service Unavailable
+    EW ->> SG: POST /send
+    SG -->> EW: 503 Service Unavailable
     Note right of SG: 6s: Failure 3/5
-    
-    EW->>EW: Backoff 4s
+    EW ->> EW: Backoff 4s
     Note right of EW: 10s: Retry Attempt 3 (Max)
-    
-    EW->>SG: POST /send
-    SG-->>EW: 503 Service Unavailable
+    EW ->> SG: POST /send
+    SG -->> EW: 503 Service Unavailable
     Note right of SG: 11s: Failure 4/5
-    
-    K->>EW: Message 2
-    EW->>CB: Check Circuit
-    CB->>SG: POST /send
-    SG-->>CB: 503 Service Unavailable
+    K ->> EW: Message 2
+    EW ->> CB: Check Circuit
+    CB ->> SG: POST /send
+    SG -->> CB: 503 Service Unavailable
     Note right of CB: 11s: Failure 5/5
-    
-    CB->>CB: Open Circuit<br/>(Threshold Reached)
-    CB->>M: Alert: Circuit Opened<br/>SendGrid Down
+    CB ->> CB: Open Circuit<br/>(Threshold Reached)
+    CB ->> M: Alert: Circuit Opened<br/>SendGrid Down
     Note right of M: 11s: PagerDuty Alert
-    
-    Note over K,SG: Circuit OPEN: Fast Failure Mode
-    
+    Note over K, SG: Circuit OPEN: Fast Failure Mode
+
     loop Fast Failure (60 seconds)
-        K->>EW: Message N
-        EW->>CB: Check Circuit (OPEN)
-        CB-->>EW: Fail Immediately<br/>(No API call)
-        EW->>K: Don't Commit Offset<br/>(Message stays in Kafka)
+        K ->> EW: Message N
+        EW ->> CB: Check Circuit (OPEN)
+        CB -->> EW: Fail Immediately<br/>(No API call)
+        EW ->> K: Don't Commit Offset<br/>(Message stays in Kafka)
     end
     Note right of K: 11-71s: Messages buffered
-    
     Note over CB: 60s timeout elapsed
-    CB->>CB: Transition to HALF-OPEN
+    CB ->> CB: Transition to HALF-OPEN
     Note right of CB: 71s: Test recovery
-    
-    K->>EW: Message N+1
-    EW->>CB: Check Circuit (HALF-OPEN)
-    CB->>SG: Test Request (Single)
-    SG-->>CB: 200 OK (Recovered!)
+    K ->> EW: Message N+1
+    EW ->> CB: Check Circuit (HALF-OPEN)
+    CB ->> SG: Test Request (Single)
+    SG -->> CB: 200 OK (Recovered!)
     Note right of SG: 71s: SendGrid is back
-    
-    CB->>CB: Close Circuit<br/>(Recovered)
-    CB->>M: Alert: Circuit Closed<br/>SendGrid Recovered
+    CB ->> CB: Close Circuit<br/>(Recovered)
+    CB ->> M: Alert: Circuit Closed<br/>SendGrid Recovered
     Note right of M: 71s: Recovery notification
-    
-    Note over K,SG: Resume Normal Processing
-    
+    Note over K, SG: Resume Normal Processing
+
     loop Process Backlog
-        K->>EW: Buffered Messages
-        EW->>CB: Check Circuit (CLOSED)
-        CB->>SG: POST /send
-        SG-->>CB: 200 OK
-        EW->>K: Commit Offset
+        K ->> EW: Buffered Messages
+        EW ->> CB: Check Circuit (CLOSED)
+        CB ->> SG: POST /send
+        SG -->> CB: 200 OK
+        EW ->> K: Commit Offset
     end
     Note right of K: 72s+: Backlog processing
 ```
@@ -632,7 +569,8 @@ sequenceDiagram
 
 **Flow:**
 
-Shows how the system handles invalid or expired push notification device tokens, including cleanup and fallback to other channels.
+Shows how the system handles invalid or expired push notification device tokens, including cleanup and fallback to other
+channels.
 
 **Steps:**
 
@@ -670,43 +608,30 @@ sequenceDiagram
     participant PG as PostgreSQL
     participant EM as Email Fallback<br/>Service
     participant U as End User
-    
-    K->>PW: Consume Message<br/>{user_id: 123, notification: {...}}
+    K ->> PW: Consume Message<br/>{user_id: 123, notification: {...}}
     Note right of K: 0s
-    
-    PW->>RC: GET device:tokens:user:123
-    RC-->>PW: ["fcm-token-xyz"]
+    PW ->> RC: GET device:tokens:user:123
+    RC -->> PW: ["fcm-token-xyz"]
     Note right of RC: 0.1s: Token fetched
-    
-    PW->>FCM: POST /fcm/send<br/>{registration_ids: ["fcm-token-xyz"]}
+    PW ->> FCM: POST /fcm/send<br/>{registration_ids: ["fcm-token-xyz"]}
     Note right of PW: 0.3s
-    
-    FCM-->>PW: 200 OK<br/>{failure: 1,<br/>results: [{error: "InvalidRegistration"}]}
+    FCM -->> PW: 200 OK<br/>{failure: 1,<br/>results: [{error: "InvalidRegistration"}]}
     Note right of FCM: 1s: Token invalid/expired
-    
     Note over PW: Token Invalid - Cleanup Required
-    
-    PW->>RC: DELETE device:tokens:user:123:fcm-token-xyz
+    PW ->> RC: DELETE device:tokens:user:123:fcm-token-xyz
     Note right of RC: 1.1s: Redis cleaned
-    
-    PW->>PG: UPDATE device_tokens<br/>SET active = FALSE<br/>WHERE token = 'fcm-token-xyz'
+    PW ->> PG: UPDATE device_tokens<br/>SET active = FALSE<br/>WHERE token = 'fcm-token-xyz'
     Note right of PG: 1.15s: DB updated
-    
-    PW->>DLQ: Publish to dlq-push<br/>{notification, error: 'InvalidRegistration',<br/>cleanup_done: true}
+    PW ->> DLQ: Publish to dlq-push<br/>{notification, error: 'InvalidRegistration',<br/>cleanup_done: true}
     Note right of DLQ: 1.2s: For auditing
-    
     Note over PW: Trigger Fallback to Email
-    
-    PW->>EM: Send Email Fallback<br/>{user_id, notification_type}
+    PW ->> EM: Send Email Fallback<br/>{user_id, notification_type}
     Note right of EM: 1.3s: Fallback triggered
-    
-    EM->>U: Email Delivered
+    EM ->> U: Email Delivered
     Note right of U: 4s: User receives via email
-    
-    PW->>PG: INSERT notification_logs<br/>{id, channel: 'push', status: 'failed',<br/>error: 'InvalidRegistration',<br/>fallback_channel: 'email'}
+    PW ->> PG: INSERT notification_logs<br/>{id, channel: 'push', status: 'failed',<br/>error: 'InvalidRegistration',<br/>fallback_channel: 'email'}
     Note right of PG: 4.1s: Log both attempts
-    
-    PW->>K: Commit Offset
+    PW ->> K: Commit Offset
     Note right of K: 4.2s: Message processed
 ```
 
@@ -749,46 +674,40 @@ sequenceDiagram
     participant SW as SMS Worker
     participant TB as Token Bucket<br/>Capacity: 100<br/>Refill: 100/second
     participant TW as Twilio API<br/>Limit: 100 req/s
-    
     Note over K: Burst: 150 messages arrive
-    
-    K->>SW: Consume 150 Messages (Batch)
+    K ->> SW: Consume 150 Messages (Batch)
     Note right of K: 0s: Large batch
-    
+
     loop First 100 Messages
-        SW->>TB: Request Token
-        TB-->>SW: Token Granted (99/100, 98/100, ...)
-        SW->>TW: POST /SMS
-        TW-->>SW: 201 Created
+        SW ->> TB: Request Token
+        TB -->> SW: Token Granted (99/100, 98/100, ...)
+        SW ->> TW: POST /SMS
+        TW -->> SW: 201 Created
     end
     Note right of TW: 0-1s: 100 SMS sent successfully
-    
     Note over TB: Token Bucket Empty (0/100)
-    
+
     loop Remaining 50 Messages
-        SW->>TB: Request Token
-        TB-->>SW: No Tokens Available<br/>Wait...
+        SW ->> TB: Request Token
+        TB -->> SW: No Tokens Available<br/>Wait...
         Note right of TB: 1s: Bucket empty
     end
-    
-    SW->>SW: Wait for Token Refill
+
+    SW ->> SW: Wait for Token Refill
     Note right of SW: 1-2s: Worker blocks
-    
     Note over TB: Refill: +100 tokens
-    TB->>TB: Add 100 tokens (100/100)
+    TB ->> TB: Add 100 tokens (100/100)
     Note right of TB: 2s: Refilled
-    
+
     loop Remaining 50 Messages
-        SW->>TB: Request Token (Retry)
-        TB-->>SW: Token Granted (99/100, 98/100, ...)
-        SW->>TW: POST /SMS
-        TW-->>SW: 201 Created
+        SW ->> TB: Request Token (Retry)
+        TB -->> SW: Token Granted (99/100, 98/100, ...)
+        SW ->> TW: POST /SMS
+        TW -->> SW: 201 Created
     end
     Note right of TW: 2-2.5s: Remaining 50 sent
-    
-    SW->>K: Commit All Offsets
+    SW ->> K: Commit All Offsets
     Note right of K: 2.5s: All processed
-    
     Note over SW: No messages lost,<br/>just delayed 1 second<br/>to respect rate limit
 ```
 
@@ -798,7 +717,8 @@ sequenceDiagram
 
 **Flow:**
 
-Shows the circuit breaker transitioning from CLOSED → OPEN state after detecting repeated failures from a third-party API.
+Shows the circuit breaker transitioning from CLOSED → OPEN state after detecting repeated failures from a third-party
+API.
 
 **Steps:**
 
@@ -838,82 +758,66 @@ sequenceDiagram
     participant CB as Circuit Breaker<br/>State: CLOSED
     participant API as Third-Party API<br/>(Degrading)
     participant M as Monitoring
-    
-    Note over W,API: Normal Operation (Success Rate: 99%)
-    
-    W->>CB: Request 1
-    CB->>API: Forward Request
-    API-->>CB: 200 OK
-    CB-->>W: Success
+    Note over W, API: Normal Operation (Success Rate: 99%)
+    W ->> CB: Request 1
+    CB ->> API: Forward Request
+    API -->> CB: 200 OK
+    CB -->> W: Success
     Note right of CB: 0-10s: Normal
-    
     Note over API: Provider Degradation Begins
-    
-    W->>CB: Request 2
-    CB->>API: Forward Request
+    W ->> CB: Request 2
+    CB ->> API: Forward Request
     Note right of API: Timeout after 5s
-    API-->>CB: Timeout (Failure 1/5)
-    CB-->>W: Error (Retry)
+    API -->> CB: Timeout (Failure 1/5)
+    CB -->> W: Error (Retry)
     Note right of CB: 15s: Failure tracked
-    
-    W->>CB: Request 3
-    CB->>API: Forward Request
-    API-->>CB: 503 Service Unavailable (Failure 2/5)
+    W ->> CB: Request 3
+    CB ->> API: Forward Request
+    API -->> CB: 503 Service Unavailable (Failure 2/5)
     Note right of CB: 20s
-    
-    W->>CB: Request 4
-    CB->>API: Forward Request
-    API-->>CB: Timeout (Failure 3/5)
+    W ->> CB: Request 4
+    CB ->> API: Forward Request
+    API -->> CB: Timeout (Failure 3/5)
     Note right of CB: 25s
-    
-    W->>CB: Request 5
-    CB->>API: Forward Request
-    API-->>CB: 503 (Failure 4/5)
+    W ->> CB: Request 5
+    CB ->> API: Forward Request
+    API -->> CB: 503 (Failure 4/5)
     Note right of CB: 30s
-    
-    W->>CB: Request 6
-    CB->>API: Forward Request
-    API-->>CB: 503 (Failure 5/5)
+    W ->> CB: Request 6
+    CB ->> API: Forward Request
+    API -->> CB: 503 (Failure 5/5)
     Note right of CB: 35s: Threshold reached
-    
-    CB->>CB: Transition to OPEN
-    CB->>M: Alert: Circuit Opened<br/>Provider Down
+    CB ->> CB: Transition to OPEN
+    CB ->> M: Alert: Circuit Opened<br/>Provider Down
     Note right of M: 35s: PagerDuty alert
-    
-    Note over W,API: Fast Failure Mode (60 seconds)
-    
+    Note over W, API: Fast Failure Mode (60 seconds)
+
     loop Requests During Open Circuit
-        W->>CB: Request N
-        CB-->>W: Fail Immediately<br/>(No API call)
+        W ->> CB: Request N
+        CB -->> W: Fail Immediately<br/>(No API call)
         Note right of CB: 35-95s: Fast fail
     end
-    
+
     Note over CB: 60 seconds elapsed
-    CB->>CB: Transition to HALF-OPEN
+    CB ->> CB: Transition to HALF-OPEN
     Note right of CB: 95s: Test recovery
-    
-    W->>CB: Test Request
-    CB->>API: Single Test Request
-    API-->>CB: 503 Still Down
+    W ->> CB: Test Request
+    CB ->> API: Single Test Request
+    API -->> CB: 503 Still Down
     Note right of CB: 96s: Failed
-    
-    CB->>CB: Back to OPEN
+    CB ->> CB: Back to OPEN
     Note right of CB: 96s: Wait 60s more
-    
     Note over CB: Another 60 seconds
-    CB->>CB: HALF-OPEN (Test Again)
+    CB ->> CB: HALF-OPEN (Test Again)
     Note right of CB: 156s
-    
-    W->>CB: Test Request
-    CB->>API: Single Test Request
-    API-->>CB: 200 OK (Recovered!)
+    W ->> CB: Test Request
+    CB ->> API: Single Test Request
+    API -->> CB: 200 OK (Recovered!)
     Note right of CB: 156s: Success
-    
-    CB->>CB: Transition to CLOSED
-    CB->>M: Alert: Circuit Closed<br/>Provider Recovered
+    CB ->> CB: Transition to CLOSED
+    CB ->> M: Alert: Circuit Closed<br/>Provider Recovered
     Note right of M: 156s: Recovery notification
-    
-    Note over W,API: Normal Operation Resumed
+    Note over W, API: Normal Operation Resumed
 ```
 
 ---
@@ -922,7 +826,8 @@ sequenceDiagram
 
 **Flow:**
 
-Shows how messages that fail after max retries are moved to the Dead Letter Queue for investigation and potential reprocessing.
+Shows how messages that fail after max retries are moved to the Dead Letter Queue for investigation and potential
+reprocessing.
 
 **Steps:**
 
@@ -963,67 +868,47 @@ sequenceDiagram
     participant DLQS as DLQ Storage<br/>Kafka Topic
     participant M as Monitoring<br/>Alerting
     participant ENG as Engineer<br/>On-Call
-    
-    K->>EW: Consume Message<br/>{user_id, email: "user@invalid-domain"}
+    K ->> EW: Consume Message<br/>{user_id, email: "user@invalid-domain"}
     Note right of K: 0s
-    
-    EW->>SG: POST /send (Attempt 1)
-    SG-->>EW: 400 Bad Request<br/>{error: "Invalid recipient"}
+    EW ->> SG: POST /send (Attempt 1)
+    SG -->> EW: 400 Bad Request<br/>{error: "Invalid recipient"}
     Note right of SG: 1s: Permanent error
-    
-    EW->>EW: Check Error Type<br/>4xx = Likely permanent<br/>But still retry (config)
+    EW ->> EW: Check Error Type<br/>4xx = Likely permanent<br/>But still retry (config)
     Note right of EW: 1s: Retry attempt 1
-    
-    EW->>EW: Exponential Backoff (1s)
+    EW ->> EW: Exponential Backoff (1s)
     Note right of EW: 2s: Wait before retry
-    
-    EW->>SG: POST /send (Attempt 2)
-    SG-->>EW: 400 Bad Request<br/>{error: "Invalid recipient"}
+    EW ->> SG: POST /send (Attempt 2)
+    SG -->> EW: 400 Bad Request<br/>{error: "Invalid recipient"}
     Note right of SG: 2.5s: Same error
-    
-    EW->>EW: Exponential Backoff (2s)
+    EW ->> EW: Exponential Backoff (2s)
     Note right of EW: 4s: Wait before retry
-    
-    EW->>SG: POST /send (Attempt 3/Max)
-    SG-->>EW: 400 Bad Request<br/>{error: "Invalid recipient"}
+    EW ->> SG: POST /send (Attempt 3/Max)
+    SG -->> EW: 400 Bad Request<br/>{error: "Invalid recipient"}
     Note right of SG: 4.5s: Still failing
-    
-    EW->>EW: Max Retries Exceeded<br/>(3 attempts)
+    EW ->> EW: Max Retries Exceeded<br/>(3 attempts)
     Note right of EW: 4.5s: Give up
-    
-    EW->>DLQ: Publish to DLQ<br/>{original_message,<br/>error: "Invalid recipient",<br/>attempts: 3,<br/>last_error_time: ...}
+    EW ->> DLQ: Publish to DLQ<br/>{original_message,<br/>error: "Invalid recipient",<br/>attempts: 3,<br/>last_error_time: ...}
     Note right of DLQ: 4.1s: Moved to DLQ
-    
-    DLQ->>DLQS: Store in DLQ Kafka Topic<br/>(Retention: 30 days)
+    DLQ ->> DLQS: Store in DLQ Kafka Topic<br/>(Retention: 30 days)
     Note right of DLQS: 4.2s: Persisted
-    
-    DLQ->>M: Check DLQ Count
-    M->>M: Current Count: 10,500<br/>Threshold: 10,000
-    M->>ENG: PagerDuty Alert<br/>"DLQ Email Count: 10.5k<br/>Threshold Exceeded"
+    DLQ ->> M: Check DLQ Count
+    M ->> M: Current Count: 10,500<br/>Threshold: 10,000
+    M ->> ENG: PagerDuty Alert<br/>"DLQ Email Count: 10.5k<br/>Threshold Exceeded"
     Note right of ENG: 4.3s: Alert sent
-    
     Note over ENG: Investigation Phase
-    
-    ENG->>DLQS: Query DLQ Messages<br/>Group by error type
-    DLQS-->>ENG: Top Errors:<br/>1. Invalid recipient (5k)<br/>2. Rate limit (3k)<br/>3. Content blocked (2.5k)
-    
-    ENG->>ENG: Analyze Root Cause<br/>"invalid-domain" not whitelisted
-    
+    ENG ->> DLQS: Query DLQ Messages<br/>Group by error type
+    DLQS -->> ENG: Top Errors:<br/>1. Invalid recipient (5k)<br/>2. Rate limit (3k)<br/>3. Content blocked (2.5k)
+    ENG ->> ENG: Analyze Root Cause<br/>"invalid-domain" not whitelisted
     Note over ENG: Fix Applied
-    
-    ENG->>SG: Whitelist "invalid-domain"<br/>in SendGrid settings
-    
+    ENG ->> SG: Whitelist "invalid-domain"<br/>in SendGrid settings
     Note over ENG: Replay from DLQ
-    
-    ENG->>DLQS: Reprocess DLQ Messages<br/>Filter: error = "Invalid recipient"
-    DLQS->>K: Republish to email-notifications
-    
-    K->>EW: Consume Replayed Message
-    EW->>SG: POST /send (Replay)
-    SG-->>EW: 200 OK (Success!)
+    ENG ->> DLQS: Reprocess DLQ Messages<br/>Filter: error = "Invalid recipient"
+    DLQS ->> K: Republish to email-notifications
+    K ->> EW: Consume Replayed Message
+    EW ->> SG: POST /send (Replay)
+    SG -->> EW: 200 OK (Success!)
     Note right of SG: Success after fix
-    
-    EW->>EW: Log Success<br/>Remove from DLQ
+    EW ->> EW: Log Success<br/>Remove from DLQ
 ```
 
 ---
@@ -1032,7 +917,8 @@ sequenceDiagram
 
 **Flow:**
 
-Shows how the system prevents duplicate notifications when the same event is triggered multiple times (e.g., user double-clicks submit button).
+Shows how the system prevents duplicate notifications when the same event is triggered multiple times (e.g., user
+double-clicks submit button).
 
 **Steps:**
 
@@ -1070,50 +956,35 @@ sequenceDiagram
     participant NS as Notification Service
     participant RC as Redis Cache<br/>Idempotency Keys
     participant K as Kafka
-    
     Note over OS: Order ORD-789 Completed
-    
-    OS->>AG: POST /notifications<br/>{event: "order_confirmed",<br/>idempotency_key: "order-789-confirmation"}
+    OS ->> AG: POST /notifications<br/>{event: "order_confirmed",<br/>idempotency_key: "order-789-confirmation"}
     Note right of OS: 0ms: Request 1
-    
-    AG->>NS: Forward Request
+    AG ->> NS: Forward Request
     Note right of AG: 10ms
-    
-    NS->>RC: GET idempotency:order-789-confirmation
-    RC-->>NS: Key Not Found (nil)
+    NS ->> RC: GET idempotency:order-789-confirmation
+    RC -->> NS: Key Not Found (nil)
     Note right of RC: 25ms: First time
-    
-    NS->>RC: SET idempotency:order-789-confirmation<br/>Value: {notification_id: UUID}<br/>TTL: 24 hours
+    NS ->> RC: SET idempotency:order-789-confirmation<br/>Value: {notification_id: UUID}<br/>TTL: 24 hours
     Note right of RC: 30ms: Key stored
-    
-    NS->>NS: Process Notification<br/>(Fetch prefs, template, etc.)
+    NS ->> NS: Process Notification<br/>(Fetch prefs, template, etc.)
     Note right of NS: 30-50ms
-    
-    NS->>K: Publish to Kafka Topics
+    NS ->> K: Publish to Kafka Topics
     Note right of K: 55ms
-    
-    NS->>AG: 202 Accepted<br/>{notification_id: UUID-123}
-    AG->>OS: 202 Accepted
+    NS ->> AG: 202 Accepted<br/>{notification_id: UUID-123}
+    AG ->> OS: 202 Accepted
     Note right of OS: 60ms: Success
-    
     Note over OS: Network timeout occurs<br/>Order Service doesn't receive response<br/>Triggers automatic retry
-    
-    OS->>AG: POST /notifications<br/>{event: "order_confirmed",<br/>idempotency_key: "order-789-confirmation"}
+    OS ->> AG: POST /notifications<br/>{event: "order_confirmed",<br/>idempotency_key: "order-789-confirmation"}
     Note right of OS: 5000ms: Duplicate Request
-    
-    AG->>NS: Forward Request (Duplicate)
+    AG ->> NS: Forward Request (Duplicate)
     Note right of AG: 5010ms
-    
-    NS->>RC: GET idempotency:order-789-confirmation
-    RC-->>NS: Key Found!<br/>{notification_id: UUID-123}
+    NS ->> RC: GET idempotency:order-789-confirmation
+    RC -->> NS: Key Found!<br/>{notification_id: UUID-123}
     Note right of RC: 5020ms: Duplicate detected
-    
     Note over NS: Idempotent: Return same response<br/>without reprocessing
-    
-    NS->>AG: 200 OK<br/>{notification_id: UUID-123,<br/>status: "already_processed"}
-    AG->>OS: 200 OK
+    NS ->> AG: 200 OK<br/>{notification_id: UUID-123,<br/>status: "already_processed"}
+    AG ->> OS: 200 OK
     Note right of OS: 5030ms: <15ms response
-    
     Note over K: Kafka contains only 1 message<br/>User receives only 1 notification
 ```
 
@@ -1138,11 +1009,11 @@ Shows what happens when Redis cache doesn't have the requested data, requiring a
 
 **Performance Comparison:**
 
-| Scenario | Latency | Cache Hit Rate |
-|----------|---------|----------------|
-| **Cache Hit** | 60ms | 98% |
-| **Cache Miss** | 120ms | 2% |
-| **Average** | 61.2ms | - |
+| Scenario       | Latency | Cache Hit Rate |
+|----------------|---------|----------------|
+| **Cache Hit**  | 60ms    | 98%            |
+| **Cache Miss** | 120ms   | 2%             |
+| **Average**    | 61.2ms  | -              |
 
 **Cache Warming:**
 
@@ -1164,47 +1035,34 @@ sequenceDiagram
     participant RC as Redis Cache
     participant PG as PostgreSQL<br/>Database
     participant K as Kafka
-    
-    C->>NS: POST /notifications<br/>{user_id: 123, ...}
+    C ->> NS: POST /notifications<br/>{user_id: 123, ...}
     Note right of C: 0ms
-    
-    NS->>RC: GET user:prefs:123
+    NS ->> RC: GET user:prefs:123
     Note right of RC: 10ms: Cache lookup
-    
-    RC-->>NS: nil (Key not found)
+    RC -->> NS: nil (Key not found)
     Note right of RC: 15ms: Cache miss!
-    
     Note over NS: Cache miss detected<br/>Fallback to database
-    
-    NS->>PG: SELECT * FROM user_notification_preferences<br/>WHERE user_id = 123
+    NS ->> PG: SELECT * FROM user_notification_preferences<br/>WHERE user_id = 123
     Note right of PG: 20ms: DB query
-    
-    PG-->>NS: {user_id: 123,<br/>email_enabled: true,<br/>push_enabled: true,<br/>sms_enabled: false,<br/>web_enabled: true}
+    PG -->> NS: {user_id: 123,<br/>email_enabled: true,<br/>push_enabled: true,<br/>sms_enabled: false,<br/>web_enabled: true}
     Note right of PG: 50ms: 30ms query time
-    
     Note over NS: Update cache for next request
-    
-    NS->>RC: SET user:prefs:123<br/>Value: {email: true, push: true, ...}<br/>TTL: 300 seconds (5 minutes)
+    NS ->> RC: SET user:prefs:123<br/>Value: {email: true, push: true, ...}<br/>TTL: 300 seconds (5 minutes)
     Note right of RC: 55ms: Cache populated
-    
-    NS->>NS: Continue Processing<br/>Use fetched preferences
+    NS ->> NS: Continue Processing<br/>Use fetched preferences
     Note right of NS: 60-110ms
-    
-    NS->>K: Publish to Kafka
+    NS ->> K: Publish to Kafka
     Note right of K: 115ms
-    
-    NS->>C: 202 Accepted
+    NS ->> C: 202 Accepted
     Note right of C: 120ms: Cache miss latency<br/>(vs 60ms for cache hit)
-    
     Note over RC: Next request for user 123<br/>will hit cache (valid for 5 min)
-    
     Note over NS: Subsequent Request
-    C->>NS: POST /notifications {user_id: 123}
-    NS->>RC: GET user:prefs:123
-    RC-->>NS: {email: true, push: true, ...}
+    C ->> NS: POST /notifications {user_id: 123}
+    NS ->> RC: GET user:prefs:123
+    RC -->> NS: {email: true, push: true, ...}
     Note right of RC: Cache hit! <5ms
-    NS->>K: Publish
-    NS->>C: 202 Accepted (60ms total)
+    NS ->> K: Publish
+    NS ->> C: 202 Accepted (60ms total)
 ```
 
 ---
@@ -1213,7 +1071,8 @@ sequenceDiagram
 
 **Flow:**
 
-Shows how the system handles WebSocket connection drops and automatic reconnection, including message buffering during disconnection.
+Shows how the system handles WebSocket connection drops and automatic reconnection, including message buffering during
+disconnection.
 
 **Steps:**
 
@@ -1252,77 +1111,59 @@ sequenceDiagram
     participant RC as Redis<br/>Connection Registry
     participant DB as PostgreSQL<br/>Message Buffer
     participant K as Kafka<br/>web-notifications
-    
-    Note over C,WSS: Normal Operation: Connected
-    
-    C->>WSS: WebSocket Connected
-    WSS->>RC: Register Connection<br/>SET conn:user:123 → server:42
-    
+    Note over C, WSS: Normal Operation: Connected
+    C ->> WSS: WebSocket Connected
+    WSS ->> RC: Register Connection<br/>SET conn:user:123 → server:42
+
     loop Heartbeat Every 5 Seconds
-        C->>WSS: Ping
-        WSS->>C: Pong
+        C ->> WSS: Ping
+        WSS ->> C: Pong
     end
     Note right of C: 0-10s: Normal
-    
-    K->>WSS: Notification 1
-    WSS->>C: Push Notification 1
+    K ->> WSS: Notification 1
+    WSS ->> C: Push Notification 1
     Note right of C: 5s: Delivered
-    
     Note over C: Network Issue: WiFi drops
-    C-xWSS: Connection Lost
+    C -x WSS: Connection Lost
     Note right of C: 10s: Disconnected
-    
     Note over WSS: Detect Disconnection via Heartbeat
-    
+
     loop Heartbeat Timeout
-        WSS->>WSS: Wait for ping (timeout: 5s)
+        WSS ->> WSS: Wait for ping (timeout: 5s)
         Note right of WSS: 15s: 3 missed heartbeats
     end
-    
-    WSS->>RC: Remove Connection<br/>DEL conn:user:123
-    WSS->>WSS: Close Socket fd-7890
+
+    WSS ->> RC: Remove Connection<br/>DEL conn:user:123
+    WSS ->> WSS: Close Socket fd-7890
     Note right of WSS: 15s: Cleanup
-    
-    K->>WSS: Notification 2 (User 123)
-    WSS->>RC: Lookup Connection for user:123
-    RC-->>WSS: Not Found
+    K ->> WSS: Notification 2 (User 123)
+    WSS ->> RC: Lookup Connection for user:123
+    RC -->> WSS: Not Found
     Note right of RC: 16s: User offline
-    
-    WSS->>DB: Store for Later<br/>INSERT INTO offline_notifications<br/>{user_id: 123, notification: ...}
+    WSS ->> DB: Store for Later<br/>INSERT INTO offline_notifications<br/>{user_id: 123, notification: ...}
     Note right of DB: 16s: Buffered
-    
     Note over C: Client Detects Disconnect
-    C->>C: Exponential Backoff<br/>Attempt 1: 1s<br/>Attempt 2: 2s<br/>Attempt 3: 4s
-    
-    C->>LB: Reconnect WebSocket<br/>(Sticky session → same server)
+    C ->> C: Exponential Backoff<br/>Attempt 1: 1s<br/>Attempt 2: 2s<br/>Attempt 3: 4s
+    C ->> LB: Reconnect WebSocket<br/>(Sticky session → same server)
     Note right of C: 20s: Retry
-    
-    LB->>WSS: Route to Server 42 (same server)
+    LB ->> WSS: Route to Server 42 (same server)
     Note right of LB: 20s: Sticky session
-    
-    WSS->>C: WebSocket Established
+    WSS ->> C: WebSocket Established
     Note right of C: 21s: Reconnected
-    
-    WSS->>RC: Register Connection<br/>SET conn:user:123 → server:42
+    WSS ->> RC: Register Connection<br/>SET conn:user:123 → server:42
     Note right of RC: 21s: Restored
-    
-    C->>WSS: Request Missed Notifications<br/>{last_received_id: "notif-1"}
+    C ->> WSS: Request Missed Notifications<br/>{last_received_id: "notif-1"}
     Note right of C: 22s: Fetch missed
-    
-    WSS->>DB: SELECT * FROM offline_notifications<br/>WHERE user_id = 123<br/>AND id > "notif-1"
-    DB-->>WSS: [Notification 2, ...]
+    WSS ->> DB: SELECT * FROM offline_notifications<br/>WHERE user_id = 123<br/>AND id > "notif-1"
+    DB -->> WSS: [Notification 2, ...]
     Note right of DB: 23s: Retrieve buffered
-    
-    WSS->>C: Bulk Push Missed Notifications<br/>[Notification 2]
+    WSS ->> C: Bulk Push Missed Notifications<br/>[Notification 2]
     Note right of C: 24s: Caught up
-    
-    WSS->>DB: DELETE FROM offline_notifications<br/>WHERE user_id = 123 AND id <= "notif-2"
+    WSS ->> DB: DELETE FROM offline_notifications<br/>WHERE user_id = 123 AND id <= "notif-2"
     Note right of DB: 24s: Cleanup
-    
-    Note over C,WSS: Resumed Normal Operation
-    
-    K->>WSS: Notification 3
-    WSS->>C: Push Notification 3 (Real-Time)
+    Note over C, WSS: Resumed Normal Operation
+    K ->> WSS: Notification 3
+    WSS ->> C: Push Notification 3 (Real-Time)
     Note right of C: 25s: Real-time resumed
 ```
 
@@ -1332,7 +1173,8 @@ sequenceDiagram
 
 **Flow:**
 
-Shows how notifications are delivered in a multi-region deployment, including geo-routing and regional data residency compliance.
+Shows how notifications are delivered in a multi-region deployment, including geo-routing and regional data residency
+compliance.
 
 **Steps:**
 
@@ -1380,58 +1222,43 @@ sequenceDiagram
     participant K_EU as Kafka EU
     participant W_EU as Workers EU
     participant CS_EU as Cassandra EU
-    
     Note over OS_EU: EU User Order Completed<br/>user_id: 456, region: EU
-    
-    OS_EU->>DNS: POST /notifications<br/>Source IP: 185.x.x.x (EU)
+    OS_EU ->> DNS: POST /notifications<br/>Source IP: 185.x.x.x (EU)
     Note right of OS_EU: 0ms
-    
-    DNS->>DNS: Geo-Route Based on IP<br/>185.x.x.x → EU-West Region
+    DNS ->> DNS: Geo-Route Based on IP<br/>185.x.x.x → EU-West Region
     Note right of DNS: 10ms: Geo-routing
-    
-    DNS->>LB_EU: Route to EU Region
+    DNS ->> LB_EU: Route to EU Region
     Note right of DNS: EU: <50ms latency
-    
     Note over LB_US: US region not used<br/>(user is in EU)
-    
-    LB_EU->>NS_EU: Forward Request
+    LB_EU ->> NS_EU: Forward Request
     Note right of LB_EU: 20ms
-    
-    NS_EU->>R_EU: GET user:prefs:456
-    R_EU-->>NS_EU: {email: true, push: true, ...}
+    NS_EU ->> R_EU: GET user:prefs:456
+    R_EU -->> NS_EU: {email: true, push: true, ...}
     Note right of R_EU: 35ms: EU cache hit
-    
+
     alt Cache Hit (95% of time)
         Note over NS_EU: Use cached data
     else Cache Miss (5% of time)
-        NS_EU->>PG_EU: SELECT * FROM user_notification_preferences
-        PG_EU-->>NS_EU: User preferences
+        NS_EU ->> PG_EU: SELECT * FROM user_notification_preferences
+        PG_EU -->> NS_EU: User preferences
         Note right of PG_EU: 40ms: Local replica<br/>(eventual consistency)
-        
-        Note over PG_EU,PG_US: Background Replication<br/>Master (US) → Replica (EU)<br/>Lag: 1-5 seconds
+        Note over PG_EU, PG_US: Background Replication<br/>Master (US) → Replica (EU)<br/>Lag: 1-5 seconds
     end
-    
-    NS_EU->>K_EU: Publish to EU Kafka Cluster<br/>Topics: email-eu, push-eu, web-eu
+
+    NS_EU ->> K_EU: Publish to EU Kafka Cluster<br/>Topics: email-eu, push-eu, web-eu
     Note right of K_EU: 60ms: Regional Kafka
-    
-    NS_EU->>OS_EU: 202 Accepted
+    NS_EU ->> OS_EU: 202 Accepted
     Note right of OS_EU: 60ms: EU → EU latency
-    
     Note over W_EU: Async Delivery
-    
-    K_EU->>W_EU: Consume from EU Kafka
-    W_EU->>W_EU: Deliver via SendGrid EU,<br/>Twilio EU, FCM/APNS
+    K_EU ->> W_EU: Consume from EU Kafka
+    W_EU ->> W_EU: Deliver via SendGrid EU,<br/>Twilio EU, FCM/APNS
     Note right of W_EU: 1-5s: Regional workers
-    
-    W_EU->>CS_EU: Log to EU Cassandra<br/>(GDPR Compliant: Data stays in EU)
+    W_EU ->> CS_EU: Log to EU Cassandra<br/>(GDPR Compliant: Data stays in EU)
     Note right of CS_EU: 5s: Regional logs
-    
-    Note over PG_US,PG_EU: Cross-Region Sync (Background)
-    PG_US->>PG_EU: Replicate user preferences<br/>(Master → Slave)
+    Note over PG_US, PG_EU: Cross-Region Sync (Background)
+    PG_US ->> PG_EU: Replicate user preferences<br/>(Master → Slave)
     Note right of PG_US: Eventual consistency<br/>Lag: 1-5 seconds
-    
     Note over CS_EU: Logs NEVER replicated<br/>cross-region (GDPR)
-    
     Note over NS_EU: If EU region fails,<br/>Route53 failover to US region
 ```
 
@@ -1454,9 +1281,3 @@ These 15 sequence diagrams provide detailed interaction flows for the Notificati
 - **Failure Handling**: Automatic retries, circuit breakers, DLQ
 - **No Message Loss**: Kafka persistence and fallback mechanisms
 - **Multi-Region**: <50ms intra-region, GDPR compliant
-
-**Next Steps:**
-- Review **[hld-diagram.md](./hld-diagram.md)** for system architecture
-- Study **[this-over-that.md](./this-over-that.md)** for design decisions
-- Examine **[pseudocode.md](./pseudocode.md)** for algorithms
-
