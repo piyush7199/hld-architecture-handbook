@@ -1,6 +1,7 @@
 # Distributed ID Generator (Snowflake) - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Distributed ID Generator system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Distributed ID Generator system. The main challenge
+document references these functions.
 
 ---
 
@@ -30,12 +31,14 @@ This document contains detailed algorithm implementations for the Distributed ID
 ```
 
 **Bit Distribution:**
+
 - **Sign bit (1 bit):** Always 0 (keeps ID positive)
 - **Timestamp (41 bits):** Milliseconds since custom epoch (2023-01-01)
 - **Worker ID (10 bits):** Unique identifier for generator instance (0-1023)
 - **Sequence (12 bits):** Auto-increment per millisecond (0-4095)
 
 **Capacity:**
+
 - 41 bits of timestamp: ~69 years from epoch
 - 10 bits of worker ID: 1,024 unique workers
 - 12 bits of sequence: 4,096 IDs per millisecond per worker
@@ -50,6 +53,7 @@ This document contains detailed algorithm implementations for the Distributed ID
 Main class for generating distributed IDs.
 
 **Algorithm:**
+
 ```
 SnowflakeGenerator:
   worker_id: integer (10 bits, 0-1023)
@@ -77,9 +81,11 @@ SnowflakeGenerator:
 Generates the next unique ID.
 
 **Returns:**
+
 - `id` (integer): 64-bit unique ID
 
 **Algorithm:**
+
 ```
 function next_id():
   // 1. Get current timestamp
@@ -122,14 +128,17 @@ function next_id():
 Combines components into a single 64-bit ID.
 
 **Parameters:**
+
 - `timestamp` (integer): Milliseconds since epoch
 - `worker_id` (integer): Worker identifier (0-1023)
 - `sequence` (integer): Sequence number (0-4095)
 
 **Returns:**
+
 - `id` (integer): 64-bit ID
 
 **Algorithm:**
+
 ```
 function compose_id(timestamp, worker_id, sequence):
   // Shift timestamp to upper 41 bits
@@ -152,12 +161,15 @@ function compose_id(timestamp, worker_id, sequence):
 Extracts components from a Snowflake ID.
 
 **Parameters:**
+
 - `id` (integer): 64-bit Snowflake ID
 
 **Returns:**
+
 - `components` (object): {timestamp, worker_id, sequence}
 
 **Algorithm:**
+
 ```
 function decompose_id(id):
   // Extract timestamp (upper 41 bits)
@@ -208,6 +220,7 @@ function sleep_until(target_timestamp):
 Uses distributed coordination service for worker ID assignment.
 
 **Algorithm:**
+
 ```
 WorkerIDManager:
   etcd_client: EtcdClient
@@ -262,6 +275,7 @@ WorkerIDManager:
 Uses deterministic hashing of hostname for worker ID.
 
 **Algorithm:**
+
 ```
 function get_worker_id_from_hostname():
   hostname = get_hostname()  // e.g., "app-server-042"
@@ -284,6 +298,7 @@ function get_worker_id_from_hostname():
 Uses IP address to derive worker ID.
 
 **Algorithm:**
+
 ```
 function get_worker_id_from_ip():
   ip_address = get_ip_address()  // e.g., "192.168.10.42"
@@ -309,6 +324,7 @@ function get_worker_id_from_ip():
 Validates that system clock is synchronized with NTP servers.
 
 **Algorithm:**
+
 ```
 function check_clock_sync():
   // Query NTP server
@@ -346,6 +362,7 @@ function query_ntp_server(server):
 **Purpose:** Continuously monitor clock drift in background to detect issues early.
 
 **Algorithm:**
+
 ```
 function monitor_clock_drift():
   // Monitoring metrics
@@ -396,6 +413,7 @@ function monitor_clock_drift():
 ```
 
 **Monitoring Actions:**
+
 - Log drift continuously to metrics system
 - Alert if drift > 10ms (warning)
 - Alert immediately if drift > 100ms (critical)
@@ -407,6 +425,7 @@ function monitor_clock_drift():
 Monitors for clock moving backwards.
 
 **Algorithm:**
+
 ```
 ClockDriftMonitor:
   last_timestamp: integer = 0
@@ -446,6 +465,7 @@ ClockDriftMonitor:
 128-bit universally unique identifier.
 
 **Algorithm:**
+
 ```
 function generate_uuid_v4():
   // Generate 16 random bytes
@@ -470,11 +490,13 @@ function format_as_uuid(bytes):
 ```
 
 **Pros:**
+
 - No coordination needed
 - Universally unique across all systems
 - Cryptographically random
 
 **Cons:**
+
 - 128 bits (2x larger than Snowflake)
 - Not sortable by time
 - Random (no indexing benefits)
@@ -484,6 +506,7 @@ function format_as_uuid(bytes):
 128-bit time-sortable ID with random component.
 
 **Algorithm:**
+
 ```
 function generate_ulid():
   // 48-bit timestamp (milliseconds)
@@ -503,11 +526,13 @@ function generate_ulid():
 ```
 
 **Pros:**
+
 - Time-sortable (like Snowflake)
 - Universally unique (no coordination)
 - String format (URL-safe)
 
 **Cons:**
+
 - 128 bits (larger than Snowflake)
 - Less compact than integer IDs
 
@@ -516,6 +541,7 @@ function generate_ulid():
 Uses database sequence for ID generation.
 
 **Algorithm:**
+
 ```
 // PostgreSQL Example
 function generate_db_id():
@@ -549,11 +575,13 @@ DatabaseIDGenerator:
 ```
 
 **Pros:**
+
 - Simple implementation
 - Guaranteed uniqueness
 - Sortable by time (roughly)
 
 **Cons:**
+
 - Database dependency (single point of failure)
 - Limited throughput (bottleneck)
 - Not distributed by default
@@ -563,6 +591,7 @@ DatabaseIDGenerator:
 Uses Redis atomic counter for ID generation.
 
 **Algorithm:**
+
 ```
 function generate_redis_id():
   id = redis.incr("global_id_counter")
@@ -583,11 +612,13 @@ function generate_sharded_redis_id():
 ```
 
 **Pros:**
+
 - Very fast (in-memory)
 - Atomic operations
 - Simple to implement
 
 **Cons:**
+
 - Redis dependency
 - Not time-sortable
 - Need persistence (AOF/RDS) to avoid ID reuse
@@ -601,6 +632,7 @@ function generate_sharded_redis_id():
 **Purpose:** Generate multiple IDs at once to reduce overhead for bulk operations.
 
 **Parameters:**
+
 - `count`: Number of IDs to generate
 
 **Returns:** Array of unique IDs
@@ -681,12 +713,14 @@ for id in ids:
 ```
 
 **Performance Benefits:**
+
 - **Single lock acquisition:** ~10x faster than individual calls
 - **Reduced function call overhead:** No per-ID function invocation cost
 - **Better cache locality:** Sequential memory access
 - **Network efficiency:** Single round-trip for batch requests
 
 **Benchmarks:**
+
 - Individual: 1000 calls × 1μs = 1ms
 - Batch: 1 lock + 1000 generations = ~0.1ms (10x faster)
 
@@ -699,6 +733,7 @@ for id in ids:
 Default strategy: block until next millisecond.
 
 **Algorithm:**
+
 ```
 function handle_sequence_exhaustion():
   // Busy-wait for next millisecond
@@ -712,10 +747,12 @@ function handle_sequence_exhaustion():
 ```
 
 **Pros:**
+
 - Simple
 - Guarantees uniqueness
 
 **Cons:**
+
 - Blocks request (adds latency)
 - Wastes CPU cycles
 
@@ -724,6 +761,7 @@ function handle_sequence_exhaustion():
 Alternative: distribute load across multiple worker IDs.
 
 **Algorithm:**
+
 ```
 SnowflakePool:
   workers: List[SnowflakeGenerator]
@@ -742,10 +780,12 @@ SnowflakePool:
 ```
 
 **Pros:**
+
 - No blocking
 - Higher throughput (4096 × N per millisecond)
 
 **Cons:**
+
 - Requires multiple worker IDs
 - More complex management
 
@@ -756,6 +796,7 @@ SnowflakePool:
 ### ❌ Ignoring Clock Drift
 
 **Problem:**
+
 ```
 function next_id_bad():
   timestamp = current_time_millis()
@@ -775,6 +816,7 @@ function next_id_bad():
 ```
 
 **Solution:**
+
 ```
 function next_id_good():
   timestamp = current_time_millis()
@@ -796,6 +838,7 @@ function next_id_good():
 ### ❌ Hardcoded Worker ID
 
 **Problem:**
+
 ```
 // All instances use same worker ID!
 generator = SnowflakeGenerator(worker_id=1)
@@ -804,6 +847,7 @@ generator = SnowflakeGenerator(worker_id=1)
 ```
 
 **Solution:**
+
 ```
 // Dynamically assign worker ID
 worker_id = acquire_worker_id_from_etcd()
@@ -813,6 +857,7 @@ generator = SnowflakeGenerator(worker_id)
 ### ❌ Not Handling Sequence Overflow
 
 **Problem:**
+
 ```
 function next_id_bad():
   sequence = sequence + 1  // No mask!
@@ -824,6 +869,7 @@ function next_id_bad():
 ```
 
 **Solution:**
+
 ```
 function next_id_good():
   sequence = (sequence + 1) & SEQUENCE_MASK  // 4096 → 0
@@ -834,8 +880,3 @@ function next_id_good():
   
   return compose_id(timestamp, worker_id, sequence)
 ```
-
----
-
-This pseudocode provides detailed implementations of all algorithms discussed in the main Distributed ID Generator design document.
-

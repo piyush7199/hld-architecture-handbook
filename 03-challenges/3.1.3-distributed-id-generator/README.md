@@ -1,19 +1,19 @@
 # 3.1.3 Design a Distributed ID Generator (Snowflake)
 
 > 📚 **Note on Implementation Details:**
-> This document focuses on high-level design concepts and architectural decisions. 
+> This document focuses on high-level design concepts and architectural decisions.
 > For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
 ## 📊 Visual Diagrams & Resources
 
-- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, Snowflake ID structure, worker ID assignment, capacity analysis, and deployment strategies
-- **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows for ID generation, clock drift handling, failover scenarios, and monitoring
-- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and trade-offs
-- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for all core functions
+- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, component design, data flow
+- **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows and failure scenarios
+- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices
+- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
 Design a highly available, distributed ID generation service similar to Twitter's Snowflake that can generate globally
 unique,
@@ -22,7 +22,7 @@ centers while maintaining uniqueness guarantees without requiring coordination b
 
 ---
 
-## 1. Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
 ### Functional Requirements (FRs)
 
@@ -79,9 +79,57 @@ Our need: 100K IDs/sec (well within capacity)
 
 ---
 
-## 2. High-Level Architecture
+## 3. High-Level Architecture
 
-> 📊 **See detailed architecture diagrams:** [HLD Diagrams](./hld-diagram.md)
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
+
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Application Layer                           │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │  Service │  │  Service │  │  Service │  │  Service │        │
+│  │    A     │  │    B     │  │    C     │  │    D     │        │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘        │
+└───────┼─────────────┼─────────────┼─────────────┼──────────────┘
+        │             │             │             │
+        └─────────────┴──────┬──────┴─────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │  Load Balancer  │
+                    │   (Round Robin) │
+                    └────────┬────────┘
+                             │
+        ┌────────────────────┼────────────────────┐
+        │                    │                    │
+        ▼                    ▼                    ▼
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│ ID Generator │     │ ID Generator │     │ ID Generator │
+│   Node 1     │     │   Node 2     │     │   Node N     │
+│ Worker ID: 1 │     │ Worker ID: 2 │     │ Worker ID: N │
+│              │     │              │     │              │
+│ ┌──────────┐ │     │ ┌──────────┐ │     │ ┌──────────┐ │
+│ │Snowflake │ │     │ │Snowflake │ │     │ │Snowflake │ │
+│ │Algorithm │ │     │ │Algorithm │ │     │ │Algorithm │ │
+│ └──────────┘ │     │ └──────────┘ │     │ └──────────┘ │
+│              │     │              │     │              │
+│ Sequence: 0  │     │ Sequence: 0  │     │ Sequence: 0  │
+│ Last TS: ... │     │ Last TS: ... │     │ Last TS: ... │
+└──────────────┘     └──────────────┘     └──────────────┘
+        │                    │                    │
+        └────────────────────┼────────────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │  Coordination   │
+                    │    Service      │
+                    │ (ZooKeeper/etcd)│
+                    │                 │
+                    │ - Assigns Worker│
+                    │   IDs on startup│
+                    │ - Health checks │
+                    └─────────────────┘
+```
 
 ### Key Components
 
@@ -94,11 +142,9 @@ Our need: 100K IDs/sec (well within capacity)
 
 ---
 
-## 3. Detailed Component Design
+## 4. Detailed Component Design
 
 ### 3.1 Snowflake ID Structure
-
-> 📊 **See ID structure breakdown:** [Snowflake ID Structure Diagram](./hld-diagram.md#snowflake-id-structure-64-bit)
 
 #### 64-bit Layout
 
@@ -144,104 +190,52 @@ S: Sign bit (always 0 for positive)
 
 ### 3.2 Snowflake Algorithm Implementation
 
-> 📊 **See generation flow:** [ID Generation Flow Diagram](./hld-diagram.md#id-generation-flow)
-> 
-> 📊 **See detailed sequence:** [ID Generation Sequence](./sequence-diagrams.md#id-generation-flow-happy-path)
-
 #### Core Algorithm
 
-```
-SnowflakeIDGenerator:
-  // Constants
-  EPOCH = 1577836800000  // January 1, 2020 00:00:00 UTC (milliseconds)
-  
-  // Bit allocation
-  WORKER_ID_BITS = 10
-  SEQUENCE_BITS = 12
-  
-  // Max values
-  MAX_WORKER_ID = (2^WORKER_ID_BITS) - 1  // 1023
-  MAX_SEQUENCE = (2^SEQUENCE_BITS) - 1    // 4095
-  
-  // Bit shifts
-  TIMESTAMP_SHIFT = WORKER_ID_BITS + SEQUENCE_BITS  // 22
-  WORKER_ID_SHIFT = SEQUENCE_BITS                    // 12
-  
-  // State variables
-  worker_id: integer
-  sequence: integer = 0
-  last_timestamp: integer = -1
-  lock: Mutex  // Thread-safe access
-  
-  
-  function initialize(worker_id):
-    if worker_id < 0 or worker_id > MAX_WORKER_ID:
-      raise error("Worker ID must be between 0 and " + MAX_WORKER_ID)
-    
-    this.worker_id = worker_id
-  
-  
-  function generate_id():
-    acquire_lock(lock):
-      timestamp = current_millis()
-      
-      // Clock moved backwards! Handle clock drift
-      if timestamp < last_timestamp:
-        offset = last_timestamp - timestamp
-        if offset > 5:  // More than 5ms backwards
-          raise error("Clock moved backwards by " + offset + "ms. Refusing to generate ID.")
-        
-        // Wait for clock to catch up
-        sleep(offset milliseconds)
-        timestamp = current_millis()
-      
-      // Same millisecond - increment sequence
-      if timestamp == last_timestamp:
-        sequence = (sequence + 1) AND MAX_SEQUENCE  // Bitmask for wraparound
-        
-        // Sequence overflow - wait for next millisecond
-        if sequence == 0:
-          timestamp = wait_next_millis(last_timestamp)
-      else:
-        // New millisecond - reset sequence
-        sequence = 0
-      
-      last_timestamp = timestamp
-      
-      // Construct ID using bit operations
-      id = ((timestamp - EPOCH) << TIMESTAMP_SHIFT) OR
-           (worker_id << WORKER_ID_SHIFT) OR
-           sequence
-      
-      return id
-  
-  
-  function current_millis():
-    return current_system_time_in_milliseconds()
-  
-  
-  function wait_next_millis(last_timestamp):
-    timestamp = current_millis()
-    while timestamp <= last_timestamp:
-      timestamp = current_millis()
-    return timestamp
-  
-  
-  function parse_id(id):
-    // Extract components from ID
-    timestamp = ((id >> TIMESTAMP_SHIFT) + EPOCH)
-    worker_id = (id >> WORKER_ID_SHIFT) AND MAX_WORKER_ID
-    sequence = id AND MAX_SEQUENCE
-    
-    return {
-      timestamp: timestamp,
-      timestamp_human: format_timestamp(timestamp),
-      worker_id: worker_id,
-      sequence: sequence
-    }
-```
+**How Snowflake ID Generation Works:**
+
+**Initialization:**
+
+- Assign unique worker ID (0-1023) to each generator instance
+- Set custom epoch (e.g., January 1, 2020)
+- Initialize sequence counter to 0
+- Create mutex for thread-safe access
+
+**ID Generation Flow:**
+
+1. **Get Current Timestamp:**
+    - Current time in milliseconds since epoch
+
+2. **Handle Clock Drift:**
+    - If clock moved backwards < 5ms: Wait for clock to catch up
+    - If clock moved backwards > 5ms: Throw error (serious issue)
+
+3. **Manage Sequence:**
+    - **Same millisecond:** Increment sequence (0 to 4095)
+    - **Sequence overflow:** Wait for next millisecond, reset to 0
+    - **New millisecond:** Reset sequence to 0
+
+4. **Compose ID Using Bit Operations:**
+    - Shift timestamp left by 22 bits (upper 41 bits)
+    - Shift worker_id left by 12 bits (middle 10 bits)
+    - Add sequence (lower 12 bits)
+    - Combine using bitwise OR
+
+5. **Return Generated ID:**
+    - 64-bit positive integer
+    - Time-sortable, globally unique
+
+**Key Properties:**
+
+- **Thread-safe:** Mutex protects shared state
+- **Capacity:** Up to 4,096 IDs per millisecond per worker
+- **Total:** ~4.1 million IDs/sec per worker (4096 × 1000)
+- **Parseable:** Can extract timestamp, worker ID, and sequence from ID
+
+*See `pseudocode.md::SnowflakeGenerator` for detailed implementation with all helper functions*
 
 **Example Usage:**
+
 ```
 generator = SnowflakeIDGenerator(worker_id=1)
 id1 = generator.generate_id()
@@ -261,59 +255,34 @@ parsed = generator.parse_id(id1)
 
 ### 3.3 Worker ID Assignment
 
-> 📊 **See assignment strategy:** [Worker ID Assignment Diagram](./hld-diagram.md#worker-id-assignment-strategy)
-> 
-> 📊 **See detailed sequence:** [Worker ID Assignment Sequence](./sequence-diagrams.md#worker-id-assignment-startup)
-
 #### Challenge
 
 Each generator node needs a unique worker ID (0-1023). How do we assign these without conflicts?
 
 #### Solution 1: Coordination Service (Recommended)
 
-```
-WorkerIDManager:
-  etcd_client: EtcdClient
-  prefix: string = "/snowflake/workers/"
-  
-  function initialize(etcd_host, etcd_port):
-    etcd_client = connect_to_etcd(etcd_host, etcd_port)
-  
-  function acquire_worker_id(node_hostname):
-    // Try to find existing assignment
-    existing = etcd_client.get(prefix + node_hostname)
-    if existing is not null:
-      return parse_int(existing)
-    
-    // Find available worker ID
-    for worker_id from 0 to 1023:
-      key = prefix + "id_" + worker_id
-      
-      // Try to create with lease (TTL for automatic cleanup)
-      lease = etcd_client.create_lease(ttl=30_seconds)
-      success = etcd_client.put_if_not_exists(key, node_hostname, lease)
-      
-      if success:
-        // Start heartbeat thread to keep lease alive
-        start_background_thread(heartbeat(lease))
-        
-        // Store hostname → worker_id mapping
-        etcd_client.put(prefix + node_hostname, worker_id)
-        return worker_id
-    
-    raise error("No available worker IDs")
-  
-  function heartbeat(lease):
-    // Keep lease alive with periodic heartbeat
-    while true:
-      lease.refresh()
-      sleep(10_seconds)  // Refresh every 10 seconds
+**Worker ID Management with etcd:**
 
-// Usage
-manager = WorkerIDManager(etcd_host="localhost", etcd_port=2379)
-worker_id = manager.acquire_worker_id("node-1.example.com")
-generator = SnowflakeIDGenerator(worker_id)
-```
+**How it works:**
+
+1. Node starts, connects to etcd
+2. Check if hostname already has assigned worker ID
+3. If not, iterate through IDs 0-1023 to find available slot
+4. Attempt atomic create with lease (TTL = 30 seconds)
+5. If successful:
+    - Start background heartbeat thread (refresh every 10s)
+    - Store hostname → worker_id mapping
+    - Return worker_id
+6. If all IDs taken, throw error
+
+**Key Features:**
+
+- Automatic cleanup via TTL if node crashes
+- Prevents duplicate assignments via atomic operations
+- Heartbeat keeps worker ID alive while node is healthy
+- Hostname-based lookup for recovery after restart
+
+*See `pseudocode.md::WorkerIDManager` for detailed implementation*
 
 #### Solution 2: Static Configuration
 
@@ -341,10 +310,6 @@ workers:
 
 ### 3.4 Clock Synchronization & Drift Handling
 
-> 📊 **See drift handling flow:** [Clock Drift Handling Diagram](./hld-diagram.md#clock-drift-handling)
-> 
-> 📊 **See detailed scenarios:** [Clock Drift Detection Sequences](./sequence-diagrams.md#clock-drift-detection--handling)
-
 #### Problem: Clock Drift
 
 Real-world server clocks drift over time. NTP corrections can cause:
@@ -366,7 +331,7 @@ If clock moves backwards < 5ms: Wait. If > 5ms: Throw error. Balances safety and
 
 Continue from last timestamp. Risk: Might exhaust sequence bits faster. Dangerous.
 
-*See `pseudocode.md::next_id()` for detailed implementations*
+*See `pseudocode.md::next_id()` for all strategy implementations*
 
 #### Clock Synchronization Best Practices
 
@@ -379,11 +344,7 @@ Continue from last timestamp. Risk: Might exhaust sequence bits faster. Dangerou
 
 ---
 
-## 4. Alternative ID Generation Strategies
-
-> 📊 **See comparison:** [ID Strategy Comparison Diagram](./hld-diagram.md#comparison-with-alternative-id-generation-strategies)
-> 
-> 📊 **See performance comparison:** [Performance Comparison Sequences](./sequence-diagrams.md#comparison-snowflake-vs-uuid-vs-auto-increment)
+## 5. Alternative ID Generation Strategies
 
 ### Comparison Matrix
 
@@ -395,6 +356,112 @@ Continue from last timestamp. Risk: Might exhaust sequence bits faster. Dangerou
 | **ULID**              | 128-bit | ✅ Time-sorted     | ⭐⭐⭐⭐        | None           | UUID alternative     |
 | **DB Auto-increment** | 64-bit  | ✅ Strictly sorted | ⭐⭐          | Every insert   | Small scale          |
 | **MongoDB ObjectID**  | 96-bit  | ✅ Time-sorted     | ⭐⭐⭐⭐        | None           | MongoDB              |
+
+### Detailed Comparison
+
+#### UUID v4 (Random)
+
+```
+// Generate random UUID v4
+id = generate_uuid_v4()
+
+// Example: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
+```
+
+**Pros:**
+
+- ✅ Globally unique (virtually impossible to collide)
+- ✅ No coordination needed
+- ✅ Built into all languages
+
+**Cons:**
+
+- ❌ 128 bits (2x storage of Snowflake)
+- ❌ Not sortable (bad for database indexes)
+- ❌ Random insertion pattern (poor B-tree performance)
+
+---
+
+#### UUID v7 (Time-ordered)
+
+```
+// Generate time-ordered UUID v7
+id = generate_uuid_v7()
+
+// Example: '018c4c3c-8f1f-7000-8000-0242ac120002'
+//          └───timestamp───┘└────random────┘
+```
+
+**Pros:**
+
+- ✅ Time-sortable
+- ✅ No coordination needed
+- ✅ Better index performance than UUID v4
+
+**Cons:**
+
+- ❌ Still 128 bits
+- ❌ Less human-readable
+
+---
+
+#### ULID (Universally Unique Lexicographically Sortable Identifier)
+
+```
+// Generate ULID
+id = generate_ulid()
+
+// Example: '01ARZ3NDEKTSV4RRFFQ69G5FAV'
+```
+
+**Structure:**
+
+```
+ 01ARZ3NDEKTSV4RRFFQ69G5FAV
+ ├─────────┬────────────────┘
+ Timestamp   Random (80 bits)
+ (48 bits)
+```
+
+**Pros:**
+
+- ✅ Time-sortable
+- ✅ Lexicographically sortable (as strings)
+- ✅ No coordination
+
+**Cons:**
+
+- ❌ 128 bits
+- ❌ Less adoption than UUID
+
+---
+
+#### Database Auto-Increment
+
+```sql
+CREATE TABLE users (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255)
+);
+
+INSERT INTO users (name) VALUES ('Alice');
+-- Returns id = 1
+```
+
+**Pros:**
+
+- ✅ Simple
+- ✅ Strictly monotonic
+- ✅ 64-bit
+
+**Cons:**
+
+- ❌ **Single point of failure**
+- ❌ **Write bottleneck** (all inserts contend for same sequence)
+- ❌ **Doesn't scale horizontally**
+- ❌ Requires database round-trip for every ID
+
+---
 
 ### When to Use Each
 
@@ -409,13 +476,9 @@ Continue from last timestamp. Risk: Might exhaust sequence bits faster. Dangerou
 
 ---
 
-## 5. Handling Edge Cases & Failures
-
-> 📊 **See failure scenarios:** [Failure Scenarios Diagram](./hld-diagram.md#failure-scenarios--recovery)
+## 6. Handling Edge Cases & Failures
 
 ### 5.1 Sequence Exhaustion
-
-> 📊 **See exhaustion handling:** [Sequence Exhaustion Sequence](./sequence-diagrams.md#sequence-exhaustion-handling)
 
 **Problem:** Node needs to generate > 4,096 IDs in 1 millisecond
 
@@ -462,29 +525,40 @@ IDGeneratorWithDuplicateDetection:
   worker_id: integer
   cache_client: CacheClient
   
-  function generate_id():
-    id = generate_snowflake_id()
-    
-    // Check for duplicate (should never happen)
-    key = "id:" + id
-    if not cache_client.set_if_not_exists(key, worker_id):
-      // CRITICAL: Duplicate detected!
-      alert_duplicate(id)
-      raise error("Duplicate ID generated: " + id)
-    
-    // Set expiry (cleanup old IDs)
-    cache_client.expire(key, 86400)  // 24 hours
+  generate_id() - With duplicate detection:
+    - Generate Snowflake ID
+    - Store in cache with worker_id (if not exists)
+    - If already exists: CRITICAL duplicate detected → alert and throw error
+    - Set 24-hour TTL on cache key for cleanup
+
+*See `pseudocode.md::generate_id()` for implementation*
     
     return id
 ```
 
 ---
 
-## 6. High Availability Architecture
+### 5.3 Clock Drift Monitoring
 
-> 📊 **See deployment architecture:** [Deployment Architecture Diagram](./hld-diagram.md#deployment-architecture)
-> 
-> 📊 **See multi-region setup:** [Multi-Region Deployment Diagram](./hld-diagram.md#multi-region-deployment)
+```
+// Monitoring metrics
+clock_drift_gauge = create_gauge('snowflake_clock_drift_ms')
+clock_backwards_counter = create_counter('snowflake_clock_backwards_total')
+
+Background monitoring thread:
+- Query NTP server every minute
+- Compare system time vs NTP time
+- Calculate drift = |system_time - ntp_time|
+- Record metric
+- If drift > 10ms: Log warning
+- If drift > 100ms: Alert ops team
+
+*See `pseudocode.md::monitor_clock_drift()` for implementation*
+```
+
+---
+
+## 7. High Availability Architecture
 
 ### Multi-Region Deployment
 
@@ -528,11 +602,7 @@ Region AP-South:
 
 ---
 
-## 7. Monitoring & Observability
-
-> 📊 **See monitoring dashboard:** [Monitoring Dashboard Diagram](./hld-diagram.md#monitoring--observability-dashboard)
-> 
-> 📊 **See monitoring flow:** [Monitoring Sequence](./sequence-diagrams.md#monitoring--alerting-flow)
+## 8. Monitoring & Observability
 
 ### Key Metrics
 
@@ -555,31 +625,29 @@ generation_latency = create_histogram('snowflake_generation_seconds')
 sequence_resets = create_counter('snowflake_sequence_resets_total')
 clock_drift = create_gauge('snowflake_clock_drift_milliseconds')
 
-MonitoredSnowflakeGenerator extends SnowflakeIDGenerator:
-  function generate_id():
-    start_time = current_time()
-    
-    id = super.generate_id()
-    ids_generated.increment()
-    
-    if this.sequence == 0:
-      sequence_resets.increment()
-    
-    latency = current_time() - start_time
-    generation_latency.observe(latency)
+**Monitored ID generation:**
+- Track start time
+- Generate ID
+- Increment counter
+- Track sequence resets
+- Record latency
+
+*See `pseudocode.md` for implementation*
     
     return id
 ```
 
 ---
 
-## 8. Common Anti-Patterns
+## 9. Common Anti-Patterns
 
 ### Anti-Pattern 1: Not Handling Clock Backwards
 
-**Problem:** ❌ No clock backwards handling → If clock moves backwards, generates duplicate IDs!
+**Problem:**
 
-**Solution:** ✅ Always check if `timestamp < last_timestamp`. If yes, throw error or wait.
+❌ **Bad:** No clock backwards handling → If clock moves backwards, generates duplicate IDs!
+
+✅ **Good:** Always check if `timestamp < last_timestamp`. If yes, throw error or wait.
 
 *See `pseudocode.md::next_id()` for implementation*
 
@@ -595,7 +663,9 @@ MonitoredSnowflakeGenerator extends SnowflakeIDGenerator:
 timestamp = system_time_millis()  // Can jump backwards!
 ```
 
-**Solution:** ✅ Use monotonic clock (never goes backwards) or track last timestamp and use `max(current, last)`.
+**Better:**
+
+✅ **Solution:** Use monotonic clock (never goes backwards) or track last timestamp and use `max(current, last)`.
 
 *See `pseudocode.md::current_time_millis()` for implementation*
 
@@ -642,13 +712,12 @@ id = generator.generate_id()  // < 1ms, no network
 
 ---
 
-## 9. Performance Optimizations
-
-> 📊 **See batch generation:** [Batch ID Generation Sequence](./sequence-diagrams.md#batch-id-generation-optimization)
+## 10. Performance Optimizations
 
 ### Batch Generation
 
-Generate multiple IDs at once by holding lock once. Example: Generate 1000 IDs in single lock acquisition → Much faster than 1000 individual calls.
+Generate multiple IDs at once by holding lock once. Example: Generate 1000 IDs in single lock acquisition → Much faster
+than 1000 individual calls.
 
 *See `pseudocode.md::generate_batch()` for implementation*
 
@@ -659,18 +728,12 @@ LockFreeSnowflake:
   worker_id: integer
   thread_local_counter: ThreadLocal
   
-  function generate_id():
-    // Each thread has its own counter (lock-free)
-    if not thread_local_counter.initialized:
-      thread_local_counter.sequence = 0
-      thread_local_counter.last_ts = -1
-    
-    timestamp = current_millis()
-    
-    if timestamp == thread_local_counter.last_ts:
-      thread_local_counter.sequence = (thread_local_counter.sequence + 1) AND 4095
-    else:
-      thread_local_counter.sequence = 0
+  generate_id() - Lock-free with thread-local counters:
+    - Each thread maintains own sequence counter
+    - No mutex needed
+    - Higher throughput
+
+*See `pseudocode.md` for implementation*
     
     thread_local_counter.last_ts = timestamp
     
@@ -679,9 +742,7 @@ LockFreeSnowflake:
 
 ---
 
-## 10. Capacity Planning
-
-> 📊 **See scaling strategy:** [Scaling Strategy Diagram](./hld-diagram.md#scaling-strategy)
+## 11. Capacity Planning
 
 ### Scaling Guidelines
 
@@ -708,7 +769,7 @@ Total: ~$350/month for 100K IDs/sec capacity
 
 ---
 
-## 11. Trade-offs Summary
+## 12. Trade-offs Summary
 
 | Decision         | Choice         | Alternative    | Why Chosen               | Trade-off                    |
 |------------------|----------------|----------------|--------------------------|------------------------------|
@@ -749,3 +810,42 @@ A distributed ID generator using Snowflake algorithm provides:
 
 The Snowflake algorithm is the **gold standard** for distributed ID generation in high-scale systems.
 
+---
+
+## 13. References
+
+### Related System Design Components
+
+- **[2.5.2 Consensus Algorithms](../../02-components/2.5-algorithms/2.5.2-consensus-algorithms.md)** - Coordination
+  patterns for distributed systems
+- **[1.1.2 Latency, Throughput, and Scale](../../01-principles/1.1.2-latency-throughput-scale.md)** - Performance
+  fundamentals
+- **[1.1.6 Failure Modes and Fault Tolerance](../../01-principles/1.1.6-failure-modes-fault-tolerance.md)** - High
+  availability patterns
+- **[2.2.2 Consistent Hashing](../../02-components/2.2-caching/2.2.2-consistent-hashing.md)** - Distributed system
+  partitioning
+
+### Re-ated Design Challenges
+
+- **[3.1.1 URL Shortener](../3.1.1-url-shortener/)** - Uses distributed ID generator (Snowflake) for unique aliases
+- **[3.1.2 Distributed Cache](../3.1.2-distributed-cache/)** - Coordination service patterns (etcd/ZooKeeper)
+- **[3.2.4 Global Rate Limiter](../3.2.4-global-rate-limiter/)** - Distributed coordination patterns
+
+### External Resources
+
+- **Twitter's Snowflake:
+  ** [Original Snowflake Blog Post](https://blog.twitter.com/engineering/en_us/a/2010/announcing-snowflake.html) -
+  Original announcement and design
+- **Snowflake Algorithm:** [GitHub - Twitter Snowflake](https://github.com/twitter-archive/snowflake) - Reference
+  implementation
+- **UUID v7 Specification:** [RFC 4122](https://www.rfc-editor.org/rfc/rfc4122) - Time-ordered UUID standard
+- **ULID Specification:** [ULID GitHub](https://github.com/ulid/spec) - Universally Unique Lexicographically Sortable
+  Identifier
+- **etcd Documentation:** [etcd.io](https://etcd.io/docs/) - Distributed coordination service
+- **ZooKeeper Documentation:** [Apache ZooKeeper](https://zookeeper.apache.org/) - Distributed coordination service
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Chapters on distributed systems and coordination
+- *Distributed Systems: Concepts and Design* by George Coulouris - Coordination and consensus algorithms
+- *System Design Interview Vol 1* by Alex Xu - ID generation patterns and trade-offs

@@ -156,34 +156,24 @@ sequenceDiagram
     participant IDGen as ID Generator
     participant Clock as System Clock
     participant Monitor as Monitoring
-
     Note over IDGen: Last timestamp: 1730000000123
-    
-    App->>IDGen: Generate ID
+    App ->> IDGen: Generate ID
     activate IDGen
-    
-    IDGen->>Clock: Get current timestamp
-    Clock-->>IDGen: 1730000000120<br/>(3ms backward!)
-    
+    IDGen ->> Clock: Get current timestamp
+    Clock -->> IDGen: 1730000000120<br/>(3ms backward!)
     Note over IDGen: Clock moved backwards!<br/>Drift: 3ms
-    
+
     alt Drift < 5ms (tolerable)
         Note over IDGen: Sleep for 3ms<br/>to let clock catch up
-        
-        IDGen->>IDGen: Sleep(3ms)
-        
-        IDGen->>Clock: Get current timestamp again
-        Clock-->>IDGen: 1730000000123
-        
+        IDGen ->> IDGen: Sleep(3ms)
+        IDGen ->> Clock: Get current timestamp again
+        Clock -->> IDGen: 1730000000123
         Note over IDGen: Clock caught up!<br/>Safe to proceed
-        
         Note over IDGen: Generate ID normally<br/>Sequence: 43
-        
-        IDGen-->>App: ID: 7234891234567890
-        
-        IDGen->>Monitor: Log: Small clock drift detected (3ms)
+        IDGen -->> App: ID: 7234891234567890
+        IDGen ->> Monitor: Log: Small clock drift detected (3ms)
     end
-    
+
     deactivate IDGen
 ```
 
