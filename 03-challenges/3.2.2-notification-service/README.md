@@ -1087,8 +1087,7 @@ Use **ELK Stack** (Elasticsearch, Logstash, Kibana) for centralized logging:
   services
 - **FCM Documentation:** [Firebase Cloud Messaging](https://firebase.google.com/docs/cloud-messaging) - Push
   notifications for Android/iOS
-- **APNS Documentation:
-  ** [Apple Push Notification Service](https://developer.apple.com/documentation/usernotifications) - Push notifications
+- **APNS Documentation:**  [Apple Push Notification Service](https://developer.apple.com/documentation/usernotifications) - Push notifications
   for iOS
 - **SendGrid Documentation:** [SendGrid API](https://docs.sendgrid.com/) - Email delivery service
 - **Twilio Documentation:** [Twilio API](https://www.twilio.com/docs) - SMS and voice communication

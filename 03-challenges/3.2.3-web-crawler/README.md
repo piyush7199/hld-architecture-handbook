@@ -1,1374 +1,954 @@
 # 3.2.3 Design a Distributed Web Crawler
 
 > 📚 **Note on Implementation Details:**
-> This document focuses on high-level design concepts and architectural decisions. 
+> This document focuses on high-level design concepts and architectural decisions.
 > For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
 ## 📊 Visual Diagrams & Resources
 
-- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, component design, data flow, and scaling strategy
-- **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows for crawling, politeness checks, duplicate detection, and failure scenarios
-- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and trade-offs
-- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for all core functions
+- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, component design, data flow
+- **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows and failure scenarios
+- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices
+- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
-Design a distributed web crawler system capable of fetching and indexing **10 billion web pages** within 4 months while respecting politeness policies, efficiently detecting duplicates, and handling various failures (DNS errors, timeouts, malformed HTML). The system must achieve **1,000 URLs/second** throughput, use **< 100 TB storage**, and never overwhelm any single domain.
+Design a distributed web crawler system that can fetch and index billions of web pages efficiently while respecting
+politeness policies, avoiding duplicates, and handling failures gracefully. The system must be scalable to process the
+entire web (10+ billion pages) within a reasonable timeframe (3-4 months) while maintaining high throughput and fault
+tolerance.
+
+**Key Challenges:**
+
+- **Scale:** Processing billions of unique URLs without overwhelming individual domains
+- **Duplicate Detection:** Efficiently identifying already-crawled URLs with minimal memory
+- **Politeness:** Respecting robots.txt and rate limiting per domain to avoid being blocked
+- **Fault Tolerance:** Handling DNS failures, timeouts, malformed HTML, and network issues
+- **Prioritization:** Crawling important pages first (PageRank-style importance)
 
 ---
 
-## 1. Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
 ### Functional Requirements (FRs)
 
-| Requirement                 | Description                                                                  | Priority     |
-|-----------------------------|------------------------------------------------------------------------------|--------------|
-| **Fetch & Parse**           | Fetch HTML from URLs, extract text, discover new links                       | Must Have    |
-| **Storage**                 | Store raw HTML (S3) and parsed content (Elasticsearch) in searchable format  | Must Have    |
-| **Politeness**              | Respect robots.txt, rate limit requests per domain (1 req/sec default)       | Must Have    |
-| **Duplicate Detection**     | Never process the same URL twice                                             | Must Have    |
-| **Prioritization**          | Crawl important/fresh pages first (PageRank-style)                           | Should Have  |
-| **Recrawl**                 | Periodically recrawl pages to detect updates                                 | Should Have  |
-| **Content Type Filtering**  | Only crawl HTML pages (skip PDFs, images, videos)                            | Should Have  |
+| Requirement                | Description                                            | Priority    |
+|----------------------------|--------------------------------------------------------|-------------|
+| **Fetch & Parse**          | Fetch HTML from URLs, extract text, discover new links | Must Have   |
+| **Storage**                | Store raw HTML and parsed content in searchable format | Must Have   |
+| **Politeness**             | Respect robots.txt, rate limit requests per domain     | Must Have   |
+| **Duplicate Detection**    | Never process the same URL twice                       | Must Have   |
+| **Prioritization**         | Crawl important/fresh pages first                      | Should Have |
+| **Recrawl**                | Periodically recrawl pages to detect updates           | Should Have |
+| **Content Type Filtering** | Only crawl HTML pages (skip PDFs, images, etc.)        | Should Have |
 
 ### Non-Functional Requirements (NFRs)
 
-| Requirement             | Target              | Rationale                                  |
-|-------------------------|---------------------|--------------------------------------------|
-| **High Throughput**     | 1,000+ URLs/sec     | Complete 10B pages in ~115 days            |
-| **Fault Tolerance**     | 99.9% uptime        | Handle DNS errors, timeouts, bad HTML      |
-| **Scalability**         | Horizontal scaling  | Add more crawler workers as needed         |
-| **Low Latency (Fetch)** | < 5 seconds per page| Maximize throughput                        |
-| **Storage Efficiency**  | < 100 TB total      | Cost-effective storage                     |
+| Requirement             | Target                 | Rationale                             |
+|-------------------------|------------------------|---------------------------------------|
+| **High Throughput**     | 1,000+ URLs/sec        | Complete 10B pages in ~115 days       |
+| **Fault Tolerance**     | 99.9% uptime           | Handle DNS errors, timeouts, bad HTML |
+| **Scalability**         | Horizontal scaling     | Add more crawler workers as needed    |
+| **Low Latency (Fetch)** | < 5 seconds per page   | Maximize throughput                   |
+| **Storage Efficiency**  | < 100 TB for 10B pages | Cost-effective storage                |
+
+---
 
 ### Scale Estimation
 
-| Metric                  | Assumption                                   | Calculation                                  | Result                                   |
-|-------------------------|----------------------------------------------|----------------------------------------------|------------------------------------------|
-| **Total Pages**         | Entire web                                   | 10 billion unique pages                      | **10B pages**                            |
-| **Target Fetch Rate**   | Efficient crawling                           | 1,000 URLs/sec                               | **1,000 QPS**                            |
-| **Pages per Day**       | 1,000 × 86,400 sec/day                       | $1000 \times 86400$                          | **~86.4M pages/day**                     |
-| **Time to Crawl**       | 10B / 86.4M pages/day                        | $\frac{10 \times 10^9}{86.4 \times 10^6}$   | **~115 days (4 months)**                 |
-| **Average Page Size**   | HTML + text                                  | 10 KB/page                                   | **10 KB**                                |
-| **Storage Required**    | 10B × 10 KB                                  | $10 \times 10^9 \times 10 \times 10^3$ bytes | **~100 TB storage**                      |
-| **Bandwidth**           | 1,000 QPS × 10 KB                            | $1000 \times 10 \times 10^3$ bytes/sec       | **~10 MB/sec (~80 Mbps)**                |
-| **Bloom Filter Size**   | 10B URLs, 1% false positive rate             | 10B × 10 bits                                | **~12 GB RAM**                           |
+#### Scenario: General Web Crawler (Search Engine)
+
+| Metric                | Assumption             | Calculation                                  | Result                    |
+|-----------------------|------------------------|----------------------------------------------|---------------------------|
+| **Total Pages**       | Entire web             | 10 billion unique pages                      | **10B pages**             |
+| **Target Fetch Rate** | Efficient crawling     | 1,000 URLs/sec                               | **1,000 QPS**             |
+| **Pages per Day**     | 1,000 × 86,400 sec/day | $1000 \times 86400$                          | **~86.4M pages/day**      |
+| **Time to Crawl**     | 10B / 86.4M pages/day  | $\frac{10 \times 10^9}{86.4 \times 10^6}$    | **~115 days (4 months)**  |
+| **Average Page Size** | HTML + text            | 10 KB/page                                   | **10 KB**                 |
+| **Storage Required**  | 10B × 10 KB            | $10 \times 10^9 \times 10 \times 10^3$ bytes | **~100 TB storage**       |
+| **Bandwidth**         | 1,000 QPS × 10 KB      | $1000 \times 10 \times 10^3$ bytes/sec       | **~10 MB/sec (~80 Mbps)** |
+| **Bloom Filter Size** | 10B URLs, 1% FP rate   | [See 2.5.4 Bloom Filters]                    | **~12 GB RAM**            |
+
+#### Back-of-the-Envelope Calculations
+
+```
+Throughput:
+- 1,000 URLs/sec = 86.4M URLs/day = 31.5B URLs/year
+- To crawl 10B pages: ~115 days (assuming 100% uptime)
+
+Storage:
+- Raw HTML: 10B × 10 KB = 100 TB
+- Parsed text (compressed): ~30 TB
+- Metadata (URL, timestamp, links): ~500 GB
+Total: ~130 TB
+
+Bloom Filter:
+- 10B URLs, 1% false positive rate
+- Bits required: 10B × 10 bits = 100 Gb = 12.5 GB RAM
+- With 3 hash functions: ~12 GB total
+
+Worker Nodes:
+- Each worker: ~100 URLs/sec (avg fetch + parse time = 10ms)
+- Total workers needed: 1,000 QPS / 100 = 10 crawler workers
+- With redundancy: 15-20 workers
+```
 
 ---
 
-## 2. High-Level Architecture
+## 3. High-Level Architecture
 
-> 📊 **See detailed architecture diagrams:** [HLD Diagrams](./hld-diagram.md)
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
+
+The system follows an **event-driven microservices architecture** with a central URL frontier (queue) and distributed
+workers for fetching, parsing, and storing content.
+
+### System Overview
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         Seed URLs                                 │
+│                    (Initial URLs to crawl)                        │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │
+                             ▼
+                    ┌────────────────┐
+                    │  URL Frontier  │ ← Kafka Topic (Partitioned by Domain)
+                    │   (Priority    │   - High priority: Seed URLs, important domains
+                    │     Queue)     │   - Low priority: Discovered links
+                    └────────┬───────┘
+                             │
+                ┌────────────┼────────────┐
+                │            │            │
+                ▼            ▼            ▼
+        ┌───────────┐  ┌───────────┐  ┌───────────┐
+        │  Fetcher  │  │  Fetcher  │  │  Fetcher  │
+        │  Worker 1 │  │  Worker 2 │  │  Worker N │
+        └─────┬─────┘  └─────┬─────┘  └─────┬─────┘
+              │              │              │
+              │  ┌───────────┴──────────────┘
+              │  │
+              ▼  ▼
+        ┌──────────────────┐
+        │ Duplicate Filter │ ← Bloom Filter (12 GB RAM)
+        │ (Bloom Filter +  │   + Redis (Persistent confirmation)
+        │  Redis Cache)    │
+        └────────┬─────────┘
+                 │
+        ┌────────┴─────────────────┐
+        │  Already crawled?        │
+        │  Yes → Drop              │
+        │  No  → Continue          │
+        └────────┬─────────────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │  Politeness      │ ← Redis (Distributed locks per domain)
+        │  Controller      │   - robots.txt cache (24h TTL)
+        │  (Rate Limiter)  │   - Rate limit per domain (1 req/sec default)
+        └────────┬─────────┘
+                 │
+        ┌────────┴───────────┐
+        │  Allowed?          │
+        │  No  → Delay/Drop  │
+        │  Yes → Fetch       │
+        └────────┬───────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │  HTTP Fetcher   │ ← User-Agent, Timeout (5s), Retry (3x)
+        │  (Download HTML)│
+        └────────┬─────────┘
+                 │
+                 ▼
+        ┌──────────────────────┐
+        │   Parser Service     │ ← Extract text, links, metadata
+        │   (Extract Links &   │   - Beautif
+
+ulSoup / Cheerio
+        │    Content)          │   - NLP for text extraction
+        └────────┬─────────────┘
+                 │
+        ┌────────┴─────────────────────┐
+        │                              │
+        ▼                              ▼
+┌────────────────┐           ┌─────────────────┐
+│  New URLs      │           │  Parsed Content │
+│  → URL Frontier│           │  → Storage      │
+└────────────────┘           └────────┬────────┘
+                                      │
+                        ┌─────────────┴─────────────┐
+                        │                           │
+                        ▼                           ▼
+                ┌───────────────┐         ┌──────────────────┐
+                │  Raw HTML     │         │  Searchable Text │
+                │  (S3 / Blob)  │         │  (Elasticsearch) │
+                └───────────────┘         └──────────────────┘
+```
 
 ### Key Components
 
-| Component               | Responsibility                       | Technology Options                  | Scalability              |
-|-------------------------|--------------------------------------|-------------------------------------|--------------------------|
-| **Seed URLs**           | Initial URLs to start crawling       | Configuration file, database        | -                        |
-| **URL Frontier**        | Priority queue of URLs to crawl      | Kafka (partitioned by domain)       | Horizontal (partitioned) |
-| **Duplicate Filter**    | Fast lookup: already crawled?        | Bloom Filter (RAM) + Redis (disk)   | Vertical (memory)        |
-| **Politeness Controller**| Rate limit per domain                | Redis (distributed locks)           | Horizontal               |
-| **Fetcher Workers**     | HTTP GET, download HTML              | Python (asyncio), Go (goroutines)   | Horizontal               |
-| **Parser Workers**      | Extract text, links, metadata        | BeautifulSoup, goquery              | Horizontal               |
-| **Content Store**       | Store raw HTML                       | S3, Google Cloud Storage            | Horizontal (object store)|
-| **Search Index**        | Store parsed text (searchable)       | Elasticsearch, Solr                 | Horizontal (sharding)    |
+| Component                 | Responsibility                   | Technology                    | Scaling Strategy           |
+|---------------------------|----------------------------------|-------------------------------|----------------------------|
+| **URL Frontier**          | Priority queue for URLs to crawl | Kafka (partitioned by domain) | Add more partitions        |
+| **Duplicate Filter**      | Check if URL already crawled     | Bloom Filter + Redis          | Shard by URL hash          |
+| **Fetcher Workers**       | Download HTML from URLs          | Python (asyncio) / Go         | Horizontal (10-20 workers) |
+| **Politeness Controller** | Enforce robots.txt, rate limits  | Redis (distributed locks)     | One lock per domain        |
+| **Parser Service**        | Extract text, links, metadata    | Python (BeautifulSoup) / Go   | Horizontal (10-20 workers) |
+| **Storage (Raw HTML)**    | Store original HTML              | S3 / Azure Blob               | Object storage             |
+| **Storage (Parsed Text)** | Searchable index                 | Elasticsearch                 | Horizontal sharding        |
+| **Coordinator**           | Monitors health, rebalances work | Custom service + etcd         | Master-slave failover      |
 
 ---
 
-## 3. Detailed Component Design
+## 4. Detailed Component Design
 
-### 3.1 URL Frontier (Kafka Priority Queue)
+### 4.1 URL Frontier (Priority Queue)
 
-The URL Frontier is a massive, distributed queue containing URLs waiting to be fetched. It must support:
-- **Prioritization**: Important URLs (seed URLs, high PageRank) should be crawled first
-- **Partitioning by Domain**: URLs from the same domain should be routed to the same partition for politeness
-- **Fault Tolerance**: Persist URLs to disk to survive crashes
+**Purpose:** Maintain a queue of URLs to be crawled, prioritized by importance (e.g., PageRank score, freshness).
 
-#### Kafka Topic Structure
+**Implementation:**
 
-```
-Topic: url-frontier
-Partitions: 64 (or more)
-Replication Factor: 3
-Message: { url, priority, domain, discovered_at }
-```
+- **Technology:** Kafka with multiple topics/partitions
+    - **High Priority Topic:** Seed URLs, important domains (news sites, Wikipedia)
+    - **Medium Priority Topic:** Discovered links from high-priority pages
+    - **Low Priority Topic:** Discovered links from low-priority pages
+- **Partitioning Strategy:** Partition by domain hash to ensure all URLs from the same domain go to the same partition (
+  for politeness enforcement)
+- **Consumer Groups:** Multiple Fetcher workers consume from different partitions concurrently
 
-**Partitioning Strategy:** Hash(domain) % num_partitions
+**Why This Design?**
 
-**Why?** URLs from the same domain end up in the same partition, allowing a single worker to enforce politeness per domain.
+- Kafka provides **durable storage** (URLs aren't lost if workers crash)
+- **Multiple consumers** can process different domains in parallel
+- **Backpressure handling** (if workers are slow, Kafka buffers URLs)
 
-*See `pseudocode.md::URLFrontier.enqueue()` and `pseudocode.md::URLFrontier.dequeue()` for implementation*
-
----
-
-### 3.2 Duplicate Detection (Two-Tier System)
-
-**Problem:** Checking if a URL has been crawled requires fast lookup across 10 billion URLs. Storing all URLs in Redis requires:
-
-```
-10B URLs × 100 bytes/URL = 1 TB RAM
-Cost: AWS ElastiCache r5.24xlarge (~$6,000/month)
-```
-
-**Solution:** Two-tier duplicate detection using Bloom Filter + Redis
-
-#### Tier 1: Bloom Filter (In-Memory, Fast Check)
-
-- **Purpose**: Fast preliminary check (<1μs lookup)
-- **Size**: 12 GB RAM for 10B URLs with 1% false positive rate
-- **How it works**: Hash URL with 3 hash functions, check if all bits are set
-
-```
-function isDuplicateBloom(url):
-  hash1 = murmur3(url) % BLOOM_SIZE
-  hash2 = fnv1a(url) % BLOOM_SIZE
-  hash3 = xxhash(url) % BLOOM_SIZE
-  
-  if bloom_filter[hash1] AND bloom_filter[hash2] AND bloom_filter[hash3]:
-    return PROBABLY_SEEN  // 1% false positive
-  else:
-    return DEFINITELY_NEW
-```
-
-#### Tier 2: Redis Set (Persistent, Confirmation)
-
-- **Purpose**: Confirm if URL is truly a duplicate (when Bloom Filter says "maybe")
-- **Size**: Store only URL hash (8 bytes) instead of full URL (100 bytes)
-- **Storage**: 10B URLs × 8 bytes = 80 GB disk (Redis AOF persistence)
-
-**Workflow:**
-
-```
-1. Check Bloom Filter
-   → If DEFINITELY_NEW: Add to Bloom + Redis, crawl URL
-   
-2. If PROBABLY_SEEN (1% of URLs):
-   → Check Redis for confirmation
-   → If in Redis: Skip (true duplicate)
-   → If NOT in Redis: False positive, add to Redis, crawl URL
-```
-
-**Memory Savings:**
-- Pure Redis: 1 TB RAM
-- Bloom + Redis: 12 GB RAM + 80 GB disk (99% reduction!)
-
-*See `pseudocode.md::DuplicateFilter.check()` for detailed implementation*
+*See [pseudocode.md::URLFrontier class](./pseudocode.md) for implementation*
 
 ---
 
-### 3.3 Politeness Controller (Distributed Rate Limiting)
+### 4.2 Duplicate Filter (Bloom Filter + Redis)
 
-**Politeness Rules:**
-1. **Respect robots.txt**: Never crawl disallowed paths
-2. **Rate Limiting**: Maximum 1 request per second per domain (default)
-3. **Crawl-delay**: Honor the `Crawl-delay` directive in robots.txt
-4. **User-Agent**: Identify crawler with proper User-Agent string
+**Purpose:** Quickly check if a URL has already been crawled to avoid redundant work.
 
-#### Implementation with Redis Distributed Locks
+**Two-Tier Approach:**
 
-**Problem:** Multiple crawler workers might fetch from the same domain simultaneously, violating politeness.
+**Tier 1: Bloom Filter (Fast, In-Memory)**
 
-**Solution:** Distributed lock per domain using Redis.
+- **Size:** 12 GB RAM for 10B URLs with 1% false positive rate
+- **Hash Functions:** 3 independent hash functions (MurmurHash3)
+- **False Positive Rate:** ~1% (means 1% of URLs might be incorrectly flagged as "already crawled")
 
-```
-Politeness Algorithm:
+**Tier 2: Redis (Persistent Confirmation)**
 
-function canFetchFromDomain(domain):
-  // 1. Check robots.txt (cached in Redis with 24h TTL)
-  robots = getRobotsTxt(domain)  // Redis cache
-  if robots.disallows(url):
-    return false
-  
-  // 2. Acquire distributed lock for domain
-  lock_key = "crawl:lock:" + domain
-  acquired = redis.SET(lock_key, "1", NX=true, EX=1)  // 1-second lock
-  
-  if acquired:
-    return true  // This worker can crawl
-  else:
-    return false  // Another worker is crawling, wait
-```
+- **Purpose:** Confirm Bloom Filter positives (eliminate false positives)
+- **Data Structure:** Redis Set with URL hashes (SHA-256)
+- **Size:** ~500 GB for 10B URL hashes
+- **Optimization:** Only check Redis if Bloom Filter returns "maybe crawled"
 
-**Redis Commands:**
+**Flow:**
 
-```redis
-# Try to acquire lock (atomic operation)
-SET crawl:lock:example.com 1 NX EX 1
+1. URL arrives → Check Bloom Filter (O(1))
+2. Bloom Filter says "definitely not crawled" → **Crawl it**
+3. Bloom Filter says "maybe crawled" → Check Redis (O(1))
+4. Redis confirms "not crawled" → **Crawl it** (false positive)
+5. Redis confirms "already crawled" → **Drop it**
 
-# If successful (returns OK), worker can crawl
-# If failed (returns nil), another worker holds the lock
-```
+**Why Bloom Filter + Redis?**
 
-#### robots.txt Caching
+- Bloom Filter **reduces Redis lookups by 99%** (only 1% false positives need Redis check)
+- Redis provides **100% accuracy** for confirmation
+- Cost-effective: **12 GB RAM (Bloom) + 500 GB Redis** vs **10B keys in Redis = 5 TB RAM**
 
-```
-Key: robots:example.com
-Value: { allowed_paths: ["/"], disallowed_paths: ["/admin"], crawl_delay: 1 }
-TTL: 24 hours
-```
-
-*See `pseudocode.md::PolitenessController.canFetch()` for implementation*
+*See [pseudocode.md::BloomFilter class](./pseudocode.md) and [pseudocode.md::is_duplicate()](./pseudocode.md) for
+implementation*
 
 ---
 
-### 3.4 Fetcher Workers (Asynchronous HTTP Clients)
+### 4.3 Politeness Controller
 
-**Goal:** Fetch HTML from URLs with high concurrency and handle various failure modes.
+**Purpose:** Enforce politeness policies to avoid overloading domains and getting IP-banned.
 
-#### Asynchronous I/O (100-200× Faster)
+**Policies:**
 
-**Synchronous Fetching (Slow):**
+1. **robots.txt Compliance:**
+    - Fetch robots.txt for each domain
+    - Cache for 24 hours (TTL)
+    - Respect `Disallow` directives, `Crawl-delay`
+
+2. **Rate Limiting per Domain:**
+    - Default: **1 request per second per domain**
+    - Configurable per domain (e.g., large sites like Wikipedia: 10 req/sec)
+    - Use **Token Bucket Algorithm** (see 2.5.1 Rate Limiting Algorithms)
+
+3. **Distributed Locking:**
+    - **Problem:** Multiple Fetcher workers might try to crawl the same domain simultaneously
+    - **Solution:** Use Redis distributed lock (see 2.5.3 Distributed Locking) keyed by domain name
+    - **Lock Acquisition:** Before fetching from `example.com`, acquire lock `lock:example.com`
+    - **Lock Release:** After fetch completes (or times out), release lock
+    - **TTL:** 10 seconds (to prevent deadlocks if worker crashes)
+
+**Implementation:**
+
 ```
-for url in urls:
-  response = http.get(url)  // Blocks 100ms+ per request
-  process(response)
-
-Throughput: 1 worker = ~10 URLs/sec (sequential)
+Domain: example.com
+└─> Distributed Lock: lock:example.com (TTL: 10s)
+    └─> Token Bucket: tokens:example.com (1 token/sec)
+        └─> robots.txt Cache: robots:example.com (TTL: 24h)
 ```
 
-**Asynchronous Fetching (Fast):**
-```
-async function fetchWorker():
-  tasks = []
-  for url in batch:
-    tasks.append(http.get_async(url))  // Non-blocking
-  
-  responses = await asyncio.gather(tasks)  // Parallel fetch
-  for response in responses:
-    process(response)
+**Optimization: Local Cache**
 
-Throughput: 1 worker = ~100-200 URLs/sec (parallel)
-```
+- Each Fetcher worker maintains an in-memory cache of:
+    - Recently accessed robots.txt files (LRU cache, 1000 domains)
+    - Rate limit status for recently crawled domains
+- **Benefit:** Reduces Redis lookups by 80-90% for repeated domain access
 
-#### Failure Handling
-
-| Failure Type             | Handling Strategy                                     |
-|--------------------------|-------------------------------------------------------|
-| **DNS Error**            | Skip URL, log error, don't retry                      |
-| **Connection Timeout**   | Retry up to 3 times with exponential backoff          |
-| **HTTP 4xx (Client Error)** | Don't retry (bad URL), mark as failed             |
-| **HTTP 5xx (Server Error)** | Retry 3 times, then move to Dead Letter Queue     |
-| **Malformed HTML**       | Log warning, attempt best-effort parsing              |
-| **Redirect Loop**        | Follow max 5 redirects, then give up                  |
-
-*See `pseudocode.md::FetcherWorker.fetch()` for implementation with retry logic*
+*See [pseudocode.md::PolitenessController class](./pseudocode.md) for implementation*
 
 ---
 
-### 3.5 Parser Workers (Extract Text and Links)
+### 4.4 Fetcher Workers
 
-**Responsibilities:**
-1. Extract clean text (remove scripts, styles, ads)
-2. Discover new links (absolute URLs)
-3. Extract metadata (title, description, keywords)
-4. Normalize URLs (remove fragments, lowercase domain)
+**Purpose:** Download HTML content from URLs using HTTP requests.
 
-#### HTML Parsing Algorithm
+**Design:**
 
-```
-function parseHTML(html, base_url):
-  soup = BeautifulSoup(html)
-  
-  // 1. Extract text
-  text = soup.get_text()
-  text = clean_text(text)  // Remove extra whitespace, ads
-  
-  // 2. Extract links
-  links = []
-  for anchor in soup.find_all('a'):
-    href = anchor.get('href')
-    if href:
-      absolute_url = urljoin(base_url, href)
-      normalized_url = normalize(absolute_url)
-      links.append(normalized_url)
-  
-  // 3. Extract metadata
-  title = soup.find('title').text
-  description = soup.find('meta', attrs={'name': 'description'})
-  
-  return { text, links, title, description }
-```
+- **Asynchronous I/O:** Use async HTTP clients (Python `aiohttp`, Go `http.Client` with goroutines)
+- **Concurrency:** Each worker handles 100-200 concurrent requests
+- **Timeout:** 5 seconds per request (to avoid slow servers blocking workers)
+- **Retry Logic:** Retry up to 3 times with exponential backoff (1s, 2s, 4s)
+- **User-Agent:** Identify as a bot (e.g., `MyBot/1.0 (+https://mybot.com)`)
 
-#### URL Normalization
+**Error Handling:**
 
-**Goal:** Treat these URLs as identical:
-```
-http://example.com/page
-http://example.com/page?utm_source=email
-http://example.com/page#section1
-HTTP://EXAMPLE.COM/page
-```
+- **DNS Errors:** Log and mark URL as failed (don't retry)
+- **Timeouts:** Retry up to 3 times, then mark as failed
+- **HTTP 4xx/5xx:** Log error, don't retry for 4xx (client errors), retry for 5xx (server errors)
+- **Malformed HTML:** Log warning, attempt to parse anyway (use lenient parser)
 
-**Normalization Steps:**
-1. Lowercase scheme and domain
-2. Remove URL fragments (#section)
-3. Remove tracking parameters (utm_*, fbclid)
-4. Sort query parameters alphabetically
-5. Remove default ports (80 for HTTP, 443 for HTTPS)
-6. Remove trailing slash (if not homepage)
+**Throughput Calculation:**
 
-*See `pseudocode.md::ParserWorker.parse()` and `pseudocode.md::normalize_url()` for implementation*
+- Each worker: 100 concurrent requests
+- Average fetch time: 500ms (including network + DNS + server response)
+- Throughput per worker: 100 / 0.5s = **200 URLs/sec**
+- Total workers needed for 1,000 QPS: 1,000 / 200 = **5 workers** (use 10 for redundancy)
+
+*See [pseudocode.md::Fetcher class](./pseudocode.md) for implementation*
 
 ---
 
-## 4. Crawling Workflow (End-to-End)
+### 4.5 Parser Service
 
-> 📊 **See visual sequence diagram:** [Complete Crawl Flow](./sequence-diagrams.md#complete-crawl-flow-happy-path)
+**Purpose:** Extract useful information from HTML: text content, links, metadata.
 
-### Happy Path
+**Extraction Tasks:**
 
-```
-1. Seed URL → URL Frontier (Kafka)
+1. **Links:** Extract all `<a href="...">` tags, normalize URLs (relative → absolute)
+2. **Text Content:** Extract visible text (strip HTML tags, JavaScript, CSS)
+3. **Metadata:** Title, description, keywords, author, publish date
+4. **Outgoing Links:** Filter out non-HTML links (PDFs, images, videos)
 
-2. Fetcher Worker:
-   - Dequeue URL from Kafka
-   - Check Duplicate Filter (Bloom + Redis)
-     → If duplicate: Drop, ack message
-     → If new: Continue
-   
-3. Politeness Controller:
-   - Check robots.txt (Redis cache)
-   - Acquire distributed lock for domain (Redis)
-     → If locked: Requeue URL with delay
-     → If acquired: Continue
-   
-4. Fetch HTML:
-   - HTTP GET with timeout (5 seconds)
-   - Handle redirects (max 5)
-     → If success: Continue
-     → If error: Retry with exponential backoff (3 attempts)
-   
-5. Store Raw HTML:
-   - Upload to S3: s3://crawler-data/{domain}/{url_hash}.html
-   
-6. Parser Worker:
-   - Extract text, links, metadata
-   - Store parsed text in Elasticsearch
-   - Normalize discovered links
-   - Enqueue new links to Kafka (URL Frontier)
-   
-7. Mark URL as Crawled:
-   - Add URL hash to Redis
-   - Update Bloom Filter
-   - Log crawl status (success, timestamp, size)
-```
+**Technology:**
 
-### Failure Scenarios
+- **Python:** BeautifulSoup, lxml (for HTML parsing)
+- **Go:** goquery (jQuery-like HTML parser)
+- **URL Normalization:** [urlparse](https://docs.python.org/3/library/urllib.parse.html) to convert relative URLs to
+  absolute
 
-| Scenario                 | Handling                                             |
-|--------------------------|------------------------------------------------------|
-| **DNS Failure**          | Log error, mark URL as failed, don't retry           |
-| **Connection Timeout**   | Retry 3 times with 2s, 4s, 8s backoff               |
-| **HTTP 503 (Overload)**  | Respect Retry-After header, increase crawl delay     |
-| **robots.txt Disallows** | Drop URL, don't crawl                                |
-| **Redirect Loop**        | Follow max 5 redirects, then fail                    |
-| **Malformed HTML**       | Best-effort parse, log warning                       |
-| **S3 Upload Failure**    | Retry 3 times, then move to Dead Letter Queue        |
+**Challenges:**
 
-*See [Sequence Diagrams](./sequence-diagrams.md) for detailed failure flow diagrams*
+- **JavaScript-heavy Sites:** Modern SPAs (React, Angular) require JavaScript execution
+    - **Solution:** Use headless browser (Puppeteer, Playwright) for JavaScript-heavy sites
+    - **Trade-off:** Much slower (10-20 seconds per page) → Use sparingly (only for important sites)
+- **Malformed HTML:** Use lenient parsers (BeautifulSoup with `lxml` parser)
+- **Language Detection:** Use NLP libraries (langdetect) to identify language
+
+**Output:**
+
+- **New URLs** → Push back to URL Frontier (Kafka)
+- **Parsed Content** → Push to Storage (Elasticsearch)
+- **Raw HTML** → Push to Object Storage (S3)
+
+*See [pseudocode.md::Parser class](./pseudocode.md) for implementation*
 
 ---
 
-## 5. Bottlenecks and Future Scaling
+### 4.6 Storage
 
-### Bottleneck 1: Bloom Filter False Positives Accumulate
+**Two Types of Storage:**
 
-**Problem:** Bloom Filter false positive rate increases over time as more URLs are added.
+**1. Raw HTML Storage (S3 / Azure Blob)**
+
+- **Purpose:** Store original HTML for future re-parsing or auditing
+- **Format:** Gzip-compressed HTML files
+- **Partitioning:** By crawl date (e.g., `s3://bucket/2025-01-15/page123.html.gz`)
+- **Cost:** ~100 TB × $0.023/GB/month = **$2,300/month**
+
+**2. Searchable Text Storage (Elasticsearch)**
+
+- **Purpose:** Enable fast full-text search over crawled content
+- **Schema:**
+  ```
+  {
+    "url": "https://example.com/page1",
+    "title": "Example Page",
+    "content": "This is the page content...",
+    "crawl_timestamp": "2025-01-15T10:30:00Z",
+    "domain": "example.com",
+    "outgoing_links": ["https://example.com/page2", ...],
+    "language": "en"
+  }
+  ```
+- **Indexing:** Full-text index on `title` and `content` fields
+- **Sharding:** Shard by domain hash (distribute load across Elasticsearch nodes)
+- **Cost:** ~30 TB (compressed text) × $0.10/GB/month = **$3,000/month**
+
+---
+
+## 5. Data Flow
+
+### Complete Crawl Flow
 
 ```
-Initial: 10M URLs → 1% false positive
-After 1B URLs → 5% false positive (wastes 5% of Redis checks)
-After 10B URLs → 10-15% false positive
+1. Seed URL added to URL Frontier (Kafka)
+   ↓
+2. Fetcher Worker consumes URL from Kafka
+   ↓
+3. Check Duplicate Filter (Bloom Filter + Redis)
+   - If already crawled → Drop
+   - If not crawled → Continue
+   ↓
+4. Check Politeness Controller
+   - Fetch robots.txt (if not cached)
+   - Check if URL allowed
+   - Check rate limit (Token Bucket)
+   - Acquire distributed lock for domain
+   ↓
+5. Fetch HTML (HTTP GET request)
+   - Timeout: 5s
+   - Retry: 3x with exponential backoff
+   ↓
+6. Parse HTML (Parser Service)
+   - Extract text content
+   - Extract outgoing links
+   - Extract metadata
+   ↓
+7. Store Results:
+   - Raw HTML → S3
+   - Parsed content → Elasticsearch
+   - New URLs → URL Frontier (Kafka)
+   ↓
+8. Mark URL as crawled:
+   - Add to Bloom Filter
+   - Add to Redis Set
+   ↓
+9. Release distributed lock for domain
 ```
+
+---
+
+## 6. Bottlenecks and Optimizations
+
+### 6.1 Bottleneck: Bloom Filter False Positives
+
+**Problem:** As the Bloom Filter fills up (after billions of URLs), the false positive rate increases from 1% to 5-10%,
+leading to wasted Redis lookups.
 
 **Solutions:**
 
-1. **Periodic Rebuild**: Every month, rebuild Bloom Filter from Redis
-2. **Sharded Bloom Filters**: Split by domain TLD (.com, .org, etc.)
-3. **Counting Bloom Filter**: Use 4-bit counters to support removal
+1. **Periodic Rebuild:**
+    - Every 30 days, rebuild Bloom Filter from Redis (takes ~2 hours for 10B URLs)
+    - Use two Bloom Filters: one active, one being rebuilt (swap atomically)
 
-*See `pseudocode.md::BloomFilter.rebuild()` for implementation*
+2. **Sharding:**
+    - Shard Bloom Filter by URL prefix (e.g., 10 shards: a-z, 0-9)
+    - Each shard: 1B URLs → smaller, more accurate filters
+
+3. **Hybrid Approach:**
+    - Use Bloom Filter for **first-pass filtering** (99% rejection rate)
+    - Use Redis for **second-pass confirmation** (1% lookups)
+    - Use **persistent database** (Cassandra) for **long-term storage** (archival, analytics)
 
 ---
 
-### Bottleneck 2: JavaScript-Heavy Sites
+### 6.2 Bottleneck: Politeness Controller Latency
 
-**Problem:** Many modern sites render content via JavaScript. Raw HTML has no content.
-
-```
-Example: Twitter, Facebook, Gmail
-HTML: <div id="root"></div><script src="app.js"></script>
-Content: Empty!
-```
+**Problem:** Acquiring a distributed lock for every single URL fetch adds 5-10ms latency per request.
 
 **Solutions:**
 
-| Approach                | Pros                                  | Cons                                 | Use Case                    |
-|-------------------------|---------------------------------------|--------------------------------------|-----------------------------|
-| **Headless Browser**    | ✅ Renders JS, accurate content        | ❌ 10-20× slower, memory-intensive   | High-value sites            |
-| **Pre-rendering Service**| ✅ Offload rendering to service        | ❌ Cost, complexity                   | Medium-value sites          |
-| **API Access**          | ✅ Fast, structured data               | ❌ Requires API key, limited sites   | Sites with public APIs      |
-| **Skip JS Sites**       | ✅ Simple, fast                        | ❌ Miss 30-40% of modern web         | Basic crawlers              |
+1. **Local Domain Cache:**
+    - Each Fetcher worker maintains an in-memory cache of:
+        - robots.txt files (LRU cache, 1000 domains, 5-minute TTL)
+        - Rate limit status (last request time per domain)
+    - **Benefit:** Reduces Redis lookups by 80-90%
 
-**Recommended Hybrid Approach:**
-- Detect JS-heavy sites (check for `<noscript>` tag, empty body)
-- Route to dedicated headless browser pool (Puppeteer, Playwright)
-- Limit headless crawling to 10% of total throughput
+2. **Batch Lock Acquisition:**
+    - Instead of locking per URL, lock per domain and fetch multiple URLs from the same domain in sequence
+    - Example: Acquire `lock:example.com`, fetch 10 URLs from `example.com`, release lock
+    - **Trade-off:** Reduces concurrency (only one worker per domain at a time)
 
-*See `pseudocode.md::JavaScriptRenderer.render()` for implementation*
+3. **Domain-Specific Workers:**
+    - Assign specific domains to specific workers (sticky assignment)
+    - Worker "owns" the domain, no locking needed
+    - **Trade-off:** Load imbalance if some domains have more URLs than others
 
 ---
 
-### Bottleneck 3: URL Frontier Overflow
+### 6.3 Bottleneck: JavaScript-Heavy Sites
 
-**Problem:** If discovery rate exceeds crawl rate, URL Frontier grows unbounded.
-
-```
-Discovery Rate: 1,000 URLs/sec
-Crawl Rate: 800 URLs/sec
-Queue Growth: +200 URLs/sec → 17M URLs/day
-```
+**Problem:** Modern SPAs (Single Page Applications) require JavaScript execution to render content, which is 10-20x
+slower than static HTML parsing.
 
 **Solutions:**
 
-1. **Priority Topics**: Separate Kafka topics for high/medium/low priority
-2. **Backpressure**: Pause low-priority crawling when queue exceeds threshold
-3. **Aggressive Filtering**: Skip certain URL patterns (pagination, filters, calendars)
-4. **Crawl Budget**: Limit URLs per domain (e.g., max 10,000 pages per site)
+1. **Headless Browser Pool:**
+    - Run a small pool of headless browsers (Puppeteer, Playwright) for JavaScript rendering
+    - Use only for important/high-priority sites (e.g., news sites, social media)
+    - **Cost:** 100 headless browser instances × $0.10/hour = $10/hour
 
-*See `pseudocode.md::URLFrontier.applyBackpressure()` for implementation*
+2. **Pre-Rendering Service:**
+    - Use a third-party service (Prerender.io, Rendertron) to pre-render JavaScript sites
+    - Cache rendered HTML for 24 hours
+    - **Cost:** ~$0.001 per page × 10M JS-heavy pages/day = $10,000/day
+
+3. **API Crawling:**
+    - For sites with public APIs (Twitter, Reddit), use the API instead of scraping HTML
+    - **Benefit:** Faster, more reliable, structured data
+    - **Trade-off:** Requires API keys, rate limits
 
 ---
 
-### Bottleneck 4: Politeness Latency
+### 6.4 Bottleneck: URL Frontier Congestion
 
-**Problem:** Acquiring distributed lock for every URL adds 5-10ms overhead.
-
-```
-Latency: 1,000 URLs/sec × 5ms = 5 seconds of lock overhead per second!
-```
+**Problem:** If the URL Frontier (Kafka) gets too large (billions of URLs), consumers can't keep up, and the system
+grinds to a halt.
 
 **Solutions:**
 
-1. **Local Caching**: Cache robots.txt and rate limit status locally (1-minute TTL)
-2. **Batch Locking**: Acquire lock for batch of URLs from same domain
-3. **Probabilistic Politeness**: Only enforce strict politeness for 90% of requests
+1. **Priority-Based Partitioning:**
+    - Create separate topics for different priority levels:
+        - `frontier-high`: Seed URLs, important domains (Wikipedia, news sites)
+        - `frontier-medium`: Discovered links from high-priority pages
+        - `frontier-low`: Discovered links from low-priority pages
+    - Allocate more workers to high-priority topic
 
-*See `pseudocode.md::PolitenessController.localCache()` for implementation*
+2. **Batch Processing:**
+    - Instead of processing URLs one-by-one, fetch them in batches (e.g., 100 URLs at a time)
+    - **Benefit:** Reduces Kafka overhead (fewer commits, fewer network round-trips)
+
+3. **Backpressure:**
+    - If URL Frontier size > 10M URLs, **slow down** link extraction (don't add every discovered link)
+    - Prioritize important links (high PageRank, fresh content)
 
 ---
 
-## 6. Common Anti-Patterns
+## 7. Common Anti-Patterns
 
-> 📚 **Note:** For detailed pseudocode implementations of anti-patterns and their solutions, see **[3.2.3-design-web-crawler.md](./3.2.3-design-web-crawler.md#6-common-anti-patterns)** and **[pseudocode.md](./pseudocode.md)**.
-
-### Anti-Pattern 1: Not Normalizing URLs
+### Anti-Pattern 1: Ignoring robots.txt
 
 **Problem:**
 
-❌ Treating these as different URLs:
 ```
-http://example.com/page
-http://example.com/page?utm_source=email
-HTTP://EXAMPLE.COM/page
-```
-
-Result: Waste resources crawling duplicates, exhaust storage, violate politeness.
-
-**Solution:**
-
-✅ Normalize URLs before duplicate checking:
-```
-function normalize(url):
-  parsed = urlparse(url)
-  scheme = parsed.scheme.lower()  // http
-  domain = parsed.netloc.lower()  // example.com
-  path = parsed.path.rstrip('/')  // /page
-  query = remove_tracking_params(parsed.query)  // Remove utm_*
-  return scheme + "://" + domain + path + query
-
-normalized = normalize("HTTP://EXAMPLE.COM/page?utm_source=email")
-// Result: "http://example.com/page"
+// ❌ Bad: Ignoring robots.txt
+function fetch_url(url):
+  html = http_get(url)  // Fetch without checking robots.txt
+  return html
 ```
 
-*See `pseudocode.md::normalize_url()` for full implementation*
+**Why It's Bad:**
 
----
+- **Ethical:** Violates Robots Exclusion Protocol (RFC 9309)
+- **Practical:** Sites will detect and ban your crawler's IP address
+- **Legal:** May violate terms of service, leading to lawsuits
 
-### Anti-Pattern 2: No Rate Limiting (Spider Trap)
-
-**Problem:**
-
-❌ Crawler discovers calendar site with infinite URLs:
-```
-example.com/calendar/2024/01/01
-example.com/calendar/2024/01/02
-...
-example.com/calendar/9999/12/31  // 3.6 million pages!
-```
-
-Result: Waste months crawling one site, never finish.
-
-**Solution:**
-
-✅ Enforce crawl budget per domain:
-```
-MAX_PAGES_PER_DOMAIN = 10,000
-
-function shouldCrawlFromDomain(domain):
-  crawled_count = redis.GET("crawl:count:" + domain)
-  if crawled_count >= MAX_PAGES_PER_DOMAIN:
-    return false  // Skip, already crawled enough
-  else:
-    redis.INCR("crawl:count:" + domain)
-    return true
-```
-
-**Additional Protections:**
-- Detect URL patterns (calendar, pagination, filters)
-- Limit crawl depth per site (max 5 levels deep)
-- Skip URLs with too many query parameters (> 5)
-
-*See `pseudocode.md::CrawlBudgetController.check()` for implementation*
-
----
-
-### Anti-Pattern 3: Ignoring robots.txt
-
-**Problem:**
-
-❌ Crawler ignores robots.txt and crawls admin pages, APIs, private content.
+**✅ Good:**
 
 ```
-# robots.txt
-User-agent: *
-Disallow: /admin/
-Disallow: /api/
-Crawl-delay: 2
-```
-
-Result: Site blocks crawler IP, legal issues, wasted bandwidth on uncrawlable content.
-
-**Solution:**
-
-✅ Always fetch and respect robots.txt before crawling:
-```
-function canCrawl(url):
+// ✅ Good: Check robots.txt before fetching
+function fetch_url(url):
   domain = extract_domain(url)
+  robots_txt = fetch_robots_txt(domain)  // Cache for 24h
   
-  // 1. Fetch robots.txt (cache for 24h)
-  robots = getRobotsTxt(domain)
+  if not is_allowed(robots_txt, url):
+    return None  // Drop URL
   
-  // 2. Check if URL is allowed
-  if robots.is_disallowed(url):
-    return false
-  
-  // 3. Respect crawl-delay
-  delay = robots.get_crawl_delay()
-  sleep(delay)
-  
-  return true
+  html = http_get(url)
+  return html
 ```
 
-**robots.txt Parsing:**
-```
-# Example robots.txt
-User-agent: *
-Disallow: /admin/
-Disallow: /private/
-Crawl-delay: 1
-
-# Parsed structure
-{
-  "user_agent": "*",
-  "disallowed_paths": ["/admin/", "/private/"],
-  "crawl_delay": 1
-}
-```
-
-*See `pseudocode.md::RobotsTxtParser.parse()` and `pseudocode.md::PolitenessController.respectRobots()` for implementation*
+*See [pseudocode.md::check_robots_txt()](./pseudocode.md) for implementation*
 
 ---
 
-### Anti-Pattern 4: No Timeout on HTTP Requests
+### Anti-Pattern 2: No Rate Limiting (Overloading Domains)
 
 **Problem:**
 
-❌ Some sites respond very slowly or never respond. Without timeout, worker hangs forever.
-
 ```
-worker.fetch("http://slow-site.com/page")
-// Waiting... waiting... waiting... (infinite)
-// Worker is stuck, can't process other URLs
+// ❌ Bad: Fetching 1000 URLs from the same domain in 1 second
+for url in urls_from_example_com:
+  fetch_url(url)  // No delay between requests
 ```
 
-Result: Workers get stuck, throughput drops to zero.
+**Why It's Bad:**
 
-**Solution:**
+- Overloads the target server (DDoS-like behavior)
+- Gets your crawler banned/blacklisted
+- Violates `Crawl-delay` directive in robots.txt
 
-✅ Always set timeout on HTTP requests (5 seconds recommended):
+**✅ Good:**
+
 ```
-function fetchWithTimeout(url):
-  try:
-    response = http.get(url, timeout=5)  // 5-second timeout
-    return response
-  except TimeoutException:
-    log("Timeout fetching " + url)
-    return null
-  except ConnectionError:
-    log("Connection error fetching " + url)
-    return null
+// ✅ Good: Rate limit per domain (1 req/sec default)
+domain_last_request_time = {}
+
+function fetch_url(url):
+  domain = extract_domain(url)
+  last_request = domain_last_request_time.get(domain, 0)
+  
+  time_since_last = current_time() - last_request
+  if time_since_last < 1.0:  // 1 second delay
+    sleep(1.0 - time_since_last)
+  
+  html = http_get(url)
+  domain_last_request_time[domain] = current_time()
+  return html
 ```
 
-**Recommended Timeouts:**
-- DNS resolution: 2 seconds
-- Connection: 5 seconds
-- Total request: 10 seconds (including redirects)
-
-*See `pseudocode.md::FetcherWorker.fetchWithTimeout()` for implementation*
+*See [pseudocode.md::rate_limit_check()](./pseudocode.md) for implementation*
 
 ---
 
-### Anti-Pattern 5: Storing Full URLs in Bloom Filter
+### Anti-Pattern 3: Single-Threaded Crawler (Too Slow)
 
 **Problem:**
 
-❌ Bloom Filter requires fixed-size input. Storing variable-length URLs is inefficient.
-
 ```
-bloom.add("http://example.com/page")  // 26 bytes
-bloom.add("http://example.com/very/long/path/to/page?query=value")  // 60 bytes
-```
-
-Result: Bloom Filter implementation becomes complex, inconsistent hashing.
-
-**Solution:**
-
-✅ Hash URLs to fixed-size before adding to Bloom Filter:
-```
-function addToBloomFilter(url):
-  url_hash = sha256(url)  // Fixed 32-byte hash
-  bloom.add(url_hash)
+// ❌ Bad: Single-threaded, sequential crawling
+for url in url_frontier:
+  html = fetch_url(url)  // Blocks for 500ms
+  parse_html(html)       // Blocks for 100ms
+  // Total: 600ms per URL = ~1.6 URLs/sec
 ```
 
-**Why Hash First:**
-- Consistent size (32 bytes)
-- Faster hashing (SHA256 is optimized)
-- Better distribution across Bloom Filter bits
+**Why It's Bad:**
 
-*See `pseudocode.md::DuplicateFilter.hashURL()` for implementation*
+- To crawl 10B URLs at 1.6 URLs/sec: **197 years**
+- Wastes CPU time (90% spent waiting for I/O)
+
+**✅ Good:**
+
+```
+// ✅ Good: Asynchronous, multi-threaded crawling
+async function crawl_worker():
+  while True:
+    url = await url_frontier.pop()
+    html = await fetch_url_async(url)  // Non-blocking
+    await parse_html_async(html)
+    // Each worker handles 100-200 concurrent requests
+    // 10 workers × 200 URLs/sec = 2,000 URLs/sec
+```
+
+*See [pseudocode.md::CrawlerWorker class](./pseudocode.md) for implementation*
 
 ---
 
-### Anti-Pattern 6: Single-Threaded Crawler
+### Anti-Pattern 4: No Duplicate Detection (Crawling Same URLs Repeatedly)
 
 **Problem:**
 
-❌ Sequential crawling is extremely slow:
 ```
-for url in urls:
-  html = fetch(url)  // 100ms network latency
-  parse(html)        // 10ms CPU time
-
-Throughput: 1000ms / 110ms = ~9 URLs/sec
+// ❌ Bad: No duplicate checking
+function process_url(url):
+  fetch_and_parse(url)  // Fetches even if already crawled
 ```
 
-Result: Would take 35 years to crawl 10 billion pages!
+**Why It's Bad:**
 
-**Solution:**
+- Wastes bandwidth fetching the same page multiple times
+- Wastes storage storing duplicate content
+- Reduces throughput (time spent on duplicates instead of new pages)
 
-✅ Use asynchronous I/O and worker pools:
+**✅ Good:**
+
 ```
-async function crawlerWorker():
-  while true:
-    batch = frontier.dequeue(batch_size=100)
-    
-    // Fetch all URLs in parallel (non-blocking)
-    responses = await asyncio.gather([
-      http.get_async(url) for url in batch
-    ])
-    
-    // Process responses
-    for response in responses:
-      parse_and_store(response)
-
-# Run multiple workers
-workers = [crawlerWorker() for i in range(10)]
-await asyncio.gather(workers)
+// ✅ Good: Check Bloom Filter before fetching
+function process_url(url):
+  if bloom_filter.contains(url):
+    if redis.exists(url):  // Confirm with Redis
+      return  // Already crawled, drop
+  
+  fetch_and_parse(url)
+  bloom_filter.add(url)
+  redis.add(url)
 ```
 
-**Performance Comparison:**
-- Sequential: ~10 URLs/sec
-- Async (single worker): ~100-200 URLs/sec
-- Async (10 workers): ~1,000-2,000 URLs/sec
-
-*See `pseudocode.md::AsyncFetcherWorker.run()` for implementation*
+*See [pseudocode.md::is_duplicate()](./pseudocode.md) for implementation*
 
 ---
 
-## 7. Alternative Approaches (Not Chosen)
+## 8. Alternative Approaches
 
-### Approach A: Centralized Queue (Redis) Instead of Kafka
+### Approach A: Centralized Queue (Single Server)
 
 **Architecture:**
-- Use Redis LIST as URL frontier
-- LPUSH to add URLs, RPOP to fetch URLs
+
+- Single server maintains the URL frontier (PostgreSQL or MySQL)
+- Fetcher workers poll the central database for URLs
 
 **Pros:**
-- ✅ Simpler setup than Kafka
-- ✅ Lower latency (~1ms vs ~10ms)
-- ✅ Built-in priority queues (sorted sets)
+
+- Simple to implement
+- Easy to prioritize URLs (SQL `ORDER BY priority DESC`)
 
 **Cons:**
-- ❌ Lower throughput (~20k msg/sec vs Kafka's 1M msg/sec)
-- ❌ No message replay (if worker crashes, URL is lost)
-- ❌ Single point of failure (unless Redis Cluster)
-- ❌ Memory-only (limited by RAM)
 
-**Why Not Chosen:**
-- Kafka's durability guarantees are critical for long-running crawls
-- Need to scale to millions of URLs per second during bursts
-- Kafka partitioning aligns with domain-based politeness
+- **Single point of failure** (if queue server crashes, entire crawler stops)
+- **Scalability bottleneck** (database can't handle 1,000 QPS of inserts/deletes)
+- **Contention** (all workers competing for locks on the same table)
 
-**When to Reconsider:**
-- Small-scale crawling (< 10M pages)
-- Lower throughput requirements (< 100 URLs/sec)
-- Need very low latency (real-time crawling)
+**When to Use:**
+
+- Small-scale crawlers (< 1M pages)
+- Proof-of-concept prototypes
 
 ---
 
-### Approach B: In-Memory Duplicate Detection (Hash Set)
+### Approach B: Distributed Queue (Kafka) — **Our Choice**
 
 **Architecture:**
-- Store all crawled URLs in a giant hash set in memory
-- Check membership: O(1) average time
+
+- Kafka maintains the URL frontier (distributed, fault-tolerant)
+- Multiple partitions allow parallel consumption
 
 **Pros:**
-- ✅ Zero false positives (unlike Bloom Filter)
-- ✅ Simpler implementation
-- ✅ Faster lookups (~100ns vs ~1μs)
+
+- **Fault tolerant** (Kafka replicates data across brokers)
+- **Scalable** (add more partitions to increase throughput)
+- **Backpressure handling** (if workers slow down, Kafka buffers URLs)
 
 **Cons:**
-- ❌ **Memory requirement: 1 TB RAM for 10B URLs**
-- ❌ Very expensive (AWS r5.24xlarge: $6,000/month)
-- ❌ Single point of failure (all data in RAM)
-- ❌ No persistence (crash loses all data)
 
-**Why Not Chosen:**
-- Cost: 100× more expensive than Bloom Filter + Redis
-- 1% false positives are acceptable (minor wasted crawls)
-- Bloom Filter + Redis provides 99.9% accuracy at 1% of the cost
+- **Operational complexity** (Kafka cluster requires maintenance)
+- **Prioritization is harder** (need multiple topics for different priorities)
 
-**When to Reconsider:**
-- Small-scale crawling (< 100M URLs → ~10 GB RAM)
-- Zero tolerance for duplicate crawls
-- Budget allows for large memory instances
+**When to Use:**
+
+- **Large-scale crawlers** (10B+ pages) ← **Our use case**
+- High-throughput systems (1,000+ QPS)
 
 ---
 
-### Approach C: Synchronous Crawling (No Kafka)
+### Approach C: Peer-to-Peer Crawler (BitTorrent-style)
 
 **Architecture:**
-- Direct flow: Fetch URL → Parse → Store → Repeat
-- No message queue in between
+
+- No central queue
+- Workers communicate peer-to-peer to share URLs
 
 **Pros:**
-- ✅ Simpler architecture (fewer components)
-- ✅ Lower operational complexity
-- ✅ Immediate feedback (no queue lag)
+
+- **No single point of failure**
+- **Self-organizing** (workers discover each other automatically)
 
 **Cons:**
-- ❌ **Cannot handle bursts** (sudden discovery of 1M URLs)
-- ❌ Tight coupling (fetcher waits for parser, parser waits for storage)
-- ❌ No failure isolation (one component failure stops everything)
-- ❌ Harder to scale (can't independently scale fetchers vs parsers)
 
-**Why Not Chosen:**
-- Web crawling has highly variable load (bursts of link discovery)
-- Need to decouple components for independent scaling
-- Kafka provides backpressure and fault tolerance
+- **Very complex** (distributed consensus, URL deduplication across peers)
+- **Hard to prioritize** (no global view of which URLs are important)
+- **Debugging nightmare** (no central logs)
 
-**When to Reconsider:**
-- Very small scale (< 1M pages)
-- Simple, single-machine crawler
-- Low availability requirements
+**When to Use:**
 
----
-
-## 8. Deep Dive: Handling Edge Cases
-
-### Edge Case 1: Infinite Scroll / Dynamic Content Loading
-
-**Problem:** Modern sites load content via JavaScript infinite scroll (Twitter, Facebook, Instagram).
-
-**Detection:**
-```javascript
-// Page has empty body but loads content via JS
-<body>
-  <div id="root"></div>
-  <script src="app.js"></script>
-</body>
-```
-
-**Solution:**
-
-**Option 1: Headless Browser Rendering**
-```
-1. Detect JS-heavy site (empty body + <script> tags)
-2. Route to headless browser pool (Puppeteer/Playwright)
-3. Render page, scroll to trigger lazy loading
-4. Wait for network idle
-5. Extract fully-rendered HTML
-```
-
-**Option 2: Intercept API Calls**
-```
-1. Use browser DevTools to find API endpoints
-2. Directly call APIs to fetch data
-3. Much faster than rendering (10× speedup)
-```
-
-**Trade-off:** Headless rendering is 10-20× slower. Only use for high-value sites.
-
-*See `pseudocode.md::JavaScriptRenderer.render()` for implementation*
-
----
-
-### Edge Case 2: Soft 404s (Page Exists but Empty)
-
-**Problem:** Some sites return HTTP 200 for non-existent pages with "Page Not Found" content.
-
-```
-GET /nonexistent-page HTTP/1.1
-HTTP/1.1 200 OK
-<html><body>Sorry, page not found</body></html>
-```
-
-**Detection:**
-```
-function isSoft404(html, status_code):
-  if status_code != 200:
-    return false
-  
-  // Check for common "not found" phrases
-  not_found_phrases = ["page not found", "404", "does not exist"]
-  html_lower = html.lower()
-  for phrase in not_found_phrases:
-    if phrase in html_lower:
-      return true
-  
-  // Check if page is mostly empty
-  text = extract_text(html)
-  if len(text) < 100:  // Less than 100 characters
-    return true
-  
-  return false
-```
-
-**Solution:** Mark as 404, don't index, don't follow links.
-
-*See `pseudocode.md::detectSoft404()` for implementation*
-
----
-
-### Edge Case 3: CAPTCHA / Bot Detection
-
-**Problem:** Sites use CAPTCHA or bot detection to block crawlers.
-
-**Signs of Bot Detection:**
-- Redirected to /captcha or /verify
-- HTTP 403 Forbidden
-- JavaScript challenge page (Cloudflare, Akamai)
-
-**Solutions:**
-
-| Strategy                | Pros                                | Cons                             | Use Case                     |
-|-------------------------|-------------------------------------|----------------------------------|------------------------------|
-| **Rotate User-Agents**  | ✅ Simple                            | ❌ Easily detected                | Basic sites                  |
-| **Rotate IPs**          | ✅ Effective                         | ❌ Expensive (proxy cost)         | Medium protection sites      |
-| **CAPTCHA Solving Service** | ✅ Automated                     | ❌ $1-3 per 1,000 CAPTCHAs        | High-value sites             |
-| **Respect Blocks**      | ✅ Ethical, legal                    | ❌ Can't crawl some sites         | **Recommended default**      |
-
-**Recommended Approach:**
-- Always identify as a crawler (proper User-Agent)
-- Respect robots.txt
-- If blocked, don't circumvent
-- For high-value sites, use official APIs instead
-
----
-
-### Edge Case 4: URL Shorteners (bit.ly, tinyurl)
-
-**Problem:** Crawling a shortened URL leads to the real URL. Need to avoid crawling the same destination twice.
-
-```
-Example:
-bit.ly/abc123 → redirects to → example.com/article
-tinyurl.com/xyz456 → redirects to → example.com/article
-
-Should not crawl example.com/article twice!
-```
-
-**Solution:** Normalize to final destination URL before duplicate checking.
-
-```
-function normalizeURL(url):
-  // Follow redirects to get final URL
-  response = http.get(url, allow_redirects=true)
-  final_url = response.url
-  
-  // Normalize final URL
-  return normalize(final_url)
-```
-
-**Trade-off:** Adds latency (HTTP request for every URL shortener). Only apply to known shortener domains.
-
-*See `pseudocode.md::URLNormalizer.resolveShorteners()` for implementation*
-
----
-
-### Edge Case 5: Multilingual Content
-
-**Problem:** Same page available in multiple languages.
-
-```
-example.com/article?lang=en
-example.com/article?lang=es
-example.com/article?lang=fr
-```
-
-**Solution 1: Treat as Different Pages** (Recommended for general crawlers)
-- Index all language versions
-- Users can find content in their language
-
-**Solution 2: Canonical URL Detection**
-- Check for `<link rel="canonical">` tag
-- Only crawl canonical version
-
-```html
-<link rel="canonical" href="https://example.com/article?lang=en" />
-```
-
-*See `pseudocode.md::extractCanonical()` for implementation*
+- Experimental research projects
+- Decentralized web crawling (e.g., IPFS indexing)
 
 ---
 
 ## 9. Monitoring and Observability
 
-### Key Metrics to Track
+### Key Metrics to Monitor
 
-| Metric                        | Type      | Threshold               | Alert Action                                  |
-|-------------------------------|-----------|-------------------------|-----------------------------------------------|
-| **Crawl Throughput**          | Gauge     | > 800 URLs/sec          | If < 500, check worker health                 |
-| **URL Frontier Size**         | Gauge     | < 10M URLs              | If > 50M, apply backpressure                  |
-| **Duplicate Check Latency**   | Histogram | < 5ms (p99)             | If > 20ms, check Redis/Bloom Filter           |
-| **Fetch Success Rate**        | Gauge     | > 95%                   | If < 90%, investigate DNS/timeouts            |
-| **Bloom Filter False Positive Rate** | Gauge | < 5%              | If > 10%, rebuild Bloom Filter                |
-| **Redis Memory Usage**        | Gauge     | < 80% capacity          | If > 90%, scale Redis or shard                |
-| **Kafka Consumer Lag**        | Gauge     | < 1,000 messages        | If > 10k, scale workers                       |
-| **Storage Growth Rate**       | Gauge     | ~100 GB/day             | Monitor cost, archive old data                |
+| Metric                          | Target     | Alert Threshold | Why Important           |
+|---------------------------------|------------|-----------------|-------------------------|
+| **URLs Crawled/sec**            | 1,000 QPS  | < 500 QPS       | Throughput indicator    |
+| **URL Frontier Size**           | < 10M URLs | > 50M URLs      | Backpressure indicator  |
+| **Duplicate Rate**              | < 5%       | > 20%           | Bloom Filter health     |
+| **Fetch Success Rate**          | > 95%      | < 80%           | Network/DNS health      |
+| **Average Fetch Time**          | < 500ms    | > 2s            | Network latency         |
+| **Parser Success Rate**         | > 99%      | < 90%           | HTML quality            |
+| **Storage Write Lag**           | < 1s       | > 10s           | Storage bottleneck      |
+| **Worker CPU Usage**            | 50-70%     | > 90%           | Over/under-provisioning |
+| **Redis Hit Rate (robots.txt)** | > 90%      | < 70%           | Cache effectiveness     |
 
-### Distributed Tracing Example
+### Dashboards
 
-**Successful Crawl:**
-```
-Request: Crawl example.com/page
-  ├─ URL Frontier Dequeue [5ms]
-  ├─ Duplicate Check (Bloom Filter) [1ms]
-  ├─ Duplicate Check (Redis) [skipped - Bloom Filter said new]
-  ├─ Politeness Check [3ms]
-  │   ├─ robots.txt Cache Lookup [1ms]
-  │   └─ Acquire Lock [2ms]
-  ├─ HTTP Fetch [87ms]
-  ├─ Store HTML (S3) [45ms]
-  ├─ Parse HTML [12ms]
-  ├─ Store Text (Elasticsearch) [23ms]
-  ├─ Enqueue 15 New URLs [8ms]
-  └─ Total: 184ms ✅
-```
+**1. Throughput Dashboard:**
 
-**Failed Crawl (Timeout):**
-```
-Request: Crawl slow-site.com/page
-  ├─ URL Frontier Dequeue [5ms]
-  ├─ Duplicate Check [2ms]
-  ├─ Politeness Check [3ms]
-  ├─ HTTP Fetch [5000ms] ⚠️ TIMEOUT
-  │   ├─ Retry 1 [5000ms] ⚠️ TIMEOUT
-  │   ├─ Retry 2 [5000ms] ⚠️ TIMEOUT
-  │   └─ Retry 3 [5000ms] ⚠️ TIMEOUT
-  ├─ Move to Dead Letter Queue [10ms]
-  └─ Total: 20,020ms ❌ FAILED
-```
+- URLs crawled per second (line chart)
+- URLs parsed per second
+- URLs stored per second
+- Breakdown by priority level (high/medium/low)
 
----
+**2. Health Dashboard:**
 
-## 10. Interview Discussion Points
+- Fetcher worker status (up/down)
+- Parser worker status
+- Kafka lag per partition
+- Redis memory usage
 
-### Question 1: How would you detect and handle duplicate content (not just URLs)?
+**3. Error Dashboard:**
 
-**Problem:** Different URLs pointing to identical content.
+- HTTP error rate (4xx, 5xx)
+- Timeout rate
+- DNS error rate
+- Duplicate detection false positive rate
+
+### Alerting
 
 ```
-example.com/article?id=123
-example.com/article?id=123&source=email
-example.com/article?id=123&utm_campaign=summer
-```
+Alert: Throughput Drop
+Condition: URLs_crawled_per_sec < 500 for 5 minutes
+Action: Scale up Fetcher workers, check network
+Severity: High
 
-**Answer:**
+Alert: URL Frontier Overflow
+Condition: URL_frontier_size > 50M
+Action: Reduce link extraction rate, increase workers
+Severity: Medium
 
-**Solution: Content Fingerprinting with SimHash**
-
-```
-1. Extract main text content from HTML
-2. Compute SimHash (64-bit fingerprint)
-3. Store fingerprint in Redis
-4. Compare new fingerprints with existing ones
-5. If Hamming distance < 3: Consider duplicate
-
-function detectDuplicateContent(html):
-  text = extract_text(html)
-  fingerprint = simhash(text)
-  
-  // Check Redis for similar fingerprints
-  similar = redis.ZSCAN("fingerprints", fingerprint, radius=3)
-  
-  if similar:
-    return DUPLICATE_CONTENT
-  else:
-    redis.ZADD("fingerprints", fingerprint)
-    return UNIQUE_CONTENT
-```
-
-**Trade-off:** Adds 5-10ms per page. Only use for high-quality crawling.
-
-*See `pseudocode.md::SimHashDuplicateDetector.check()` for implementation*
-
----
-
-### Question 2: How do you prioritize which URLs to crawl first?
-
-**Answer:**
-
-**Multi-Factor Priority Score:**
-
-```
-priority_score = (
-  pagerank_score × 0.4 +
-  freshness_score × 0.3 +
-  domain_authority × 0.2 +
-  backlink_count × 0.1
-)
-```
-
-**Factors:**
-
-| Factor                | Weight | Source                          | Example                              |
-|-----------------------|--------|---------------------------------|--------------------------------------|
-| **PageRank Score**    | 40%    | Pre-computed (seed pages)       | google.com = 10, blog.example.com = 2 |
-| **Freshness Score**   | 30%    | Last crawl timestamp            | Never crawled = 10, 1 year old = 5   |
-| **Domain Authority**  | 20%    | Historical quality              | .edu/.gov = 10, unknown = 5          |
-| **Backlink Count**    | 10%    | How many sites link to this     | 1,000 backlinks = 10, 0 = 1          |
-
-**Implementation:**
-```
-function calculatePriority(url, metadata):
-  pagerank = get_pagerank(url)  // From seed data
-  age_days = (now() - metadata.last_crawled) / 86400
-  freshness = min(10, age_days / 365 * 10)
-  domain_authority = get_domain_authority(extract_domain(url))
-  backlinks = count_backlinks(url)
-  
-  priority = (
-    pagerank * 0.4 +
-    freshness * 0.3 +
-    domain_authority * 0.2 +
-    min(10, backlinks / 100) * 0.1
-  )
-  
-  return priority
-```
-
-**Kafka Topic Strategy:**
-- High priority (score > 8): `url-frontier-high`
-- Medium priority (score 4-8): `url-frontier-medium`
-- Low priority (score < 4): `url-frontier-low`
-
-Workers consume from high → medium → low in that order.
-
-*See `pseudocode.md::PriorityCalculator.calculate()` for implementation*
-
----
-
-### Question 3: How do you handle 100× scale (1 trillion pages)?
-
-**Answer:**
-
-**Current Scale (10B pages):**
-- Bloom Filter: 12 GB RAM
-- Redis: 80 GB disk
-- Storage: 100 TB
-- Workers: 10-20 crawlers
-
-**100× Scale (1T pages):**
-
-**Challenge 1: Duplicate Detection**
-- Bloom Filter: 1.2 TB RAM (too large for single machine)
-- **Solution:** Shard Bloom Filter by URL hash
-  ```
-  shard_id = hash(url) % 100
-  bloom_filters = [BloomFilter(12GB) for _ in range(100)]
-  bloom_filters[shard_id].check(url)
-  ```
-
-**Challenge 2: Storage**
-- Storage: 10 PB (very expensive on S3)
-- **Solution:**
-  - Compress HTML (gzip: 5× reduction → 2 PB)
-  - Archive cold data to Glacier (10× cheaper)
-  - Only store full HTML for important pages
-  - For others, store only extracted text
-
-**Challenge 3: URL Frontier**
-- Kafka topic size: 1 trillion URLs × 200 bytes = 200 TB
-- **Solution:**
-  - Use Kafka log compaction (remove old entries)
-  - Implement crawl budget per domain (max 10k pages)
-  - Aggressive filtering (skip pagination, calendars)
-
-**Challenge 4: Crawl Time**
-- Current: 115 days for 10B pages at 1,000 QPS
-- 1T pages: 31 years! (unacceptable)
-- **Solution:** Scale to 10,000 QPS
-  - 100-200 crawler workers
-  - Multi-region deployment (reduce latency)
-  - 1T pages in ~3 years (acceptable for complete web crawl)
-
-**Cost Estimate:**
-- Storage (10 PB): $200k/month (S3 + Glacier)
-- Compute (200 workers): $50k/month
-- Network (10 GB/sec): $100k/month
-- **Total: ~$350k/month**
-
----
-
-### Question 4: How do you handle geo-distributed crawling?
-
-**Answer:**
-
-**Problem:** Crawling sites from distant regions is slow (high latency).
-
-**Example:**
-- US crawler → Asia site: 200ms RTT
-- Asia crawler → Asia site: 20ms RTT (10× faster)
-
-**Solution: Multi-Region Deployment**
-
-```
-┌─────────────────────────────────────────────────────┐
-│              Global URL Frontier (Kafka)            │
-│         (Partitioned by geographic region)          │
-└───────┬──────────────────┬──────────────────────┬───┘
-        │                  │                      │
-        ▼                  ▼                      ▼
-┌───────────────┐  ┌───────────────┐  ┌───────────────┐
-│  US Region    │  │  EU Region    │  │ APAC Region   │
-│  - Workers    │  │  - Workers    │  │  - Workers    │
-│  - Bloom      │  │  - Bloom      │  │  - Bloom      │
-│  - Redis      │  │  - Redis      │  │  - Redis      │
-└───────────────┘  └───────────────┘  └───────────────┘
-```
-
-**Partitioning Strategy:**
-```
-function assignRegion(url):
-  domain = extract_domain(url)
-  tld = domain.split('.')[-1]
-  
-  region_map = {
-    'us', 'com', 'org': 'US',
-    'uk', 'eu', 'de', 'fr': 'EU',
-    'cn', 'jp', 'in', 'kr': 'APAC'
-  }
-  
-  return region_map.get(tld, 'US')  // Default to US
-```
-
-**Benefits:**
-- 10× lower latency (20ms vs 200ms)
-- Respect regional regulations (GDPR)
-- Fault tolerance (region failure doesn't stop crawling)
-
-**Trade-off:** Higher infrastructure cost, more complex coordination.
-
----
-
-### Question 5: How do you ensure crawler is polite and ethical?
-
-**Answer:**
-
-**Ethical Crawling Principles:**
-
-1. **Always Respect robots.txt**
-   ```
-   - Fetch robots.txt before crawling
-   - Cache for 24 hours
-   - Honor all directives (Disallow, Crawl-delay, Allow)
-   ```
-
-2. **Proper User-Agent Identification**
-   ```
-   User-Agent: MyCrawler/1.0 (+https://example.com/crawler-info)
-   ```
-   - Include crawler name, version, contact URL
-   - Never spoof as a browser
-
-3. **Rate Limiting Per Domain**
-   ```
-   - Default: 1 request per second per domain
-   - Honor Crawl-delay directive (even if higher than 1s)
-   - Reduce rate if receiving 503 errors
-   ```
-
-4. **Respect HTTP Status Codes**
-   ```
-   - 429 (Too Many Requests): Back off exponentially
-   - 503 (Service Unavailable): Respect Retry-After header
-   - 410 (Gone): Don't retry, mark as permanently deleted
-   ```
-
-5. **Provide Contact Information**
-   ```
-   - Host crawler info page: https://example.com/crawler-info
-   - Include email for webmasters to request removal
-   - Respond within 24 hours to removal requests
-   ```
-
-6. **Avoid Peak Hours** (Optional)
-   ```
-   - Crawl during off-peak hours (midnight-6am site's timezone)
-   - Detect timezone from domain TLD
-   ```
-
-7. **Implement Opt-Out Mechanism**
-   ```
-   - Honor <meta name="robots" content="noindex">
-   - Provide web form for domain exclusion
-   - Maintain blacklist of domains that opted out
-   ```
-
-**Real-World Example: Googlebot**
-```
-User-Agent: Googlebot/2.1 (+http://www.google.com/bot.html)
-
-- Respects robots.txt
-- Default rate: 1 req/sec (can be adjusted in Search Console)
-- Provides detailed documentation
-- Fast response to webmaster complaints
+Alert: Bloom Filter False Positive Rate High
+Condition: duplicate_rate > 20%
+Action: Rebuild Bloom Filter, increase size
+Severity: Low
 ```
 
 ---
 
-## 11. Comparison with Real-World Systems
+## 10. Trade-offs Summary
 
-| Feature                  | Our Design                   | Googlebot           | Common Crawl      | Scrapy Framework   |
-|--------------------------|------------------------------|---------------------|-------------------|--------------------|
-| **Scale**                | 10B pages                    | Hundreds of billions| 3B pages/month    | < 1M pages typical|
-| **Throughput**           | 1,000 URLs/sec               | Unknown (very high) | ~1,000 URLs/sec   | 10-100 URLs/sec    |
-| **Duplicate Detection**  | Bloom Filter + Redis         | Proprietary         | URL fingerprinting| URL set            |
-| **Politeness**           | Redis locks, robots.txt      | Advanced ML-based   | robots.txt        | AutoThrottle       |
-| **Storage**              | S3 + Elasticsearch           | Proprietary         | S3 (open dataset) | Files/database     |
-| **Priority**             | PageRank-based               | ML ranking model    | Breadth-first     | Depth-first        |
-| **JavaScript Rendering** | Headless browser (selective) | Full rendering      | No rendering      | Splash (optional)  |
-| **Cost**                 | ~$19k/month                  | Unknown (massive)   | Free (AWS Open Data)| Minimal          |
+### What We Gained
 
-**Key Takeaways:**
-- **Googlebot**: Most sophisticated, uses ML for everything, massive scale
-- **Common Crawl**: Open dataset, similar architecture to ours, great for research
-- **Scrapy**: Simple framework for small-scale crawling, no distributed features
-- **Our Design**: Production-ready for medium-large scale (10B pages), cost-effective
+✅ **High Throughput:** 1,000+ URLs/sec (can crawl 10B pages in 4 months)  
+✅ **Fault Tolerance:** Kafka + Redis replication ensures no data loss  
+✅ **Politeness:** Respects robots.txt, rate limits per domain  
+✅ **Cost-Effective:** Bloom Filter reduces memory cost by 99%  
+✅ **Scalability:** Horizontal scaling of Fetcher and Parser workers
 
----
+### What We Sacrificed
 
-## 12. Trade-offs Summary
-
-| Decision                      | Choice                                | Alternative               | Why Chosen                                   | Trade-off                              |
-|-------------------------------|---------------------------------------|---------------------------|----------------------------------------------|----------------------------------------|
-| **Duplicate Detection**       | Bloom Filter + Redis                  | Pure Redis hash set       | 99% memory savings (12 GB vs 1 TB RAM)       | 1% false positive rate                 |
-| **URL Frontier**              | Kafka (partitioned by domain)         | Redis LIST                | Fault tolerance, replay, higher throughput   | Higher latency (~10ms vs ~1ms)         |
-| **Politeness**                | Distributed locks (Redis)             | Local state per worker    | Consistent enforcement across workers        | 5ms lock overhead per URL              |
-| **Storage**                   | S3 (HTML) + Elasticsearch (text)      | Single database           | Cost-effective, searchable, scalable         | Eventual consistency                   |
-| **Crawl Strategy**            | Asynchronous I/O                      | Synchronous (sequential)  | 100× faster (100 URLs/sec vs 10 URLs/sec)    | More complex code                      |
-| **JavaScript Rendering**      | Selective (headless browser)          | Always render             | 10× faster (skip JS for static pages)        | Miss some dynamic content              |
-| **Priority**                  | PageRank-based scoring                | Breadth-first (FIFO)      | Crawl important pages first                  | Complexity, pre-computation needed     |
+❌ **Complexity:** Distributed system with Kafka, Redis, Elasticsearch  
+❌ **Bloom Filter False Positives:** ~1% of URLs may be crawled twice  
+❌ **Eventual Consistency:** URL deduplication is not 100% real-time  
+❌ **Operational Overhead:** Requires monitoring, maintenance of multiple services  
+❌ **JavaScript-Heavy Sites:** Slow crawling (requires headless browsers)
 
 ---
 
-## Summary
+## 11. Real-World Implementations
 
-A distributed web crawler requires careful balance between throughput, politeness, and cost:
+### Google Crawler (Googlebot)
 
-**Key Design Choices:**
+**Architecture:**
 
-1. ✅ **Two-Tier Duplicate Detection** (Bloom Filter + Redis) for 99% memory savings
-2. ✅ **Kafka-Based URL Frontier** for fault tolerance and partitioning by domain
-3. ✅ **Distributed Politeness** with Redis locks to respect robots.txt and rate limits
-4. ✅ **Asynchronous I/O** for 100× throughput improvement
-5. ✅ **Tiered Storage** (S3 for HTML, Elasticsearch for searchable text)
-6. ✅ **PageRank-Based Prioritization** to crawl important pages first
+- **URL Frontier:** Custom distributed queue (likely Bigtable-based)
+- **Duplicate Detection:** Bloom Filters + custom deduplication
+- **Fetcher:** Thousands of servers globally (distributed by region)
+- **Politeness:** Respects robots.txt, adaptive rate limiting
+- **JavaScript:** Renders JavaScript sites (uses headless Chrome)
 
-**Performance Characteristics:**
+**Key Innovations:**
 
-- **Throughput:** 1,000 URLs/sec (86.4M pages/day)
-- **Crawl Time:** 115 days for 10 billion pages
-- **Storage:** 100 TB (10 KB per page average)
-- **Memory:** 12 GB for Bloom Filter, 80 GB Redis for confirmation
-- **Workers:** 10-20 asynchronous crawler nodes
-
-**Critical Components:**
-
-- **URL Frontier (Kafka):** Must handle bursts, partitioned by domain
-- **Duplicate Filter:** 99% accuracy, 1% false positives acceptable
-- **Politeness Controller:** Essential to avoid being blocked
-- **Failure Handling:** Retry logic, timeouts, error classification
-
-**Scalability Path:**
-
-1. **0-10M pages:** Single-machine crawler, SQLite for URLs
-2. **10M-1B pages:** Add Kafka, Redis, multiple workers
-3. **1B-10B pages:** Shard Bloom Filter, scale Kafka/Redis
-4. **10B-1T pages:** Multi-region deployment, sharded Bloom Filters (100× shards)
-
-**Common Pitfalls to Avoid:**
-
-1. ❌ Not normalizing URLs (waste resources on duplicates)
-2. ❌ No rate limiting (spider traps, infinite calendars)
-3. ❌ Ignoring robots.txt (get blocked, legal issues)
-4. ❌ No timeout on HTTP requests (workers hang forever)
-5. ❌ Storing full URLs in Bloom Filter (inefficient)
-6. ❌ Single-threaded crawling (would take 35 years!)
-
-**Recommended Stack:**
-
-- **URL Frontier:** Apache Kafka (fault-tolerant, partitioned)
-- **Duplicate Detection:** Bloom Filter (RAM) + Redis (disk confirmation)
-- **Politeness:** Redis (distributed locks, robots.txt caching)
-- **Fetcher:** Python (asyncio/aiohttp) or Go (goroutines)
-- **Parser:** BeautifulSoup (Python) or goquery (Go)
-- **Storage:** AWS S3 (raw HTML) + Elasticsearch (searchable text)
-- **Monitoring:** Prometheus + Grafana + Distributed Tracing (Jaeger)
-
-**Cost Efficiency:**
-
-- Optimize with Spot Instances (save 70% on EC2)
-- Use S3 Glacier for old data (save 70% on storage)
-- Compress HTML with gzip (5× reduction)
-- **Optimized cost:** ~$13k/month for 10B pages (~$7.50 per million pages)
-
-This design provides a **production-ready, scalable blueprint** for building a web crawler that can index billions of web pages while being polite, cost-effective, and fault-tolerant! 🚀
+- **PageRank Prioritization:** Crawls important pages first
+- **Incremental Crawling:** Recrawls frequently-updated pages more often
+- **Mobile-First Indexing:** Crawls mobile versions of sites preferentially
 
 ---
 
-For complete details, algorithms, and trade-off analysis, see the **[Full Design Document](./3.2.3-design-web-crawler.md)**.
+### Common Crawl (Open-Source Web Crawler)
+
+**Architecture:**
+
+- **URL Frontier:** AWS SQS (managed queue service)
+- **Duplicate Detection:** Bloom Filters
+- **Fetcher:** EC2 spot instances (cost-optimized)
+- **Storage:** S3 (WARC format for archival)
+
+**Scale:**
+
+- Crawls **3+ billion pages per month**
+- Stores **250+ TB per month** in S3
+- Open dataset available for research
+
+**Website:** [commoncrawl.org](https://commoncrawl.org/)
+
+---
+
+### Scrapy (Python Web Crawling Framework)
+
+**Architecture:**
+
+- **URL Frontier:** In-memory priority queue (not distributed)
+- **Duplicate Detection:** In-memory set (not scalable to billions)
+- **Fetcher:** Asynchronous (Twisted framework)
+- **Politeness:** Built-in rate limiting, robots.txt support
+
+**Use Case:**
+
+- Small to medium-scale crawling (< 1M pages)
+- Single-machine deployment
+- Easy to extend with custom middleware
+
+**Website:** [scrapy.org](https://scrapy.org/)
+
+---
+
+## 12. References
+
+### Related System Design Components
+
+- **[2.5.1 Rate Limiting Algorithms](../../02-components/2.5.1-rate-limiting-algorithms.md)** - Token Bucket, Leaky
+  Bucket
+- **[2.5.3 Distributed Locking](../../02-components/2.5.3-distributed-locking.md)** - Redis locks, etcd
+- **[2.5.4 Bloom Filters](../../02-components/2.5.4-bloom-filters.md)** - Memory-efficient duplicate detection
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md)** - Message queue for URL frontier
+- **[2.2.1 Caching Deep Dive](../../02-components/2.2.1-caching-deep-dive.md)** - Redis caching strategies
+- **[2.1.4 Database Scaling](../../02-components/2.1.4-database-scaling.md)** - Sharding, replication strategies
+
+### Related Design Challenges
+
+- **[3.1.2 Distributed Cache](../3.1.2-distributed-cache/)** - Redis caching strategies for duplicate detection
+- **[3.2.1 Twitter Timeline](../3.2.1-twitter-timeline/)** - Kafka message queue patterns
+- **[3.2.2 Notification Service](../3.2.2-notification-service/)** - Distributed worker patterns
+
+### External Resources
+
+- **Google's Original Paper:
+  ** [The Anatomy of a Large-Scale Hypertextual Web Search Engine](http://infolab.stanford.edu/~backrub/google.html) -
+  Google's original crawler design
+- **Mercator Paper:
+  ** [Mercator: A Scalable, Extensible Web Crawler](https://www.cis.upenn.edu/~sudipto/mypapers/mercator.pdf) - Research
+  paper on web crawler design
+- **RFC 9309:** [Robots Exclusion Protocol](https://www.rfc-editor.org/rfc/rfc9309.html) - robots.txt specification
+- **Common Crawl:** [Common Crawl Architecture](https://commoncrawl.org/the-data/get-started/) - Open-source crawler
+  dataset
+- **Kafka Documentation:** [Apache Kafka](https://kafka.apache.org/documentation/) - Distributed message queue
+- **Elasticsearch Documentation:
+  ** [Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/index.html) - Full-text search
+  engine
+
+### Tools and Libraries
+
+- **Scrapy** - Python web crawling framework
+- **Puppeteer** - Headless Chrome for JavaScript rendering
+- **BeautifulSoup** - HTML parsing library (Python)
+- **Redis** - In-memory cache and distributed locks
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Chapters on distributed systems, message queues, and
+  storage
+- *Web Scraping with Python* by Ryan Mitchell - Practical web crawling techniques
+- *Introduction to Information Retrieval* by Christopher Manning - Search engine architecture

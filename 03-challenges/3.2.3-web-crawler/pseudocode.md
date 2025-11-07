@@ -1,6 +1,7 @@
 # Web Crawler - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Web Crawler system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Web Crawler system. The main challenge document
+references these functions.
 
 ---
 
@@ -26,6 +27,7 @@ This document contains detailed algorithm implementations for the Web Crawler sy
 **Purpose:** Manages the priority queue of URLs to crawl using Kafka topics.
 
 **Key Methods:**
+
 - `add_url(url, priority)`: Add URL to appropriate topic
 - `consume_batch(size)`: Get batch of URLs to process
 - `get_stats()`: Get frontier statistics
@@ -95,7 +97,8 @@ class URLFrontier:
     }
 ```
 
-**Time Complexity:** 
+**Time Complexity:**
+
 - `add_url()`: O(1) - Kafka append is constant time
 - `consume_batch()`: O(batch_size) - Poll returns batch of messages
 
@@ -128,6 +131,7 @@ frontier.commit_offset()
 **Purpose:** Memory-efficient probabilistic data structure for duplicate URL detection.
 
 **Parameters:**
+
 - `capacity`: Number of expected URLs (10 billion)
 - `false_positive_rate`: Acceptable FP rate (0.01 = 1%)
 
@@ -188,6 +192,7 @@ class BloomFilter:
 ```
 
 **Time Complexity:**
+
 - `add()`: O(k) where k = number of hash functions (typically 3-7)
 - `contains()`: O(k)
 
@@ -316,6 +321,7 @@ class PolitenessController:
 ```
 
 **Time Complexity:**
+
 - `can_fetch()`: O(1) average (cache hit), O(network) worst case (fetch robots.txt)
 - `acquire_lock()`: O(1) - Single Redis operation
 
@@ -480,6 +486,7 @@ class CrawlerWorker:
 ```
 
 **Time Complexity:**
+
 - `process_url()`: O(network + parsing) - Dominated by network I/O
 
 **Example Usage:**
@@ -626,6 +633,7 @@ class LinkFilter:
 ```
 
 **Time Complexity:**
+
 - `parse()`: O(n) where n = HTML size
 - `extract_links()`: O(k) where k = number of links
 
@@ -924,6 +932,7 @@ class RobotsTxtParser:
 ```
 
 **Time Complexity:**
+
 - `parse_robots_txt()`: O(n) where n = number of lines
 - `can_fetch()`: O(k) where k = number of rules
 
@@ -1137,6 +1146,7 @@ class LRUCache:
 ```
 
 **Time Complexity:**
+
 - `get()`: O(n) due to list.remove() (could be O(1) with OrderedDict)
 - `set()`: O(n) due to list.remove()
 
@@ -1172,6 +1182,7 @@ print(f"Cache fill ratio: {stats['fill_ratio']:.2%}")
 ### ❌ Anti-Pattern 1: Not Checking Duplicates
 
 **Bad:**
+
 ```
 function crawl_url(url):
   // ❌ No duplicate check - wastes resources
@@ -1180,6 +1191,7 @@ function crawl_url(url):
 ```
 
 **Good:**
+
 ```
 function crawl_url(url):
   // ✅ Check duplicates before fetching
@@ -1199,6 +1211,7 @@ function crawl_url(url):
 ### ❌ Anti-Pattern 2: Ignoring robots.txt
 
 **Bad:**
+
 ```
 function fetch_url(url):
   // ❌ Ignores robots.txt - ethical violation
@@ -1206,6 +1219,7 @@ function fetch_url(url):
 ```
 
 **Good:**
+
 ```
 function fetch_url(url):
   // ✅ Check robots.txt first
@@ -1224,6 +1238,7 @@ function fetch_url(url):
 ### ❌ Anti-Pattern 3: Synchronous Fetching
 
 **Bad:**
+
 ```
 function process_urls(urls):
   // ❌ Synchronous - 1.6 URLs/sec (600ms per URL)
@@ -1233,6 +1248,7 @@ function process_urls(urls):
 ```
 
 **Good:**
+
 ```
 async function process_urls(urls):
   // ✅ Asynchronous - 200 URLs/sec (100 concurrent)
