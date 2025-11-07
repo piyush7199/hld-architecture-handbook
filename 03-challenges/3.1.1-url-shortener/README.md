@@ -1,7 +1,7 @@
 # 3.1.1 Design URL Shortener (TinyURL/Bitly)
 
 > 📚 **Note on Implementation Details:**
-> This document focuses on high-level design concepts and architectural decisions. 
+> This document focuses on high-level design concepts and architectural decisions.
 > For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
 ## 📊 Visual Diagrams & Resources
@@ -189,15 +189,18 @@ The alias must be short (7-8 characters), unique, and URL-safe.
 
 **Algorithm:**
 
-The Base62 encoding algorithm uses an alphabet of 62 characters (0-9, A-Z, a-z) and performs repeated modulo-62 operations on the input number, appending each resulting character to build the encoded string in reverse order.
+The Base62 encoding algorithm uses an alphabet of 62 characters (0-9, A-Z, a-z) and performs repeated modulo-62
+operations on the input number, appending each resulting character to build the encoded string in reverse order.
 
 **Encoding Process:**
+
 1. Take the numeric ID
 2. Repeatedly divide by 62, taking the remainder
 3. Map each remainder to the Base62 alphabet
 4. Reverse the result to get the final encoded string
 
 **Decoding Process:**
+
 1. Iterate through each character in the encoded string
 2. Multiply accumulator by 62 and add character's position in alphabet
 3. Return the final numeric value
@@ -205,6 +208,7 @@ The Base62 encoding algorithm uses an alphabet of 62 characters (0-9, A-Z, a-z) 
 *For detailed implementation, see `pseudocode.md::base62_encode()` and `pseudocode.md::base62_decode()`*
 
 **Example:**
+
 ```
 ID 123456789 → encode → "8M0kX"
 
@@ -220,12 +224,14 @@ Capacity:
 The shortening service handles two paths:
 
 **For Custom Aliases:**
+
 1. Check cache for alias availability (fast path)
 2. Attempt atomic database insert with unique constraint
 3. If constraint violation occurs, return error
 4. On success, cache the mapping and return short URL
 
 **For Auto-Generated Aliases:**
+
 1. Request unique ID from ID generator service
 2. Encode the numeric ID using Base62 algorithm
 3. Store mapping in database (no uniqueness check needed - ID is guaranteed unique)
@@ -233,6 +239,7 @@ The shortening service handles two paths:
 5. Return the short URL to client
 
 The key design decisions are:
+
 - **Cache-Aside pattern** on write (invalidate, don't update)
 - **Atomic database constraints** prevent race conditions
 - **Fire-and-forget** caching (failure doesn't block response)
@@ -293,12 +300,14 @@ The Read Path must prioritize speed and offload the database.
 The redirection service implements a fast-path/slow-path pattern:
 
 **Fast Path (Cache Hit - 90% of requests):**
+
 1. Query Redis cache with key `url:{short_alias}`
 2. If found, immediately issue HTTP 302 redirect
 3. Fire asynchronous analytics event (non-blocking)
 4. Total latency: < 5ms
 
 **Slow Path (Cache Miss - 10% of requests):**
+
 1. Query database for URL mapping
 2. Validate expiration time and status
 3. If invalid/expired, return HTTP 404 or 410
@@ -308,12 +317,14 @@ The redirection service implements a fast-path/slow-path pattern:
 7. Total latency: ~50-100ms
 
 **Analytics Tracking (Async):**
+
 - Publish click event to Kafka/Redis Stream (fire-and-forget)
 - Increment real-time counter in Redis (optional)
 - Batch process events for historical analytics
 - **Critical:** Never block redirect on analytics
 
 Key optimizations:
+
 - **Cache-first strategy** for minimal latency
 - **Asynchronous analytics** prevents blocking
 - **Graceful degradation** if cache fails
@@ -373,12 +384,12 @@ Client              Redirection Service       Redis Cache         Database
 
 **Potential SPOFs:**
 
-| Component          | Impact if Failed                      | Mitigation Strategy                                      |
-|--------------------|---------------------------------------|----------------------------------------------------------|
-| **ID Generator**   | No new URLs can be created            | Use distributed Snowflake-style ID generation per server |
-| **Redis Cache**    | High DB load, increased latency       | Redis Cluster with replication, circuit breaker pattern  |
-| **Database Master**| No writes (creates/updates)           | PostgreSQL with automatic failover (Patroni + etcd)      |
-| **API Servers**    | Reduced capacity                      | Auto-scaling group with health checks                    |
+| Component           | Impact if Failed                | Mitigation Strategy                                      |
+|---------------------|---------------------------------|----------------------------------------------------------|
+| **ID Generator**    | No new URLs can be created      | Use distributed Snowflake-style ID generation per server |
+| **Redis Cache**     | High DB load, increased latency | Redis Cluster with replication, circuit breaker pattern  |
+| **Database Master** | No writes (creates/updates)     | PostgreSQL with automatic failover (Patroni + etcd)      |
+| **API Servers**     | Reduced capacity                | Auto-scaling group with health checks                    |
 
 ### 5.2 High Availability Strategies
 
@@ -423,11 +434,11 @@ Auto-Scaling Strategy:
 
 **Backup Strategy:**
 
-| Data Type        | Backup Frequency | Retention | Recovery Time Objective (RTO) |
-|------------------|------------------|-----------|-------------------------------|
-| **URL Mappings** | Continuous (WAL) | 30 days   | < 1 hour                      |
-| **Analytics**    | Daily snapshots  | 90 days   | < 4 hours                     |
-| **Redis State**  | RDB every 6 hours| 7 days    | < 15 minutes (rebuild cache)  |
+| Data Type        | Backup Frequency  | Retention | Recovery Time Objective (RTO) |
+|------------------|-------------------|-----------|-------------------------------|
+| **URL Mappings** | Continuous (WAL)  | 30 days   | < 1 hour                      |
+| **Analytics**    | Daily snapshots   | 90 days   | < 4 hours                     |
+| **Redis State**  | RDB every 6 hours | 7 days    | < 15 minutes (rebuild cache)  |
 
 **Multi-Region Strategy:**
 
@@ -503,9 +514,12 @@ Benefits:
 
 ❌ **Check-Then-Act Race Condition**
 
-Many developers check if an alias exists in cache, then insert into database. This creates a race condition window where two concurrent requests can both see the alias as available and both attempt to insert, potentially causing duplicates or errors.
+Many developers check if an alias exists in cache, then insert into database. This creates a race condition window where
+two concurrent requests can both see the alias as available and both attempt to insert, potentially causing duplicates
+or errors.
 
 **Timeline of Race Condition:**
+
 ```
 Time 0ms:  Request A checks cache → alias available
 Time 1ms:  Request B checks cache → alias available  
@@ -517,15 +531,18 @@ Time 3ms:  Request B inserts to DB → Conflict! (but damage done)
 
 ✅ **Let Database Enforce Atomicity**
 
-Use database UNIQUE constraints and exception handling. The database guarantees atomicity - only one INSERT can succeed. This is the only safe way to handle concurrent custom alias requests.
+Use database UNIQUE constraints and exception handling. The database guarantees atomicity - only one INSERT can succeed.
+This is the only safe way to handle concurrent custom alias requests.
 
 **Benefits:**
+
 - Atomic operation (no race window)
 - Database handles locking internally
 - Simple application logic
 - Reliable under high concurrency
 
-*See `pseudocode.md::create_custom_alias_good()` for implementation details vs `create_custom_alias_bad()` for the anti-pattern*
+*See `pseudocode.md::create_custom_alias_good()` for implementation details vs `create_custom_alias_bad()` for the
+anti-pattern*
 
 ---
 
@@ -535,9 +552,11 @@ Use database UNIQUE constraints and exception handling. The database guarantees 
 
 ❌ **Analytics in Critical Path**
 
-Recording analytics data synchronously before redirecting adds 50-100ms latency to every redirect. Users perceive this as slowness. Worse, if the analytics service is slow or down, redirects become slow or fail entirely.
+Recording analytics data synchronously before redirecting adds 50-100ms latency to every redirect. Users perceive this
+as slowness. Worse, if the analytics service is slow or down, redirects become slow or fail entirely.
 
 **Impact Analysis:**
+
 - **User Experience:** 50ms baseline → 150ms with analytics (3x slower)
 - **Availability:** Analytics DB down = Redirects fail (unnecessary coupling)
 - **Scale:** Analytics writes don't scale with redirect traffic
@@ -546,15 +565,18 @@ Recording analytics data synchronously before redirecting adds 50-100ms latency 
 
 ✅ **Fire-and-Forget Async Tracking**
 
-Redirect the user immediately, then publish analytics event to a message queue for asynchronous processing. The redirect doesn't wait for analytics. If analytics fails, the redirect still succeeds.
+Redirect the user immediately, then publish analytics event to a message queue for asynchronous processing. The redirect
+doesn't wait for analytics. If analytics fails, the redirect still succeeds.
 
 **Benefits:**
+
 - No latency impact (redirect in < 5ms)
 - Decoupled services (analytics failure doesn't affect redirects)
 - Better scalability (analytics processing scales independently)
 - Batch processing possible (more efficient writes)
 
-*See `pseudocode.md::redirect_with_async_analytics_good()` for implementation vs `redirect_with_blocking_analytics_bad()` for the anti-pattern*
+*See `pseudocode.md::redirect_with_async_analytics_good()` for implementation
+vs `redirect_with_blocking_analytics_bad()` for the anti-pattern*
 
 ---
 
@@ -564,9 +586,11 @@ Redirect the user immediately, then publish analytics event to a message queue f
 
 ❌ **Thundering Herd on Cache Expiry**
 
-When a popular URL's cache entry expires, thousands of concurrent requests all experience a cache miss simultaneously. They all query the database at once, overwhelming it with identical queries.
+When a popular URL's cache entry expires, thousands of concurrent requests all experience a cache miss simultaneously.
+They all query the database at once, overwhelming it with identical queries.
 
 **Impact:**
+
 - Database receives 1,000+ identical queries in milliseconds
 - Database CPU spikes to 100%
 - Query latency increases from 10ms to 5,000ms
@@ -576,13 +600,15 @@ When a popular URL's cache entry expires, thousands of concurrent requests all e
 
 ✅ **Single-Flight Request Pattern**
 
-Use a distributed lock so only the first request queries the database. Other concurrent requests wait for the first to complete and populate the cache, then read from cache.
+Use a distributed lock so only the first request queries the database. Other concurrent requests wait for the first to
+complete and populate the cache, then read from cache.
 
 **Solution 2: Probabilistic Early Expiration**
 
 ✅ **Proactive Cache Refresh**
 
-For hot keys, probabilistically refresh the cache before it expires. This prevents the cache from ever going completely cold.
+For hot keys, probabilistically refresh the cache before it expires. This prevents the cache from ever going completely
+cold.
 
 *See `pseudocode.md::get_url_with_lock()` and `pseudocode.md::get_url_with_probabilistic_refresh()` for implementations*
 
@@ -595,11 +621,13 @@ For hot keys, probabilistically refresh the cache before it expires. This preven
 ❌ **Unprotected Write Endpoint**
 
 Without rate limiting, malicious users can abuse the URL shortening service by creating millions of URLs, exhausting:
+
 - Database storage (billions of garbage URLs)
 - ID space (waste sequential IDs)
 - CPU resources (generate unnecessary aliases)
 
 **Attack Scenarios:**
+
 - **Storage exhaustion:** Create 1 billion URLs → Fill database
 - **DDoS:** Send 100K requests/sec → Overload service
 - **Spam:** Create millions of spam/phishing links
@@ -611,21 +639,25 @@ Without rate limiting, malicious users can abuse the URL shortening service by c
 Implement rate limits at multiple levels:
 
 **By IP Address (Anonymous Users):**
+
 - Limit: 10 URLs per hour
 - Use case: Prevent basic abuse
 - Storage: Redis counters with 1-hour TTL
 
 **By User ID (Authenticated Users):**
+
 - Limit: 100 URLs per hour (higher for legitimate users)
 - Use case: Allow legitimate high-volume users
 - Storage: Redis counters with 1-hour TTL
 
 **By API Key (Enterprise):**
+
 - Limit: Custom (negotiated)
 - Use case: B2B integrations
 - Billing/throttling based on plan
 
 **Implementation Benefits:**
+
 - **Redis INCR:** Atomic, fast counter increment
 - **Automatic expiry:** TTL-based cleanup
 - **Tiered limits:** Different rates for different user types
@@ -642,6 +674,7 @@ Implement rate limits at multiple levels:
 ❌ **Accepting Malicious URLs**
 
 Without validation, attackers can submit malicious URLs that cause security vulnerabilities:
+
 - **XSS:** `javascript:alert('xss')` - executes JavaScript
 - **SSRF:** `http://localhost:6379` - access internal services
 - **Phishing:** Shortened URLs hide malicious destinations
@@ -654,30 +687,36 @@ Without validation, attackers can submit malicious URLs that cause security vuln
 Implement comprehensive validation before accepting URLs:
 
 **1. Scheme Validation (XSS Prevention):**
+
 - Allow only: `http://` and `https://`
 - Block: `javascript:`, `data:`, `file:`, etc.
 - Prevents code execution via URL
 
 **2. Domain Validation (SSRF Prevention):**
+
 - Block localhost: `127.0.0.1`, `localhost`, `0.0.0.0`
 - Block private networks: `192.168.*`, `10.*`, `172.16-31.*`
 - Prevents accessing internal infrastructure
 
 **3. Length Validation:**
+
 - Maximum length: 2048 characters (browser limit)
 - Prevents database overflow attacks
 
 **4. Optional Reachability Check:**
+
 - HTTP HEAD request with 5-second timeout
 - Verify URL actually exists
 - Catch typos and dead links early
 
 **5. Blacklist Check:**
+
 - Query URL against known malware/phishing databases
 - Google Safe Browsing API
 - PhishTank integration
 
 **Implementation Strategy:**
+
 - Fail fast (reject invalid URLs immediately)
 - Clear error messages (help users fix issues)
 - Log suspicious attempts (detect patterns)
@@ -741,6 +780,7 @@ CREATE TABLE click_events (
 ❌ **No fallback:** If Redis is down, cache.set() throws exception → entire service fails.
 
 ✅ **Solution:** Graceful degradation:
+
 - Wrap all cache operations in try-catch
 - If cache fails: Log error, fall back to database
 - Continue serving requests (slower but available)
@@ -757,6 +797,7 @@ CREATE TABLE click_events (
 ❌ **Sequential IDs** (`1`, `2`, `3`) are predictable → easy to enumerate → reveals usage statistics.
 
 ✅ **Solution:** Encode IDs using Base62:
+
 - Generate sequential ID: `7234891234`
 - Encode with Base62: `aB3xY9`
 - Aliases appear random: `aB3xY9`, `kL9mP2`, `wX8qN5`
@@ -1468,10 +1509,13 @@ Challenges:
 
 ### Related System Design Components
 
-- **[2.1.7 PostgreSQL Deep Dive](../../02-components/2.1-databases/2.1.7-postgresql-deep-dive.md)** - Database design patterns
+- **[2.1.7 PostgreSQL Deep Dive](../../02-components/2.1-databases/2.1.7-postgresql-deep-dive.md)** - Database design
+  patterns
 - **[2.2.1 Redis Deep Dive](../../02-components/2.2-caching/2.2.1-redis-deep-dive.md)** - Caching strategies
-- **[2.5.1 Rate Limiting Algorithms](../../02-components/2.5-algorithms/2.5.1-rate-limiting-algorithms.md)** - Token bucket, sliding window
-- **[1.1.2 Horizontal vs Vertical Scaling](../../01-principles/1.1.2-horizontal-vs-vertical-scaling.md)** - Scaling strategies
+- **[2.5.1 Rate Limiting Algorithms](../../02-components/2.5-algorithms/2.5.1-rate-limiting-algorithms.md)** - Token
+  bucket, sliding window
+- **[1.1.2 Horizontal vs Vertical Scaling](../../01-principles/1.1.2-horizontal-vs-vertical-scaling.md)** - Scaling
+  strategies
 - **[1.2.2 CAP Theorem](../../01-principles/1.2.2-cap-theorem.md)** - Consistency trade-offs
 
 ### Related Design Challenges
@@ -1494,8 +1538,3 @@ Challenges:
 - *Designing Data-Intensive Applications* by Martin Kleppmann - Chapters on caching and partitioning
 - *System Design Interview Vol 1* by Alex Xu - URL shortener design patterns
 - *Database Internals* by Alex Petrov - B-tree indexing and query optimization
-
----
-
-This design provides a **production-ready, scalable blueprint** for building a URL shortener that can handle billions of
-URLs and millions of redirects per second! 🚀

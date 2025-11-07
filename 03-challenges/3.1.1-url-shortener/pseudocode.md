@@ -1,6 +1,7 @@
 # URL Shortener - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the URL Shortener system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the URL Shortener system. The main challenge document
+references these functions.
 
 ---
 
@@ -23,12 +24,15 @@ This document contains detailed algorithm implementations for the URL Shortener 
 Converts a numeric ID to a Base62-encoded string.
 
 **Parameters:**
+
 - `num` (integer): The numeric ID to encode
 
 **Returns:**
+
 - `string`: Base62-encoded representation
 
 **Algorithm:**
+
 ```
 Base62Encoder:
   ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -47,6 +51,7 @@ Base62Encoder:
 ```
 
 **Example:**
+
 ```
 Input: 123456789
 Output: "8M0kX"
@@ -57,12 +62,15 @@ Output: "8M0kX"
 Converts a Base62-encoded string back to numeric ID.
 
 **Parameters:**
+
 - `encoded` (string): The Base62 string to decode
 
 **Returns:**
+
 - `integer`: Original numeric ID
 
 **Algorithm:**
+
 ```
 Base62Encoder:
   function decode(encoded):
@@ -73,6 +81,7 @@ Base62Encoder:
 ```
 
 **Example:**
+
 ```
 Input: "8M0kX"
 Output: 123456789
@@ -87,12 +96,15 @@ Output: 123456789
 Main function for creating a short URL from a long URL.
 
 **Parameters:**
+
 - `request`: Object containing `long_url` and optionally `custom_alias`, `expires_at`
 
 **Returns:**
+
 - Object with `short_url` and `long_url`, or error
 
 **Algorithm:**
+
 ```
 function shorten_url(request):
   long_url = request.long_url
@@ -138,12 +150,15 @@ function shorten_url(request):
 Handles incoming requests to short URLs and redirects to long URLs.
 
 **Parameters:**
+
 - `short_alias` (string): The short URL alias
 
 **Returns:**
+
 - HTTP redirect response (302) or error (404/410)
 
 **Algorithm:**
+
 ```
 function handle_redirect(short_alias):
   // 1. Check cache first (Redis)
@@ -185,15 +200,18 @@ function handle_redirect(short_alias):
 Asynchronously tracks click events for analytics.
 
 **Parameters:**
+
 - `short_alias` (string): The short URL that was clicked
 - `user_agent` (string): Browser/client user agent
 - `ip` (string): Client IP address
 - `referer` (string): Referring URL
 
 **Returns:**
+
 - None (fire-and-forget)
 
 **Algorithm:**
+
 ```
 function async_track_click(short_alias, user_agent, ip, referer):
   // Publish to message queue for async processing
@@ -221,12 +239,15 @@ function async_track_click(short_alias, user_agent, ip, referer):
 Fetches URL with distributed locking to prevent cache stampede.
 
 **Parameters:**
+
 - `short_alias` (string): The short URL alias
 
 **Returns:**
+
 - `long_url` (string): The long URL, or null if not found
 
 **Algorithm:**
+
 ```
 function get_url_with_lock(short_alias):
   url = cache.get(short_alias)
@@ -250,12 +271,15 @@ function get_url_with_lock(short_alias):
 Alternative: Probabilistic early expiration to prevent stampede.
 
 **Parameters:**
+
 - `short_alias` (string): The short URL alias
 
 **Returns:**
+
 - `long_url` (string): The long URL
 
 **Algorithm:**
+
 ```
 function get_url_with_early_refresh(short_alias):
   url, ttl_remaining = cache.get_with_ttl(short_alias)
@@ -280,13 +304,16 @@ function get_url_with_early_refresh(short_alias):
 Implements rate limiting using token bucket algorithm.
 
 **Parameters:**
+
 - `user_id` (integer or null): Authenticated user ID
 - `client_ip` (string): Client IP address
 
 **Returns:**
+
 - `boolean`: True if within rate limit, False if exceeded
 
 **Algorithm:**
+
 ```
 function check_rate_limit(user_id, client_ip):
   // Rate limit by IP (anonymous users)
@@ -316,12 +343,15 @@ function check_rate_limit(user_id, client_ip):
 Validates and sanitizes input URLs to prevent security issues.
 
 **Parameters:**
+
 - `url` (string): The URL to validate
 
 **Returns:**
+
 - `boolean`: True if valid, False otherwise
 
 **Algorithm:**
+
 ```
 ALLOWED_SCHEMES = ["http", "https"]
 BLOCKED_DOMAINS = ["localhost", "127.0.0.1", "0.0.0.0"]
@@ -361,14 +391,17 @@ function validate_url(url):
 URL shortening with validation.
 
 **Parameters:**
+
 - `long_url` (string): URL to shorten
 - `user_id` (integer or null): User ID
 - `client_ip` (string): Client IP
 
 **Returns:**
+
 - `short_alias` (string) or error
 
 **Algorithm:**
+
 ```
 function shorten_with_validation(long_url, user_id, client_ip):
   // 1. Check rate limit
@@ -398,12 +431,15 @@ function shorten_with_validation(long_url, user_id, client_ip):
 Background job to clean up expired URLs.
 
 **Parameters:**
+
 - None
 
 **Returns:**
+
 - None
 
 **Algorithm:**
+
 ```
 function cleanup_expired_links():
   expired_links = db.query(
@@ -422,12 +458,15 @@ function cleanup_expired_links():
 Handles cache failures gracefully without affecting redirects.
 
 **Parameters:**
+
 - `short_alias` (string): The short URL alias
 
 **Returns:**
+
 - `long_url` (string): The long URL, or null if not found
 
 **Algorithm:**
+
 ```
 function redirect_with_fallback(short_alias):
   try:
@@ -568,8 +607,3 @@ function get_user_good(user_id):
   user = connection.get("user:" + user_id)
   return user
 ```
-
----
-
-This pseudocode provides detailed implementations of all algorithms discussed in the main URL Shortener design document.
-

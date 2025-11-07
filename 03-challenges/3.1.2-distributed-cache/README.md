@@ -1,19 +1,19 @@
 # 3.1.2 Design a Distributed Cache (Redis/Memcached)
 
 > 📚 **Note on Implementation Details:**
-> This document focuses on high-level design concepts and architectural decisions. 
+> This document focuses on high-level design concepts and architectural decisions.
 > For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
 ## 📊 Visual Diagrams & Resources
 
-- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, consistent hashing, replication, eviction policies, and scaling
-- **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows for cache operations, failover, and monitoring
-- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and trade-offs
-- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for all core functions
+- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, component design, data flow
+- **[Sequence Diagrams](./sequence-diagrams.md)** - Detailed interaction flows and failure scenarios
+- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices
+- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
 Design a highly available, horizontally scalable, distributed in-memory cache system similar to Redis or Memcached. The
 system should support millions of operations per second with sub-millisecond latency while providing fault tolerance and
@@ -21,7 +21,7 @@ minimal data reshuffling when nodes are added or removed.
 
 ---
 
-## 1. Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
 ### Functional Requirements (FRs)
 
@@ -75,9 +75,43 @@ Network: 4.6 MB/sec is negligible (1 Gbps = 125 MB/sec)
 
 ---
 
-## 2. High-Level Architecture
+## 3. High-Level Architecture
 
-> 📊 **See detailed architecture diagrams:** [HLD Diagrams](./hld-diagram.md)
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
+
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Application Servers                         │
+│  ┌────────────────────────────────────────────────────────┐     │
+│  │  Cache Client Library (Consistent Hashing Logic)       │     │
+│  └────────────────────────────────────────────────────────┘     │
+└───────────────────────┬─────────────────────────────────────────┘
+                        │
+        ┌───────────────┼───────────────┐
+        │               │               │
+        ▼               ▼               ▼
+    ┌───────┐       ┌───────┐       ┌───────┐
+    │ Node 1│       │ Node 2│       │ Node 3│  ← Primary Nodes
+    │(Master)       │(Master)       │(Master)
+    └───┬───┘       └───┬───┘       └───┬───┘
+        │               │               │
+    ┌───┴───┐       ┌───┴───┐       ┌───┴───┐
+    │Replica│       │Replica│       │Replica│  ← Replica Nodes
+    │  1A   │       │  2A   │       │  3A   │
+    └───────┘       └───────┘       └───────┘
+    ┌───────┐       ┌───────┐       ┌───────┐
+    │Replica│       │Replica│       │Replica│
+    │  1B   │       │  2B   │       │  3B   │
+    └───────┘       └───────┘       └───────┘
+
+Optional: Sentinel / Cluster Manager
+┌────────────────────────────────────────────┐
+│  Sentinel 1  │  Sentinel 2  │  Sentinel 3  │
+│  (Monitors health and performs failover)   │
+└────────────────────────────────────────────┘
+```
 
 ### Key Components
 
@@ -91,11 +125,9 @@ Network: 4.6 MB/sec is negligible (1 Gbps = 125 MB/sec)
 
 ---
 
-## 3. Detailed Component Design
+## 4. Detailed Component Design
 
 ### 3.1 Data Partitioning Strategy
-
-> 📊 **See visual representation:** [Consistent Hashing Ring Diagram](./hld-diagram.md#consistent-hashing-ring)
 
 #### Why Consistent Hashing?
 
@@ -114,56 +146,26 @@ node = hash("user:123") % 4  // Now goes to node 3! ❌
 
 **Solution: Consistent Hashing**
 
-> 📊 **See implementation details:** [Consistent Hashing Addition Sequence](./sequence-diagrams.md#consistent-hashing-node-addition)
-
 ```
-// Consistent Hashing with Virtual Nodes
-ConsistentHash:
-  ring: HashMap
-  sorted_keys: SortedList
-  virtual_nodes: integer = 150
-  
-  function initialize(nodes, virtual_nodes=150):
-    ring = empty_hashmap
-    sorted_keys = empty_list
-    this.virtual_nodes = virtual_nodes
-    
-    for each node in nodes:
-      add_node(node)
-  
-  function add_node(node):
-    for i from 0 to virtual_nodes:
-      virtual_key = node + ":" + i
-      hash_value = hash_function(virtual_key)
-      ring[hash_value] = node
-      sorted_keys.append(hash_value)
-    
-    sorted_keys.sort()
-  
-  function get_node(key):
-    if ring is empty:
-      return null
-    
-    hash_value = hash_function(key)
-    
-    // Binary search for the next node on the ring
-    idx = binary_search(sorted_keys, hash_value)
-    if idx == length(sorted_keys):
-      idx = 0
-    
-    return ring[sorted_keys[idx]]
-  
-  function hash_function(key):
-    return md5_hash(key) as integer
+**Consistent Hashing Implementation:**
 
-// Usage
-cache = ConsistentHash(['node1', 'node2', 'node3'])
-node = cache.get_node('user:123')  // Returns 'node2'
+**Data Structures:**
+- `ring`: HashMap mapping hash values to node identifiers
+- `sorted_keys`: Sorted list of all hash values for binary search
+- `virtual_nodes`: 150 virtual nodes per physical node
 
-// Add node4:
-cache.add_node('node4')
-node = cache.get_node('user:123')  // Still likely 'node2'
-// Only ~25% of keys remapped instead of 75%!
+**Key Operations:**
+- `initialize(nodes)`: Creates ring with virtual nodes for each physical node
+- `add_node(node)`: Adds 150 virtual nodes to ring (O(V log N))
+- `get_node(key)`: Finds responsible node via binary search (O(log N))
+- `hash_function(key)`: MD5/MurmurHash for uniform distribution
+
+**Example:**
+- Setup: 3 nodes (node1, node2, node3)
+- Query: `get_node('user:123')` → Returns 'node2'
+- Add node4: Only ~25% of keys remapped (vs. 75% with modulo)
+
+*See `pseudocode.md::ConsistentHash` for detailed implementation*
 ```
 
 #### Virtual Nodes (VNodes) Impact
@@ -179,7 +181,35 @@ node = cache.get_node('user:123')  // Still likely 'node2'
 
 ### 3.2 Replication Strategy
 
-> 📊 **See replication flows:** [Replication Sequence Diagrams](./sequence-diagrams.md#replication-flow)
+#### Master-Replica (Leader-Follower) Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Write Request                        │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+                       ▼
+              ┌─────────────────┐
+              │  Master Node    │
+              │  (Primary)      │
+              │  - Handles writes
+              │  - Replicates   │
+              └────────┬────────┘
+                       │
+           ┌───────────┴───────────┐
+           │ Async Replication     │
+           │ (non-blocking)        │
+           ▼                       ▼
+    ┌──────────────┐        ┌──────────────┐
+    │  Replica 1   │        │  Replica 2   │
+    │  (Read-only) │        │  (Read-only) │
+    │  - Lags 1-5ms│        │  - Lags 1-5ms│
+    └──────────────┘        └──────────────┘
+           │                       │
+           └───────────┬───────────┘
+                       │
+              Read Requests (Load Balanced)
+```
 
 #### Replication Options Comparison
 
@@ -201,21 +231,33 @@ node = cache.get_node('user:123')  // Still likely 'node2'
 
 ### 3.3 Write Policies
 
-> 📊 **See write pattern flows:** [Cache Pattern Sequence Diagrams](./sequence-diagrams.md)
-
 #### Cache-Aside (Lazy Loading) - Recommended for Distributed Cache
 
+**How It Works:**
+
 **Read Flow:**
-1. Check cache first
-2. **Cache Hit:** Return immediately (fast)
-3. **Cache Miss:** Fetch from database, populate cache with TTL, return data
+
+1. Application checks cache first for the data
+2. **Cache Hit:** Return data immediately (fast path)
+3. **Cache Miss:**
+    - Fetch from database (slow path)
+    - Populate cache with fetched data (TTL = 5 minutes)
+    - Return data to application
+4. Subsequent reads hit cache (fast)
 
 **Write Flow:**
-1. Update database (source of truth)
-2. Invalidate cache (don't update)
-3. Next read will fetch fresh data
 
-*See `pseudocode.md::get_from_cache_aside()` and `pseudocode.md::update_with_cache_aside()` for implementation*
+1. Update database first (source of truth)
+2. **Invalidate** cache entry (don't update it!)
+3. Next read will fetch fresh data and populate cache
+
+**Why Invalidate Instead of Update:**
+
+- **Simpler:** No serialization issues
+- **Safer:** Avoids inconsistency if DB update succeeds but cache update fails
+- **Lazy:** Don't waste effort on data that might not be read again
+
+*See `pseudocode.md::get_from_cache_aside()` and `pseudocode.md::update_with_cache_aside()` for detailed implementation*
 
 **Why Cache-Aside Over Write-Through?**
 
@@ -230,53 +272,35 @@ node = cache.get_node('user:123')  // Still likely 'node2'
 
 ### 3.4 Eviction Policies
 
-> 📊 **See eviction policy comparison:** [Eviction Policies Diagram](./hld-diagram.md#cache-eviction-policies)
-
 #### LRU (Least Recently Used) Implementation
 
-```
-LRUCache:
-  capacity: integer
-  cache: HashMap  // key → Node
-  head: Node  // Dummy head (most recently used)
-  tail: Node  // Dummy tail (least recently used)
-  
-  function initialize(capacity):
-    this.capacity = capacity
-    cache = empty_hashmap
-    head = Node(0, 0)  // Dummy
-    tail = Node(0, 0)  // Dummy
-    head.next = tail
-    tail.prev = head
-  
-  function get(key):
-    if key exists in cache:
-      node = cache[key]
-      remove_node(node)
-      add_to_head(node)
-      return node.value
-    return null
-  
-  function put(key, value):
-    if key exists in cache:
-      remove_node(cache[key])
-    
-    node = Node(key, value)
-    add_to_head(node)
-    cache[key] = node
-    
-    if size(cache) > capacity:
-      // Evict LRU (tail)
-      lru = tail.prev
-      remove_node(lru)
-      delete cache[lru.key]
+**LRU Cache Implementation:**
 
-Node:
-  key: any
-  value: any
-  prev: Node
-  next: Node
-```
+**Data Structures:**
+
+- **HashMap:** Maps keys to nodes for O(1) lookup
+- **Doubly-Linked List:** Maintains access order (most recent at head, least recent at tail)
+
+**Operations:**
+
+1. **GET(key):**
+    - Lookup key in HashMap (O(1))
+    - If found: Move node to head (mark as recently used)
+    - Return value
+
+2. **PUT(key, value):**
+    - If key exists: Remove old node
+    - Create new node and add to head
+    - Update HashMap
+    - If capacity exceeded: Evict tail node (LRU)
+
+**Key Properties:**
+
+- All operations are O(1)
+- Space complexity: O(capacity)
+- Thread-safe with locking
+
+*See `pseudocode.md::LRUCache` for detailed implementation with node manipulation*
 
 #### Eviction Policy Comparison
 
@@ -295,25 +319,39 @@ Node:
 
 **Option 1: Active Expiration (Lazy Delete)**
 
-Check TTL when key is accessed. If expired, delete and return null. Simple, no background process needed.
+Checks TTL when a key is accessed:
+
+- On GET request, check if key has expired
+- If expired: Delete immediately and return null
+- If not expired: Return value
+
+**Pros:** Simple, no background process needed  
+**Cons:** Expired keys not accessed remain in memory
 
 **Option 2: Passive Expiration (Background Scan)**
 
-Background process samples 100 random keys every 100ms, deletes expired ones. Cleans up unused keys but uses CPU.
+Background process periodically scans for expired keys:
+
+- Sample 100 random keys every 100ms
+- Delete any expired keys found
+- Repeat continuously
+
+**Pros:** Cleans up unused keys  
+**Cons:** Uses CPU, may miss some expired keys
+
+**Redis Approach: Hybrid (Best Practice)**
+
+Combines both strategies:
+
+- **Active:** Check on every access
+- **Passive:** Sample 20 keys every 100ms, delete expired
+- **Probabilistic:** If > 25% expired, scan again immediately (aggressive mode)
 
 *See `pseudocode.md::TTL Management` for detailed implementations*
-
-**Redis Approach: Hybrid**
-
-- Active: Check on access
-- Passive: Sample 20 keys every 100ms, delete expired
-- Probabilistic: If > 25% expired, repeat immediately
 
 ---
 
 ### 3.6 Concurrency Control: Preventing Cache Stampede
-
-> 📊 **See stampede prevention solutions:** [Cache Stampede Prevention Diagrams](./sequence-diagrams.md#cache-stampede-prevention)
 
 #### Problem: Cache Stampede / Thundering Herd
 
@@ -331,56 +369,75 @@ Result: Database overwhelmed, cascading failure
 
 #### Solution 1: Single Flight Request (Recommended)
 
-```
-SingleFlightCache:
-  cache: HashMap
-  locks: HashMap  // Per-key locks
-  lock_mutex: Mutex  // Protects locks map
-  
-  function get_or_fetch(key, fetch_function, ttl=300):
-    // Try cache first
-    value = cache.get(key)
-    if value is not null:
-      return value
-    
-    // Get or create lock for this key
-    acquire_lock(lock_mutex):
-      if key not in locks:
-        locks[key] = create_lock()
-      lock = locks[key]
-    
-    // Acquire lock (only first request proceeds)
-    acquire_lock(lock):
-      // Double-check cache (another thread may have populated it)
-      value = cache.get(key)
-      if value is not null:
-        return value
-      
-      // Fetch from DB (only once!)
-      value = fetch_function()
-      cache.set(key, value, ttl)
-      return value
+**How It Works:**
 
-**Example:** 10,000 concurrent requests for same user → Only 1 DB query, other 9,999 wait and read from cache.
+Uses distributed locking to ensure only one request fetches from the database when cache expires:
 
-*See `pseudocode.md::SingleFlightCache` for implementation*
+1. **Request arrives:** Check cache first
+2. **Cache miss:** Acquire lock for this specific key
+3. **Lock acquired (first request):**
+    - Double-check cache (another thread may have populated it)
+    - Fetch from database
+    - Populate cache
+    - Release lock
+4. **Lock waiting (other requests):**
+    - Wait for first request to complete
+    - Read from cache (now populated)
+    - No database query needed
+
+**Example: 10,000 Concurrent Requests for Same User**
+
+- Without this pattern: 10,000 DB queries
+- With this pattern: **1 DB query** (other 9,999 wait and read from cache)
+
+**Benefits:**
+
+- Prevents database overload
+- Transparent to application code
+- Works across multiple servers (distributed lock)
+
+**Trade-offs:**
+
+- Adds slight latency (lock acquisition overhead ~1-5ms)
+- Requires distributed lock infrastructure (Redis, etcd)
+
+*See `pseudocode.md::SingleFlightCache` for detailed implementation*
 
 #### Solution 2: Probabilistic Early Expiration
 
-Refresh cache proactively before TTL expires. If TTL < 10% remaining, probability increases to trigger async background refresh. Cache never goes cold.
-  
-  return value
-```
+**How it works:**
+
+- Get entry with expiry time
+- If TTL < 10% remaining, calculate refresh probability
+- Probability increases as expiration approaches
+- Trigger async background refresh
+- Cache never goes completely cold
+
+*See `pseudocode.md::get_with_early_refresh()` for detailed implementation*
 
 ---
 
-## 4. Availability and Fault Tolerance
-
-> 📊 **See failover process:** [Failover Sequence Diagram](./sequence-diagrams.md#automatic-failover-with-sentinel)
+## 5. Availability and Fault Tolerance
 
 ### 4.1 Failover Strategy
 
 #### Automatic Failover with Sentinel
+
+```
+Normal Operation:
+App → Master (Healthy)
+      └─ Replica 1
+      └─ Replica 2
+
+Master Fails:
+Sentinel detects failure (quorum vote)
+      ↓
+Promotes Replica 1 to Master
+      ↓
+App redirected to new Master
+      ↓
+Old master becomes replica when it recovers
+```
 
 **Configuration:**
 
@@ -408,8 +465,6 @@ sentinel failover-timeout mymaster 10000
 
 ### 4.2 Cluster Mode (Sharding + Replication)
 
-> 📊 **See cluster architecture:** [Cluster Sharding Diagram](./hld-diagram.md#cluster-sharding-redis-cluster)
-
 ```
 Redis Cluster:
 16,384 Hash Slots distributed across nodes
@@ -436,7 +491,7 @@ Node redirects if wrong slot (MOVED response)
 
 ---
 
-## 5. Bottlenecks and Optimizations
+## 6. Bottlenecks and Optimizations
 
 ### 5.1 Performance Bottlenecks
 
@@ -450,37 +505,46 @@ Node redirects if wrong slot (MOVED response)
 
 ### 5.2 Optimization Techniques
 
-> 📊 **See optimization patterns:** [Performance Optimization Diagram](./hld-diagram.md#performance-optimization-techniques)
-
 #### Connection Pooling
 
-❌ **Bad:** Create new connection per request → TCP handshake overhead (~3ms each)
+❌ **Bad:** New connection per request → TCP handshake ~3ms overhead each
 
-✅ **Good:** Use connection pool with 50 max connections → Reuse connections → No TCP overhead → 3x faster
+✅ **Good:** Connection pool (max 50 connections) → Reuse connections → No handshake → 3x faster
 
-*See `pseudocode.md::ConnectionPool` for implementation*
+*See `pseudocode.md::ConnectionPool` for detailed implementation*
 
 #### Pipelining (Batch Operations)
 
-> 📊 **See pipelining benefits:** [Pipelining Sequence Diagram](./sequence-diagrams.md#pipelining-for-batch-operations)
+```
+// ❌ Bad: Round-trip for each operation
+for i from 0 to 999:
+  cache.set("key:" + i, i)
+// 1000 network round-trips (~500ms at 0.5ms each)
 
-❌ **Bad:** 1000 operations = 1000 network round-trips (~500ms total)
-
-✅ **Good:** Pipeline batches 1000 operations into 1 network round-trip (~0.5ms total) → 1000x faster
-
-*See `pseudocode.md::Pipeline` for implementation*
+// ✅ Good: Pipeline (batch)
+pipeline = cache.create_pipeline()
+for i from 0 to 999:
+  pipeline.set("key:" + i, i)
+pipeline.execute()
+// 1 network round-trip (~0.5ms)
+```
 
 #### Compression for Large Values
 
-For values > 1 KB, compress before storing. Example: 10 KB JSON → 1 KB compressed (10x memory savings, worth the CPU cost).
+For large values (> 1 KB):
+
+- Serialize to JSON
+- Compress (gzip/snappy)
+- Store compressed
+- On retrieval: decompress and deserialize
+
+**Example:** 10 KB JSON → 1 KB compressed (10x memory savings)
 
 *See `pseudocode.md::set_compressed()` and `pseudocode.md::get_compressed()` for implementation*
 
 ---
 
-## 6. Monitoring and Observability
-
-> 📊 **See monitoring setup:** [Monitoring Dashboard Diagram](./hld-diagram.md#monitoring-dashboard)
+## 7. Monitoring and Observability
 
 ### Key Metrics to Monitor
 
@@ -516,9 +580,7 @@ redis-cli --latency
 
 ---
 
-## 7. Alternative Approaches
-
-> 📊 **See technology comparison:** [Technology Comparison Diagram](./hld-diagram.md#technology-comparison)
+## 8. Alternative Approaches
 
 ### Comparison: Redis vs Memcached vs KeyDB
 
@@ -535,7 +597,7 @@ redis-cli --latency
 
 ---
 
-## 8. Trade-offs and Design Decisions Summary
+## 9. Trade-offs and Design Decisions Summary
 
 | Decision         | Choice             | Alternative     | Why Chosen                          | Trade-off                            |
 |------------------|--------------------|-----------------|-------------------------------------|--------------------------------------|
@@ -548,7 +610,7 @@ redis-cli --latency
 
 ---
 
-## 9. Common Pitfalls and Anti-Patterns
+## 10. Common Pitfalls and Anti-Patterns
 
 ### Anti-Pattern 1: Not Setting TTL
 
@@ -590,9 +652,63 @@ cache.set('session:abc', session_data, TTL=3600)  // Secondary
 
 ---
 
-## 10. Capacity Planning Guidelines
+## 11. Final Architecture Diagram
 
-> 📊 **See scaling strategy:** [Scaling Strategy Diagram](./hld-diagram.md#scaling-strategy)
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Application Layer                           │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │  Cache Client Library                                    │   │
+│  │  - Consistent Hashing (150 VNodes/node)                  │   │
+│  │  - Connection Pooling (50 connections)                   │   │
+│  │  - Retry Logic + Circuit Breaker                         │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└───────────────────────┬─────────────────────────────────────────┘
+                        │
+        ┌───────────────┼───────────────┐
+        │               │               │
+        ▼               ▼               ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│   Master 1   │  │   Master 2   │  │   Master 3   │
+│   64 GB RAM  │  │   64 GB RAM  │  │   64 GB RAM  │
+│ 100K QPS     │  │ 100K QPS     │  │ 100K QPS     │
+│ Slots 0-5460 │  │ Slots 5461-  │  │ Slots 10923- │
+└──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+       │                 │                 │
+       │ Async           │ Async           │ Async
+       │ Replication     │ Replication     │ Replication
+       │ (1-5ms lag)     │ (1-5ms lag)     │ (1-5ms lag)
+       │                 │                 │
+   ┌───┴────┐        ┌───┴────┐        ┌───┴────┐
+   │Replica │        │Replica │        │Replica │
+   │  1A    │        │  2A    │        │  3A    │
+   │ 64 GB  │        │ 64 GB  │        │ 64 GB  │
+   └────────┘        └────────┘        └────────┘
+   ┌────────┐        ┌────────┐        ┌────────┐
+   │Replica │        │Replica │        │Replica │
+   │  1B    │        │  2B    │        │  3B    │
+   │ 64 GB  │        │ 64 GB  │        │ 64 GB  │
+   └────────┘        └────────┘        └────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│              Sentinel Cluster (Monitoring)                   │
+│  ┌──────────┐     ┌──────────┐     ┌──────────┐            │
+│  │Sentinel 1│     │Sentinel 2│     │Sentinel 3│            │
+│  │ Quorum=2 │     │ Quorum=2 │     │ Quorum=2 │            │
+│  └──────────┘     └──────────┘     └──────────┘            │
+└─────────────────────────────────────────────────────────────┘
+
+Total Capacity:
+- 9 nodes × 64 GB = 576 GB total RAM
+- 3 master nodes = 192 GB effective capacity (with 3x replication)
+- 300K+ QPS total throughput
+- < 13 seconds failover time
+- ~1% keys reshuffled on node add/remove
+```
+
+---
+
+## 12. Capacity Planning Guidelines
 
 ### Scaling Strategy
 
@@ -619,6 +735,26 @@ Data Transfer: ~$0.01/GB (within AZ, negligible)
 
 Total: ~$2,000-3,300/month for 180 GB cache capacity
 ```
+
+---
+
+## 13. Further Optimizations
+
+### Advanced Techniques
+
+1. **Read-Through Cache** (optional for specific use cases)
+2. **Cache Warming** on startup
+3. **Predictive Caching** (ML-based)
+4. **Geo-distributed Caching** (CDN-like)
+5. **Client-side Caching** (L1 cache)
+
+### Redis Modules
+
+- **RediSearch**: Full-text search
+- **RedisJSON**: Native JSON support
+- **RedisGraph**: Graph database
+- **RedisTimeSeries**: Time-series data
+- **RedisBloom**: Bloom filters, HyperLogLog
 
 ---
 
@@ -649,3 +785,40 @@ A distributed cache system requires careful design decisions balancing:
 - **Redis Sentinel** for automatic failover
 - **Redis Cluster** for horizontal scalability
 
+---
+
+## 14. References
+
+### Related System Design Components
+
+- **[2.2.1 Caching Deep Dive](../../02-components/2.2-caching/2.2.1-caching-deep-dive.md)** - Caching strategies,
+  patterns, and best practices
+- **[2.2.2 Consistent Hashing](../../02-components/2.2-caching/2.2.2-consistent-hashing.md)** - Detailed explanation of
+  consistent hashing algorithm and virtual nodes
+- **[2.2.3 Memcached Deep Dive](../../02-components/2.2-caching/2.2.3-memcached-deep-dive.md)** - Memcached architecture
+  and comparison with Redis
+- **[1.1.2 Latency, Throughput, and Scale](../../01-principles/1.1.2-latency-throughput-scale.md)** - Performance
+  fundamentals
+- **[1.1.6 Failure Modes and Fault Tolerance](../../01-principles/1.1.6-failure-modes-fault-tolerance.md)** - High
+  availability patterns
+
+### Related Design Challenges
+
+- **[3.1.1 URL Shortener](../3.1.1-url-shortener/)** - Uses distributed cache (Redis) for URL mappings
+- **[3.1.3 Distributed ID Generator](../3.1.3-distributed-id-generator/)** - ID generation patterns for distributed
+  systems
+- **[3.4.2 News Feed](../3.4.2-news-feed/)** - Read-heavy system patterns using caching
+
+### External Resources
+
+- **Redis Documentation:** [Redis.io](https://redis.io/docs/) - Official Redis documentation and best practices
+- **Consistent Hashing Explained:** [Wikipedia - Consistent Hashing](https://en.wikipedia.org/wiki/Consistent_hashing)
+- **Redis Cluster Specification:** [Redis Cluster Tutorial](https://redis.io/docs/management/scaling/)
+- **Memcached Documentation:** [Memcached.org](https://memcached.org/) - Official Memcached documentation
+- **KeyDB Documentation:** [KeyDB.dev](https://docs.keydb.dev/) - Multi-threaded Redis fork
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Chapters on caching, partitioning, and replication
+- *Redis in Action* by Josiah Carlson - Practical Redis patterns and use cases
+- *High Performance Browser Networking* by Ilya Grigorik - Caching strategies for web applications

@@ -1,6 +1,7 @@
 # Distributed Cache - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Distributed Cache system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Distributed Cache system. The main challenge document
+references these functions.
 
 ---
 
@@ -28,6 +29,7 @@ Implements consistent hashing with virtual nodes for distributed cache partition
 **Purpose:** Minimize data movement when nodes are added/removed
 
 **Algorithm:**
+
 ```
 ConsistentHash:
   ring: HashMap  // hash_value → node
@@ -48,9 +50,11 @@ ConsistentHash:
 Adds a node to the consistent hash ring with virtual nodes.
 
 **Parameters:**
+
 - `node` (string): Node identifier (e.g., "cache-1", "192.168.1.100:6379")
 
 **Algorithm:**
+
 ```
 function add_node(node):
   for i from 0 to virtual_nodes:
@@ -67,12 +71,15 @@ function add_node(node):
 Finds which node a key should be stored on.
 
 **Parameters:**
+
 - `key` (string): The cache key
 
 **Returns:**
+
 - `node` (string): The node that should store this key
 
 **Algorithm:**
+
 ```
 function get_node(key):
   if ring is empty:
@@ -93,9 +100,11 @@ function get_node(key):
 Removes a node from the ring.
 
 **Parameters:**
+
 - `node` (string): Node to remove
 
 **Algorithm:**
+
 ```
 function remove_node(node):
   keys_to_remove = empty_list
@@ -114,6 +123,7 @@ function remove_node(node):
 Hashes a string to an integer (0 to 2^32-1).
 
 **Algorithm:**
+
 ```
 function hash_function(key):
   // Use MD5 or MurmurHash for distribution
@@ -129,10 +139,12 @@ function hash_function(key):
 Implements Least Recently Used eviction policy with O(1) operations.
 
 **Data Structures:**
+
 - Doubly-linked list (for LRU ordering)
 - HashMap (for O(1) lookup)
 
 **Algorithm:**
+
 ```
 LRUCache:
   capacity: integer
@@ -154,12 +166,15 @@ LRUCache:
 Retrieves value and marks as recently used.
 
 **Parameters:**
+
 - `key`: Cache key
 
 **Returns:**
+
 - `value`: Cached value, or null if not found
 
 **Algorithm:**
+
 ```
 function get(key):
   if key exists in cache:
@@ -179,10 +194,12 @@ function get(key):
 Inserts or updates a key-value pair.
 
 **Parameters:**
+
 - `key`: Cache key
 - `value`: Value to cache
 
 **Algorithm:**
+
 ```
 function put(key, value):
   if key exists in cache:
@@ -237,13 +254,16 @@ Node:
 Implements cache-aside (lazy loading) pattern.
 
 **Parameters:**
+
 - `key`: Data key
 - `ttl`: Time-to-live in seconds (default: 300)
 
 **Returns:**
+
 - `value`: The data
 
 **Algorithm:**
+
 ```
 function get_from_cache_aside(key, ttl=300):
   // 1. Try cache first
@@ -267,10 +287,12 @@ function get_from_cache_aside(key, ttl=300):
 Updates data using cache-aside pattern.
 
 **Parameters:**
+
 - `key`: Data key
 - `new_value`: New value to store
 
 **Algorithm:**
+
 ```
 function update_with_cache_aside(key, new_value):
   // 1. Update database (source of truth)
@@ -283,6 +305,7 @@ function update_with_cache_aside(key, new_value):
 ```
 
 **Why Delete Instead of Update:**
+
 - Simpler (no serialization needed)
 - Safer (avoids inconsistency if DB update succeeds but cache fails)
 - Lazy (don't waste effort on data that might not be read)
@@ -296,6 +319,7 @@ function update_with_cache_aside(key, new_value):
 Prevents multiple requests from hitting database when cache expires.
 
 **Algorithm:**
+
 ```
 SingleFlightCache:
   cache: HashMap
@@ -333,6 +357,7 @@ SingleFlightCache:
 ```
 
 **Usage Example:**
+
 ```
 cache = SingleFlightCache()
 
@@ -353,6 +378,7 @@ function get_user(user_id):
 Alternative approach: refresh cache before expiration.
 
 **Algorithm:**
+
 ```
 function get_with_early_refresh(key, ttl=600):
   entry = cache.get_with_expiry(key)
@@ -387,6 +413,7 @@ function refresh_cache(key, ttl):
 Check TTL on access.
 
 **Algorithm:**
+
 ```
 function get_with_ttl_check(key):
   entry = storage.get(key)
@@ -407,6 +434,7 @@ function get_with_ttl_check(key):
 Background job to clean up expired keys.
 
 **Algorithm:**
+
 ```
 function background_ttl_cleaner():
   while true:
@@ -432,6 +460,7 @@ function background_ttl_cleaner():
 Combines active and passive expiration.
 
 **Algorithm:**
+
 ```
 RedisStyleTTL:
   function on_access(key):
@@ -466,6 +495,7 @@ RedisStyleTTL:
 ### Master-Replica Async Replication
 
 **Algorithm:**
+
 ```
 MasterNode:
   replicas: List[ReplicaNode]
@@ -522,6 +552,7 @@ ReplicaNode:
 ### Master Failover with Sentinel
 
 **Algorithm:**
+
 ```
 Sentinel:
   masters: HashMap  // master_name → master_info
@@ -570,6 +601,7 @@ Sentinel:
 Manages reusable connections to cache nodes.
 
 **Algorithm:**
+
 ```
 ConnectionPool:
   available: Queue  // Available connections
@@ -623,6 +655,7 @@ ConnectionPool:
 Batches multiple operations into single network round-trip.
 
 **Algorithm:**
+
 ```
 Pipeline:
   commands: List
@@ -653,6 +686,7 @@ Pipeline:
 ```
 
 **Usage Example:**
+
 ```
 // ❌ Bad: 1000 network round-trips
 for i from 0 to 999:
@@ -674,6 +708,7 @@ pipeline.execute()
 **Purpose:** Compress and store large values (> 1 KB) to save memory.
 
 **Parameters:**
+
 - `key`: Cache key
 - `value`: Data to compress and store
 - `ttl`: Time-to-live in seconds (optional)
@@ -720,6 +755,7 @@ function set_compressed(key, value, ttl=null):
 **Purpose:** Retrieve and decompress stored values.
 
 **Parameters:**
+
 - `key`: Cache key
 
 **Returns:** Decompressed original value or null if not found
@@ -774,11 +810,13 @@ profile = get_compressed('user:12345')
 ```
 
 **Benefits:**
+
 - 10x memory savings for large objects
 - Reduced network bandwidth
 - Faster cache eviction (more data fits in memory)
 
 **Trade-offs:**
+
 - CPU overhead for compression/decompression (~1-5ms)
 - Complexity in handling metadata
 
@@ -789,6 +827,7 @@ profile = get_compressed('user:12345')
 ### ❌ Not Setting TTL
 
 **Problem:**
+
 ```
 function cache_user_bad(user_id, user_data):
   cache.set('user:' + user_id, user_data)  // No TTL!
@@ -796,6 +835,7 @@ function cache_user_bad(user_id, user_data):
 ```
 
 **Solution:**
+
 ```
 function cache_user_good(user_id, user_data):
   cache.set('user:' + user_id, user_data, TTL=300)  // 5 minutes
@@ -804,6 +844,7 @@ function cache_user_good(user_id, user_data):
 ### ❌ Storing Large Objects
 
 **Problem:**
+
 ```
 function cache_all_users_bad():
   all_users = database.query("SELECT * FROM users")  // 10 MB!
@@ -812,6 +853,7 @@ function cache_all_users_bad():
 ```
 
 **Solution:**
+
 ```
 function cache_all_users_good():
   all_users = database.query("SELECT * FROM users")
@@ -826,6 +868,7 @@ function cache_all_users_good():
 ### ❌ Using Cache as Primary Storage
 
 **Problem:**
+
 ```
 function save_session_bad(session_id, session_data):
   cache.set('session:' + session_id, session_data, TTL=3600)
@@ -833,6 +876,7 @@ function save_session_bad(session_id, session_data):
 ```
 
 **Solution:**
+
 ```
 function save_session_good(session_id, session_data):
   // 1. Save to database (primary storage)
@@ -844,5 +888,6 @@ function save_session_good(session_id, session_data):
 
 ---
 
-This pseudocode provides detailed implementations of all algorithms discussed in the main Distributed Cache design document.
+This pseudocode provides detailed implementations of all algorithms discussed in the main Distributed Cache design
+document.
 
