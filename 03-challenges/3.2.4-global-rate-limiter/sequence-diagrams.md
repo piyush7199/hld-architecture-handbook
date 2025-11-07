@@ -732,8 +732,3 @@ Shows Redis master failover with Sentinel for high availability.
 - Alert on failover events
 - Track replication lag (should be <100ms normally)
 - Monitor sentinel health
-
----
-
-**Next:** See [this-over-that.md](this-over-that.md) for in-depth analysis of design decisions
-and [pseudocode.md](pseudocode.md) for detailed algorithm implementations.

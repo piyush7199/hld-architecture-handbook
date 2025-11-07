@@ -185,23 +185,17 @@ Window: 10:00:00 - 10:00:59 (limit: 100 requests)
 flowchart TD
     Start([Request Arrives]) --> Load[Load bucket state from Redis]
     Load --> Refill{Time since<br/>last refill?}
-    
     Refill -->|Yes| CalcTokens[Calculate new tokens<br/>and add to bucket]
     Refill -->|No| CheckTokens
-
     CalcTokens --> UpdateTime[Update last_refill timestamp]
     UpdateTime --> CheckTokens{Tokens available?}
-
     CheckTokens -->|Yes| Consume[Consume 1 token<br/>Save to Redis]
     CheckTokens -->|No| Reject[Return HTTP 429<br/>Retry-After header]
-
-Consume --> Allow[Allow request<br/>Forward to backend]
-
-Allow --> Done([End])
-Reject --> Done
-
-    style Allow fill:#e1ffe1
-    style Reject fill:#ffe1e1
+    Consume --> Allow[Allow request<br/>Forward to backend]
+    Allow --> Done([End])
+    Reject --> Done
+    style Allow fill: #e1ffe1
+    style Reject fill: #ffe1e1
 ```
 
 **Flow Explanation:**
@@ -257,25 +251,17 @@ Time 2s: Refill
 flowchart TD
     Start([Request Arrives]) --> GetCurrent[Get current window ID]
     GetCurrent --> GetPrev[Get previous window ID]
-
     GetPrev --> ReadCounters[Read both counters from Redis]
-
     ReadCounters --> CalcOverlap[Calculate time overlap percentage]
-
     CalcOverlap --> WeightedSum[Calculate weighted sum rate]
-
     WeightedSum --> CheckLimit{Rate under limit?}
-
     CheckLimit -->|Yes| Increment[Increment current window counter<br/>Set TTL if new key]
     CheckLimit -->|No| Reject[Return HTTP 429]
-
-Increment --> Allow[Allow request]
-
-Allow --> Done([End])
-Reject --> Done
-
-    style Allow fill:#e1ffe1
-    style Reject fill:#ffe1e1
+    Increment --> Allow[Allow request]
+    Allow --> Done([End])
+    Reject --> Done
+    style Allow fill: #e1ffe1
+    style Reject fill: #ffe1e1
 ```
 
 **Flow Explanation:**
@@ -330,25 +316,23 @@ Rate = 80 × (1 - 0.5) + 30
 
 ```mermaid
 graph TB
-subgraph "API Gateway"
+    subgraph "API Gateway"
         GW[Gateway calculates:<br/>shard = hash user_id mod 10]
-end
+    end
 
-subgraph "Redis Cluster - 10 Shards"
-R0[Shard 0<br/>user_id: 0-99K]
-R1[Shard 1<br/>user_id: 100K-199K]
-R2[Shard 2<br/>user_id: 200K-299K]
-R9[Shard 9<br/>user_id: 900K-999K]
-end
+    subgraph "Redis Cluster - 10 Shards"
+        R0[Shard 0<br/>user_id: 0-99K]
+        R1[Shard 1<br/>user_id: 100K-199K]
+        R2[Shard 2<br/>user_id: 200K-299K]
+        R9[Shard 9<br/>user_id: 900K-999K]
+    end
 
     GW -->|hash 12345 mod 10 = 5| R5[Shard 5<br/>Handles user 12345]
     GW -->|hash 67890 mod 10 = 0| R0
     GW -->|hash 99999 mod 10 = 9| R9
-
-    R5 -.Replication.-> R5R[Replica 5A<br/>Read-only]
-
-    style R5 fill:#e1ffe1
-    style R0 fill:#e1f5ff
+    R5 -. Replication .-> R5R[Replica 5A<br/>Read-only]
+    style R5 fill: #e1ffe1
+    style R0 fill: #e1f5ff
 ```
 
 **Flow Explanation:**
@@ -545,34 +529,31 @@ Shows the critical decision of what happens when Redis fails.
 
 ```mermaid
 graph TB
-subgraph "Problem: Hot Key"
-Attacker[Malicious IP:<br/>100K requests/sec]
+    subgraph "Problem: Hot Key"
+        Attacker[Malicious IP:<br/>100K requests/sec]
         Hash[hash attacker_ip mod 10 = 5]
-Shard5[Shard 5 OVERLOADED<br/>100K ops/sec<br/>CPU: 100%<br/>Latency: 50ms]
+        Shard5[Shard 5 OVERLOADED<br/>100K ops/sec<br/>CPU: 100%<br/>Latency: 50ms]
+        Attacker --> Hash --> Shard5
+    end
 
-Attacker --> Hash --> Shard5
-end
-
-subgraph "Solution 1: Local L1 Cache"
-Gateway[API Gateway]
+    subgraph "Solution 1: Local L1 Cache"
+        Gateway[API Gateway]
         L1[L1 Cache in-memory:<br/>Check locally first<br/>Batch updates to Redis]
         L2[Redis L2:<br/>Receives batched updates]
+        Gateway --> L1
+        L1 -. Batch every 100ms .-> L2
+    end
 
-Gateway --> L1
-        L1 -.Batch every 100ms.-> L2
-end
-
-subgraph "Solution 2: Hot Key Replication"
+    subgraph "Solution 2: Hot Key Replication"
         Detect[Detect hot key<br/>access greater than 10K/sec]
-Replicate[Replicate to 3 nodes:<br/>Shard 5, 6, 7]
-LoadBalance[Load balance reads<br/>across replicas]
+        Replicate[Replicate to 3 nodes:<br/>Shard 5, 6, 7]
+        LoadBalance[Load balance reads<br/>across replicas]
+        Detect --> Replicate --> LoadBalance
+    end
 
-Detect --> Replicate --> LoadBalance
-end
-
-    style Shard5 fill:#ffe1e1
-    style L1 fill:#e1ffe1
-    style Replicate fill:#fff4e1
+    style Shard5 fill: #ffe1e1
+    style L1 fill: #e1ffe1
+    style Replicate fill: #fff4e1
 ```
 
 **Flow Explanation:**
@@ -818,7 +799,3 @@ Shows key metrics and alerts for monitoring rate limiter health.
 - 🔴 **Critical:** Redis cluster down, circuit breaker open > 5min
 - 🟡 **Warning:** Latency > 5ms, hot key detected, CPU > 80%
 - 🟢 **Info:** Config changes, shard added/removed
-
----
-
-**Next:** See [sequence-diagrams.md](sequence-diagrams.md) for detailed interaction flows and failure scenarios.

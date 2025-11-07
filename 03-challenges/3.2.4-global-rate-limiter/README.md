@@ -13,156 +13,266 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
-Design a globally distributed rate limiter service that enforces request limits across multiple API gateway nodes,
-preventing users or IPs from exceeding their allocated quota (e.g., 10 requests/second) while maintaining
-sub-millisecond latency and handling 500,000 QPS.
+Design a globally distributed rate limiter service that enforces request limits across multiple API gateway nodes. The
+system must prevent users or IP addresses from exceeding their allocated quota (e.g., 10 requests per second) while
+maintaining sub-millisecond latency and handling 500,000 QPS across the entire API fleet. The solution must be strongly
+consistent to prevent quota leakage while remaining highly available to avoid blocking legitimate traffic.
 
 ---
 
-## Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements
+### Functional Requirements (FRs)
 
-- **Global Enforcement:** Limit user/IP to N requests per window across all servers
-- **Different Tiers:** Support varying limits (basic vs paid users)
-- **HTTP 429 Response:** Reject excess requests with proper status code
-- **Rate Limit Headers:** Return limit info in response headers
+| Requirement             | Description                                                                                | Priority     |
+|-------------------------|--------------------------------------------------------------------------------------------|--------------|
+| **Global Enforcement**  | Limit a user/IP to $N$ requests per time window (e.g., 10 QPS) across all servers globally | Must Have    |
+| **Different Limits**    | Support different limits based on user tier (basic vs paid subscriber)                     | Must Have    |
+| **Response**            | Reject requests exceeding limit with HTTP 429 Too Many Requests                            | Must Have    |
+| **Multiple Algorithms** | Support Token Bucket, Sliding Window Counter algorithms                                    | Should Have  |
+| **Rate Limit Headers**  | Return headers showing limit, remaining, reset time                                        | Should Have  |
+| **Analytics**           | Track rate limit violations for abuse detection                                            | Nice to Have |
 
-### Non-Functional Requirements
+### Non-Functional Requirements (NFRs)
 
-| Requirement            | Target       | Rationale                         |
-|------------------------|--------------|-----------------------------------|
-| **Low Latency**        | < 1 ms (p99) | Minimal overhead on API requests  |
-| **High Throughput**    | 500K QPS     | Support entire API fleet          |
-| **High Availability**  | 99.99%       | Failure blocks all traffic (SPOF) |
-| **Strong Consistency** | No drift     | Prevent quota leakage             |
+| Requirement                | Target           | Rationale                                                |
+|----------------------------|------------------|----------------------------------------------------------|
+| **Low Latency**            | $< 1$ ms (p99)   | Checking limit must add minimal overhead to API requests |
+| **High Throughput**        | Handle 500K QPS  | Must support entire API fleet's traffic                  |
+| **High Availability**      | 99.99% uptime    | Rate limiter failure blocks all traffic (SPOF)           |
+| **Strong Consistency**     | No counter drift | Prevent users from exceeding limits via race conditions  |
+| **Horizontal Scalability** | Linear scaling   | Add nodes as traffic grows                               |
 
 ### Scale Estimation
 
-| Metric           | Value                |
-|------------------|----------------------|
-| API Throughput   | 500,000 QPS          |
-| Active Users     | 1 Million            |
-| Storage          | ~1 GB (counter data) |
-| Redis Operations | ~1 Million ops/sec   |
+| Metric                  | Assumption                           | Calculation                      | Result                |
+|-------------------------|--------------------------------------|----------------------------------|-----------------------|
+| **Peak API Throughput** | 500,000 requests per second          | -                                | 500K QPS              |
+| **Active Users**        | 1 Million users with rate limits     | -                                | 1M users              |
+| **Data Storage**        | 1M active users × 1 KB per counter   | $1\text{M} \times 1\text{KB}$    | ~1 GB of counter data |
+| **Redis Operations**    | Every API request = 1 Read + 1 Write | $500\text{K} \times 2$           | ~1 Million ops/sec    |
+| **Network Bandwidth**   | 500K requests × 100 bytes            | $500\text{K} \times 100\text{B}$ | ~50 MB/sec            |
+
+**Key Insight:** This is an extremely read+write heavy workload requiring sub-millisecond operations. Only in-memory
+stores (Redis) can handle this scale.
 
 ---
 
-## High-Level Architecture
+## 3. High-Level Architecture
 
-> 📊 **See detailed architecture diagrams:** [HLD Diagrams](./hld-diagram.md)
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
+
+### System Overview
+
+```
+                    ┌─────────────────────────────────┐
+                    │      Client Applications        │
+                    │   (Web, Mobile, Third-Party)    │
+                    └──────────────┬──────────────────┘
+                                   │
+                    ┌──────────────┴──────────────┐
+                    │                             │
+        ┌───────────▼──────────┐   ┌─────────────▼──────────┐
+        │  API Gateway Node 1  │   │  API Gateway Node N    │
+        │  (Multiple Regions)  │   │  (Multiple Regions)    │
+        └───────────┬──────────┘   └─────────────┬──────────┘
+                    │                             │
+                    │  ┌──────────────────────┐   │
+                    └─→│ Rate Limiter Module  │←──┘
+                       │  (Embedded in GW)    │
+                       └──────────┬───────────┘
+                                  │
+                       ┌──────────▼───────────┐
+                       │   Redis Cluster      │
+                       │ (Distributed Counter)│
+                       │                      │
+                       │  ┌────────────────┐  │
+                       │  │  Shard 1       │  │
+                       │  │  user:0-499K   │  │
+                       │  └────────────────┘  │
+                       │  ┌────────────────┐  │
+                       │  │  Shard 2       │  │
+                       │  │  user:500K-999K│  │
+                       │  └────────────────┘  │
+                       │  ┌────────────────┐  │
+                       │  │  Shard N       │  │
+                       │  │  user:...      │  │
+                       │  └────────────────┘  │
+                       └──────────────────────┘
+                                  │
+                       ┌──────────▼───────────┐
+                       │   Config Service     │
+                       │   (Rate Limit Rules) │
+                       │   - User tiers       │
+                       │   - Limits per tier  │
+                       └──────────────────────┘
+```
 
 ### Key Components
 
-| Component               | Responsibility                   | Technology                   |
-|-------------------------|----------------------------------|------------------------------|
-| **API Gateway**         | Routes requests, enforces limits | NGINX, Kong, AWS API Gateway |
-| **Rate Limiter Module** | Implements algorithms            | Lua script, Go service       |
-| **Redis Cluster**       | Distributed counter store        | Redis Cluster, KeyDB         |
-| **Config Service**      | Rate limit rules                 | etcd, Consul, DynamoDB       |
+| Component               | Responsibility                                | Technology Options           | Scalability            |
+|-------------------------|-----------------------------------------------|------------------------------|------------------------|
+| **API Gateway**         | Routes requests, enforces rate limits         | NGINX, Kong, AWS API Gateway | Horizontal (stateless) |
+| **Rate Limiter Module** | Implements rate limiting algorithms           | Lua script, Go service       | Horizontal             |
+| **Redis Cluster**       | Distributed counter store (atomic operations) | Redis Cluster, KeyDB         | Horizontal (sharding)  |
+| **Config Service**      | Stores rate limit rules, user tier mappings   | etcd, Consul, DynamoDB       | Horizontal             |
+| **Monitoring**          | Tracks violations, latency, throughput        | Prometheus, Grafana          | Horizontal             |
 
 ---
 
-## Rate Limiting Algorithms
+## 4. Detailed Component Design
 
-### 1. Token Bucket ✅
+### 4.1 Rate Limiting Algorithms
 
-**How:** Bucket fills with tokens at constant rate, each request consumes token.
+The core decision is choosing an algorithm that handles traffic bursts fairly and is cheap to compute.
 
-**Pros:** ✅ Allows bursts, ✅ Smooth limiting
-**Cons:** ❌ More storage
+#### Algorithm 1: Token Bucket
 
-**Use For:** APIs with bursty traffic (video, file uploads)
+**How It Works:**
 
-*See [pseudocode.md::token_bucket_check()](pseudocode.md)*
+- Each user has a bucket with a maximum capacity of tokens
+- Tokens refill at a constant rate (e.g., 10 tokens/second)
+- Each request consumes 1 token
+- If no tokens available, request is rejected
 
-### 2. Sliding Window Counter ✅
+**Advantages:**
 
-**How:** Weighted sum of current + previous window.
+- ✅ Allows bursts (client can use accumulated tokens)
+- ✅ Smooth rate limiting over time
+- ✅ Simple to implement
 
-**Pros:** ✅ Accurate, ✅ Prevents boundary bursts
-**Cons:** ❌ Approximation, ❌ 2 counter reads
+**Disadvantages:**
 
-**Use For:** Strict rate limiting (financial APIs)
+- ❌ Requires storing: token count + last refill timestamp
+- ❌ Slightly more complex than fixed window
 
-*See [pseudocode.md::sliding_window_check()](pseudocode.md)*
+**Use Case:** APIs where bursty traffic is acceptable (e.g., video streaming).
 
-### 3. Fixed Window Counter
-
-**How:** Count requests in fixed time buckets.
-
-**Pros:** ✅ Simplest, ✅ Fastest
-**Cons:** ❌ Boundary burst problem (2× requests)
-
-**Use For:** Coarse limits only
+*See [pseudocode.md::token_bucket_check()](pseudocode.md) for implementation.*
 
 ---
 
-## Data Model (Redis)
+#### Algorithm 2: Sliding Window Counter
 
-**Token Bucket:**
+**How It Works:**
+
+- Divide time into fixed windows (e.g., 1-second windows)
+- Count requests in current window and previous window
+- Approximate sliding window using weighted sum
+
+**Formula:**
 
 ```
-user:12345:tokens → 5
-user:12345:last_refill → 1704067200
+rate = (prev_window_count × overlap_percent) + current_window_count
 ```
 
-**Sliding Window:**
+**Advantages:**
 
-```
-user:12345:window:1704067200 → 45
-user:12345:window:1704067199 → 52
-```
+- ✅ More accurate than fixed window (no boundary bursts)
+- ✅ Less storage than sliding log (only 2 counters)
+- ✅ Good balance of accuracy and efficiency
 
-**TTL:** Auto-expire keys (2× window size)
+**Disadvantages:**
+
+- ❌ Approximation (not 100% accurate)
+- ❌ Requires 2 counter reads (current + previous)
+
+**Use Case:** Most general-purpose APIs.
+
+*See [pseudocode.md::sliding_window_check()](pseudocode.md) for implementation.*
 
 ---
 
-## Key Design Decisions
+#### Algorithm 3: Fixed Window Counter
 
-### Decision 1: Redis vs RDBMS
+**How It Works:**
 
-**Chosen:** Redis (in-memory, atomic ops)
+- Divide time into fixed windows (e.g., 1-minute buckets)
+- Count requests in current window
+- Reset counter when window expires
 
-**Why Not RDBMS:**
+**Advantages:**
 
-- ❌ Too slow (10-50ms vs <1ms)
-- ❌ Cannot handle 1M ops/sec
-- ❌ Lock contention
+- ✅ Simplest algorithm
+- ✅ Minimal storage (single counter)
+- ✅ Fastest (single INCR operation)
 
-*See [this-over-that.md](this-over-that.md) for detailed analysis*
+**Disadvantages:**
 
-### Decision 2: Fail-Open vs Fail-Close
+- ❌ **Boundary Burst Problem:** User can make 2× requests at window boundary
+    - Example: 100 requests at 00:59, 100 requests at 01:00 = 200 requests in 1 second
+- ❌ Not suitable for strict rate limiting
 
-**Chosen:** Fail-Open (allow requests if Redis down)
+**Use Case:** Coarse-grained limits where boundary bursts are acceptable.
 
-**Why:**
-
-- ✅ API remains available
-- ✅ High availability prioritized
-- ❌ Trade-off: Temporary abuse possible
-
-### Decision 3: Atomic INCR vs Locks
-
-**Chosen:** Atomic INCR (no distributed locks)
-
-**Why:**
-
-- ✅ Redis single-threaded = atomic
-- ✅ No lock overhead
-- ✅ Sub-millisecond latency
+*See [pseudocode.md::fixed_window_check()](pseudocode.md) for implementation.*
 
 ---
 
-## Global Synchronization
+### 4.2 Why Token Bucket or Sliding Window?
 
-### Challenge: Race Conditions
+For production systems, **Token Bucket** or **Sliding Window Counter** are recommended:
 
-Two gateways check limit simultaneously → both allow → quota exceeded
+| Criteria       | Token Bucket                  | Sliding Window                  | Fixed Window          |
+|----------------|-------------------------------|---------------------------------|-----------------------|
+| **Accuracy**   | High (allows bursts)          | High (approximates sliding log) | Low (boundary bursts) |
+| **Storage**    | 2 values (tokens + timestamp) | 2 counters (current + prev)     | 1 counter             |
+| **Complexity** | Medium                        | Medium                          | Low                   |
+| **Use Case**   | Bursty traffic                | Strict limits                   | Coarse limits         |
 
-**Solution:** Redis atomic INCR
+**Decision:** Use **Token Bucket** for APIs with bursty workloads (video, file uploads), **Sliding Window** for strict
+enforcement (financial APIs).
+
+---
+
+### 4.3 Data Model (Redis)
+
+**Key Format:**
+
+```
+rate_limit:{user_id}:{window} → counter
+```
+
+**Token Bucket Schema:**
+
+```
+user:12345:tokens → 5          // Current token count
+user:12345:last_refill → 1704067200  // Last refill timestamp (Unix)
+```
+
+**Sliding Window Schema:**
+
+```
+user:12345:window:1704067200 → 45   // Request count in current 1-second window
+user:12345:window:1704067199 → 52   // Request count in previous window
+```
+
+**TTL:** Set TTL on keys to auto-expire (e.g., 2× window size).
+
+---
+
+### 4.4 Global Synchronization and Consistency
+
+The Rate Limiter must be consistent across all API Gateway nodes globally.
+
+#### Challenge: Race Conditions
+
+**Problem:**
+
+Two API Gateway nodes check the limit simultaneously for the same user:
+
+```
+Gateway 1: READ counter = 9
+Gateway 2: READ counter = 9
+Gateway 1: Allow (9 < 10), INCR → 10
+Gateway 2: Allow (9 < 10), INCR → 11  ❌ User exceeded limit!
+```
+
+**Solution: Atomic Operations**
+
+Use Redis **INCR** (atomic increment) to prevent race conditions:
 
 ```
 Gateway 1: INCR → 10
@@ -170,17 +280,21 @@ Gateway 2: INCR → 11
 Gateway 2: Check (11 > 10) → Reject ✅
 ```
 
-**Why Atomic:**
+**Why Redis INCR?**
 
-- ✅ Single-threaded Redis
-- ✅ O(1) operation
-- ✅ No locks needed
+- ✅ Atomic: Single-threaded execution model
+- ✅ Fast: O(1) operation, sub-millisecond
+- ✅ Simple: No distributed locks needed
+
+*See [pseudocode.md::check_rate_limit_atomic()](pseudocode.md) for implementation.*
 
 ---
 
-## Distributed Scaling
+### 4.5 Distributed Scaling (Sharding)
 
-### Sharding by User ID
+The 1 Million ops/sec workload is too high for a single Redis instance.
+
+**Sharding Strategy: Hash by User ID**
 
 ```
 shard_id = hash(user_id) % num_shards
@@ -188,153 +302,451 @@ shard_id = hash(user_id) % num_shards
 
 **Benefits:**
 
-- ✅ Even load distribution
-- ✅ All user requests hit same shard
-- ✅ Strong consistency per user
+- ✅ All requests for a user hit the same Redis node (consistency)
+- ✅ Load distributed evenly across shards
+- ✅ Horizontal scaling (add more shards)
 
-**Cluster Size:**
+**Example:**
+
+```
+User 12345 → hash(12345) % 10 = 5 → Shard 5
+User 67890 → hash(67890) % 10 = 0 → Shard 0
+```
+
+**Cluster Size Estimation:**
 
 - Redis: ~100K ops/sec per node
 - Required: 1M ops/sec
-- **Nodes: 10 Redis nodes**
+- Nodes needed: 1M / 100K = **10 Redis nodes**
 
 ---
 
-## Bottlenecks and Solutions
+### 4.6 Handling Failure: Fail-Open vs Fail-Close
 
-### Bottleneck 1: Hot Keys
+**Critical Decision:** What happens if Redis cluster fails?
 
-**Problem:** Malicious IP makes 100K requests/sec → one Redis node overloaded
+#### Option A: Fail-Close ❌
 
-**Solution 1:** Local L1 cache on gateway (reduces Redis load 90%)
-**Solution 2:** Hot key replication (distribute across nodes)
+**Behavior:** Block all API requests
 
-### Bottleneck 2: Network Latency
+**Pros:**
 
-**Problem:** Even 1ms adds up at 500K QPS
+- ✅ Strict enforcement (no quota leakage)
 
-**Solution 1:** Co-locate Redis in same AZ as gateway
-**Solution 2:** Connection pooling (reuse connections)
+**Cons:**
 
-### Bottleneck 3: Storage Growth
+- ❌ **Self-inflicted DDoS:** Rate limiter becomes SPOF
+- ❌ Entire API unavailable during Redis outage
+- ❌ Catastrophic for business
 
-**Problem:** Counter keys accumulate
+#### Option B: Fail-Open ✅ (Recommended)
 
-**Solution:** TTL on Redis keys (auto-expire)
+**Behavior:** Allow all requests (disable rate limiting)
 
----
+**Pros:**
 
-## Common Anti-Patterns
+- ✅ API remains available
+- ✅ High availability prioritized
 
-### ❌ Anti-Pattern 1: Using RDBMS
+**Cons:**
 
-Storing counters in PostgreSQL.
+- ❌ Temporary abuse possible during outage
+- ❌ Must rely on other protections (WAF, DDoS mitigation)
 
-**Why Bad:** 10-50ms latency, cannot handle 1M ops/sec
+**Decision:** **Fail-Open** is standard for production. Rate limiter should never be the reason your API is down.
 
-**Solution:** Use Redis with atomic INCR
+**Implementation:**
 
-### ❌ Anti-Pattern 2: Check-Then-Increment
+*Description:* Add circuit breaker around Redis calls. If Redis error rate exceeds threshold (e.g., 50% errors for 10
+seconds), open circuit and allow all requests. Periodically attempt to close circuit (half-open state) to check if Redis
+recovered.
 
-Read count, check locally, then increment (race condition).
-
-**Solution:** Increment-then-check (atomic)
-
-### ❌ Anti-Pattern 3: No Timeout
-
-Blocking Redis call without timeout.
-
-**Solution:** 5ms timeout + circuit breaker
-
-### ❌ Anti-Pattern 4: Distributed Locks
-
-Using Redlock for consistency (adds 10-50ms).
-
-**Solution:** Redis atomic ops (no locks needed)
-
-*See [pseudocode.md](pseudocode.md) for implementations*
+*See [pseudocode.md::check_rate_limit_with_circuit_breaker()](pseudocode.md) for implementation.*
 
 ---
 
-## Alternative Approaches
+## 5. Bottlenecks and Future Scaling
 
-### A. Application-Level (No Redis)
+### 5.1 Bottleneck: Redis Contention (Hot Keys)
 
-**Pros:** Fastest, simplest
-**Cons:** ❌ No global enforcement (user hits different servers)
+**Problem:** A single "hot" key (e.g., malicious IP launching script) can overload the Redis node holding its counter.
 
-**Why Not:** Fails global requirement
+**Example:**
 
-### B. Database-Based
+- Attacker IP makes 100K requests/sec
+- All hit same Redis shard → 100K ops/sec on one node
+- Node overloaded, latency spikes
 
-**Pros:** ACID, familiar
-**Cons:** ❌ Too slow (10-50ms), cannot scale
+**Mitigation 1: Local L1 Cache**
 
-**Why Not:** Latency/throughput requirements
+Add local cache on each API Gateway node:
 
-### C. CDN-Based
+```
+1. Check local cache (in-memory, millisecond latency)
+2. If under limit locally, allow immediately
+3. Async write to Redis (batch updates every 100ms)
+```
 
-**Pros:** Managed, global edge
-**Cons:** ❌ Limited customization, expensive
+**Benefits:**
 
-**When to Use:** Public APIs with simple limits
+- ✅ Reduces Redis load by 90%+
+- ✅ Sub-millisecond latency
+
+**Trade-offs:**
+
+- ❌ Slightly less accurate (quota can exceed by ~10%)
+- ❌ More complex (cache invalidation, sync)
+
+**Mitigation 2: Hot Key Replication**
+
+Detect hot keys (keys accessed >1K times/sec) and replicate to multiple Redis nodes:
+
+```
+hot_key:attacker_ip → Replicated to 3 nodes
+Gateway nodes distribute reads across replicas
+```
+
+**Benefits:**
+
+- ✅ Spreads load across multiple nodes
+- ✅ No accuracy loss
 
 ---
 
-## Monitoring
+### 5.2 Bottleneck: Network Latency
 
-**Critical Metrics:**
+**Problem:** Even ~1ms latency from Gateway to Redis adds up at 500K QPS.
 
-- Rate limit latency (P99): < 1ms
-- Redis operations: 1M ops/sec
-- Rejection rate: < 5%
-- Circuit breaker state: Closed
+**Mitigation 1: Co-location**
 
-**Alerts:**
+Deploy Redis cluster in **same Availability Zone (AZ)** as API Gateway:
 
-- Latency > 5ms → Scale Redis
-- Error rate > 5% → Redis health check
-- Hot key detected → Enable mitigation
+- Same data center → sub-millisecond network latency
+- Avoid cross-AZ traffic (3-5ms overhead)
+
+**Mitigation 2: Connection Pooling**
+
+Reuse Redis connections instead of creating new ones:
+
+```
+Connection pool size = (Gateways × Threads) / Shards
+Example: (50 gateways × 100 threads) / 10 shards = 500 connections per shard
+```
+
+**Benefits:**
+
+- ✅ Eliminates TCP handshake overhead
+- ✅ Reduces connection establishment latency
+
+*See [pseudocode.md::connection_pool_setup()](pseudocode.md) for implementation.*
 
 ---
 
-## Trade-offs Summary
+### 5.3 Bottleneck: Storage Growth
+
+**Problem:** Counter keys accumulate over time (1M users × multiple time windows).
+
+**Mitigation:** Use TTL (Time-To-Live) on Redis keys:
+
+```
+SET user:12345:window:1704067200 45 EX 3600  // Expire after 1 hour
+```
+
+**Benefits:**
+
+- ✅ Automatic cleanup
+- ✅ Bounded storage growth
+- ✅ No manual deletion needed
+
+**TTL Guidelines:**
+
+- Token Bucket: TTL = 2× max burst time
+- Sliding Window: TTL = 2× window size
+- Fixed Window: TTL = window size + grace period
+
+---
+
+## 6. Common Anti-Patterns
+
+### Anti-Pattern 1: Using RDBMS for Counters
+
+**Problem:**
+
+❌ **Storing counters in PostgreSQL:**
+
+```sql
+UPDATE rate_limits 
+SET request_count = request_count + 1 
+WHERE user_id = 12345 AND window = '2024-01-01 10:00:00';
+```
+
+**Why It's Bad:**
+
+- ❌ Disk I/O: 10-50ms latency (vs <1ms for Redis)
+- ❌ Row-level locks: Contention at high QPS
+- ❌ Write amplification: WAL logs, replication overhead
+- ❌ Cannot handle 1M ops/sec
+
+**Better:**
+
+✅ **Use Redis with atomic INCR:**
+
+*Description:* Use Redis INCR for atomic counter updates. In-memory operations provide sub-millisecond latency.
+Single-threaded execution model eliminates locks.
+
+*See [pseudocode.md::redis_atomic_incr()](pseudocode.md) for implementation.*
+
+---
+
+### Anti-Pattern 2: Check-Then-Increment (Race Condition)
+
+**Problem:**
+
+❌ **Non-atomic check:**
+
+*Description:* Read current count from Redis, check if under limit locally, then increment. This creates a race
+condition where two requests can both see count = 9, both pass the check, and both increment to 10 and 11.
+
+**Better:**
+
+✅ **Increment-Then-Check:**
+
+*Description:* Increment counter first atomically (INCR), then check if result exceeds limit. If over limit, reject
+request. Slightly over-counts but guarantees atomicity.
+
+*See [pseudocode.md::increment_then_check()](pseudocode.md) for implementation.*
+
+---
+
+### Anti-Pattern 3: No Timeout on Redis Calls
+
+**Problem:**
+
+❌ **Blocking Redis call:**
+
+*Description:* Call Redis without timeout. If Redis is slow or unresponsive, API Gateway thread blocks indefinitely. All
+gateway threads eventually blocked, entire API unavailable.
+
+**Better:**
+
+✅ **Set Timeout + Circuit Breaker:**
+
+*Description:* Set aggressive timeout on Redis calls (e.g., 5ms). If timeout exceeded, fail open (allow request).
+Implement circuit breaker to stop calling Redis if error rate too high.
+
+*See [pseudocode.md::redis_call_with_timeout()](pseudocode.md) for implementation.*
+
+---
+
+### Anti-Pattern 4: Global Lock for Consistency
+
+**Problem:**
+
+❌ **Using distributed lock:**
+
+*Description:* Acquire distributed lock (e.g., Redlock) before checking/updating counter. Ensures strict consistency but
+adds 10-50ms latency. At 500K QPS, lock contention causes massive queuing.
+
+**Better:**
+
+✅ **Redis Atomic Operations (No Locks):**
+
+Redis single-threaded execution model provides atomicity without locks. INCR, INCRBY, HINCRBY are all atomic. Use these
+instead of explicit locking.
+
+---
+
+## 7. Alternative Approaches (Not Chosen)
+
+### Approach A: Application-Level Rate Limiting (No Centralized Store)
+
+**Architecture:**
+
+- Each API server maintains local counters in memory
+- No Redis, no network calls
+
+**Pros:**
+
+- ✅ Fastest possible (in-memory, no network)
+- ✅ Simplest architecture
+- ✅ No external dependencies
+
+**Cons:**
+
+- ❌ **No Global Enforcement:** User can exceed limit by hitting different servers
+    - Example: 10 QPS limit, user hits 10 different servers = 100 QPS
+- ❌ Only works for single-server deployments
+- ❌ Ineffective for distributed systems
+
+**Why Not Chosen:** Fails the "global enforcement" requirement. Not suitable for multi-server API fleets.
+
+---
+
+### Approach B: Database-Based Rate Limiting
+
+**Architecture:**
+
+- Store counters in PostgreSQL/MySQL
+- Use row-level locks for consistency
+
+**Pros:**
+
+- ✅ Familiar technology (SQL)
+- ✅ ACID guarantees
+- ✅ Durable storage
+
+**Cons:**
+
+- ❌ **Too Slow:** 10-50ms per operation vs <1ms for Redis
+- ❌ Cannot handle 1M ops/sec
+- ❌ Lock contention at high concurrency
+- ❌ Expensive (row locks, WAL, replication)
+
+**Why Not Chosen:** Latency and throughput requirements cannot be met with disk-based databases.
+
+---
+
+### Approach C: Rate Limiting at CDN Layer
+
+**Architecture:**
+
+- CDN (CloudFlare, Fastly) provides rate limiting
+- No custom implementation needed
+
+**Pros:**
+
+- ✅ Managed service (no ops burden)
+- ✅ Global edge locations (low latency)
+- ✅ DDoS protection included
+
+**Cons:**
+
+- ❌ Limited customization (fixed algorithms)
+- ❌ Expensive at scale ($$$)
+- ❌ Vendor lock-in
+- ❌ Can't access internal user data (user tiers, quotas)
+
+**Why Not Chosen:** For internal APIs with complex rate limit rules (per-user tiers, custom quotas), custom solution
+provides more flexibility.
+
+**When to Use CDN:** Public APIs with simple rate limits (e.g., 100 requests/hour per IP).
+
+---
+
+## 8. Monitoring and Observability
+
+### Key Metrics to Monitor
+
+| Metric                       | Target             | Alert Threshold  | Description                                |
+|------------------------------|--------------------|------------------|--------------------------------------------|
+| **Rate Limit Latency (P99)** | $< 1$ ms           | $> 5$ ms         | Time to check rate limit (Redis roundtrip) |
+| **Redis Operations/sec**     | 1M ops/sec         | $< 500$K ops/sec | Total throughput to Redis cluster          |
+| **Rejection Rate**           | $< 5\%$            | $> 20\%$         | Percentage of requests rejected            |
+| **Redis Error Rate**         | $< 0.1\%$          | $> 5\%$          | Failed Redis operations                    |
+| **Circuit Breaker State**    | Closed             | Open for $> 60$s | Is circuit breaker open (fail-open mode)?  |
+| **Hot Key Detection**        | 0 keys $> 10$K QPS | $> 5$ hot keys   | Keys with abnormally high traffic          |
+
+### Dashboards and Alerts
+
+**Dashboard 1: Rate Limiter Health**
+
+- Rate limit check latency (P50, P99, P999)
+- Redis cluster CPU/memory/connections
+- Rejection rate by user tier
+- Hot key leaderboard (top 10 keys by QPS)
+
+**Dashboard 2: Abuse Detection**
+
+- Top rejected users/IPs
+- Rejection rate trends (hourly/daily)
+- Geographic distribution of rejections
+
+**Critical Alerts:**
+
+- Rate limit latency $> 5$ms for $> 1$ minute → Scale Redis or add local cache
+- Redis error rate $> 5\%$ → Check Redis cluster health, may trigger fail-open
+- Hot key detected ($> 10$K QPS) → Enable hot key mitigation
+- Circuit breaker open for $> 5$ minutes → Redis cluster unavailable
+
+---
+
+## 9. Trade-offs Summary
 
 ### What We Gained
 
-✅ Global enforcement across all servers
-✅ Sub-millisecond latency (<1ms)
-✅ High throughput (500K QPS)
-✅ Strong consistency (atomic ops)
-✅ Horizontal scaling
+✅ **Global Enforcement:** Strict rate limits enforced across all API servers
+✅ **Low Latency:** Sub-millisecond rate limit checks (<1ms P99)
+✅ **High Throughput:** Handles 500K QPS with Redis cluster
+✅ **Strong Consistency:** Atomic operations prevent quota leakage
+✅ **Horizontal Scaling:** Add Redis shards as traffic grows
 
 ### What We Sacrificed
 
-❌ Fail-open allows temporary abuse
-❌ Redis ops complexity
-❌ Infrastructure cost (10+ nodes)
-❌ L1 cache (if used) allows ~10% overage
-❌ Redis SPOF (must be HA)
+❌ **Eventual Consistency Risk:** Fail-open policy allows temporary abuse during Redis outage
+❌ **Complexity:** Requires Redis cluster management (ops overhead)
+❌ **Cost:** Redis cluster with 10+ nodes is expensive
+❌ **Accuracy:** Local L1 cache (if used) can allow ~10% quota overage
+❌ **Single Point of Failure:** Redis cluster health critical (must be highly available)
 
 ---
 
-## Real-World Examples
+## 10. Real-World Implementations
 
-**Stripe:** Token Bucket, Redis, fail-open
-**GitHub:** Fixed window (hourly), tiered limits
-**Twitter:** Sliding window (15-min), per-endpoint limits
+### Stripe API Rate Limiting
+
+- **Algorithm:** Token Bucket (allows bursts for better UX)
+- **Storage:** Redis cluster with automatic sharding
+- **Fail Strategy:** Fail-open (availability over strict enforcement)
+- **Headers:** Returns `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+- **Key Insight:** Stripe uses generous rate limits to avoid customer frustration
+
+### GitHub API Rate Limiting
+
+- **Algorithm:** Fixed window (hourly buckets)
+- **Tiers:** Unauthenticated (60/hour), Authenticated (5,000/hour)
+- **Storage:** Redis with fallback to local counters
+- **Headers:** Comprehensive rate limit info in every response
+- **Key Insight:** Different limits for different auth methods (token vs OAuth)
+
+### Twitter API Rate Limiting
+
+- **Algorithm:** Sliding window (15-minute buckets)
+- **Tiers:** Complex per-endpoint limits (varies by API endpoint)
+- **Storage:** Internal distributed counter system
+- **Key Insight:** Rate limits are per-user per-endpoint (e.g., 900 tweets/15min for timeline API)
 
 ---
 
-## References
+## 11. References
 
-- [Rate Limiting Algorithms](../../02-components/2.5.1-rate-limiting-algorithms.md)
-- [Redis Deep Dive](../../02-components/2.2.1-caching-deep-dive.md)
-- [Consistent Hashing](../../02-components/2.2.2-consistent-hashing.md)
-- [API Gateway](../../01-principles/1.2.3-api-gateway-servicemesh.md)
+### Related System Design Components
 
----
+- **[2.5.1 Rate Limiting Algorithms](../../02-components/2.5.1-rate-limiting-algorithms.md)** - Token Bucket, Leaky
+  Bucket, Fixed/Sliding Window
+- **[2.1.11 Redis Deep Dive](../../02-components/2.1.11-redis-deep-dive.md)** - In-memory storage, atomic operations
+- **[2.2.2 Consistent Hashing](../../02-components/2.2.2-consistent-hashing.md)** - Distributing load across Redis
+  shards
+- **[1.2.3 API Gateway & Service Mesh](../../01-principles/1.2.3-api-gateway-servicemesh.md)** - Gateway architecture
+- **[2.5.3 Distributed Locking](../../02-components/2.5.3-distributed-locking.md)** - Why locks are not needed for rate
+  limiting
 
-For complete details, algorithms, and trade-off analysis, see the *
-*[Full Design Document](3.2.4-design-global-rate-limiter.md)**.
+### Related Design Challenges
 
+- **[3.1.2 Distributed Cache](../3.1.2-distributed-cache/)** - Redis caching strategies and sharding
+- **[3.2.2 Notification Service](../3.2.2-notification-service/)** - High-throughput distributed systems
+
+### External Resources
+
+- **Redis Documentation:** [Redis Commands](https://redis.io/commands/) - INCR, INCRBY, atomic operations
+- **NGINX Rate Limiting:** [NGINX Rate Limiting](https://www.nginx.com/blog/rate-limiting-nginx/) - Gateway-level rate
+  limiting
+- **Stripe API Rate Limits:** [Stripe Rate Limits](https://stripe.com/docs/rate-limits) - Real-world implementation
+- **GitHub API Rate Limits:
+  ** [GitHub Rate Limits](https://docs.github.com/en/rest/overview/resources-in-the-rest-api#rate-limiting) -
+  Per-endpoint limits
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Chapters on distributed systems, consistency, and rate
+  limiting
+- *Redis in Action* by Josiah Carlson - Redis patterns and best practices

@@ -1,6 +1,7 @@
 # Global Rate Limiter - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Global Rate Limiter system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Global Rate Limiter system. The main challenge
+document references these functions.
 
 ---
 
@@ -22,18 +23,23 @@ This document contains detailed algorithm implementations for the Global Rate Li
 
 ### token_bucket_check()
 
-**Purpose:** Check if request is within rate limit using Token Bucket algorithm, which allows bursts by refilling tokens at constant rate.
+**Purpose:** Check if request is within rate limit using Token Bucket algorithm, which allows bursts by refilling tokens
+at constant rate.
 
 **Parameters:**
+
 - `user_id` (string): Unique identifier for the user
 - `capacity` (int): Maximum number of tokens in bucket (burst size)
 - `refill_rate` (int): Tokens added per second
 - `cost` (int): Number of tokens consumed per request (default: 1)
 
 **Returns:**
-- `(allowed: bool, remaining: int, reset_time: timestamp)` - Whether request is allowed, tokens remaining, when bucket refills
+
+- `(allowed: bool, remaining: int, reset_time: timestamp)` - Whether request is allowed, tokens remaining, when bucket
+  refills
 
 **Algorithm:**
+
 ```
 function token_bucket_check(user_id, capacity, refill_rate, cost=1):
     // Generate Redis keys
@@ -86,6 +92,7 @@ function token_bucket_check(user_id, capacity, refill_rate, cost=1):
 **Space Complexity:** O(1) - Fixed storage per user (2 values)
 
 **Example Usage:**
+
 ```
 // User with 10 requests/second limit, burst of 10
 result = token_bucket_check("user_12345", capacity=10, refill_rate=10)
@@ -103,17 +110,21 @@ else:
 
 ### sliding_window_check()
 
-**Purpose:** Check rate limit using Sliding Window Counter, which prevents boundary bursts by using weighted sum of current and previous windows.
+**Purpose:** Check rate limit using Sliding Window Counter, which prevents boundary bursts by using weighted sum of
+current and previous windows.
 
 **Parameters:**
+
 - `user_id` (string): Unique identifier for the user
 - `limit` (int): Maximum requests per window
 - `window_size` (int): Window size in seconds (default: 60)
 
 **Returns:**
+
 - `(allowed: bool, current_rate: float, remaining: int)` - Whether allowed, current calculated rate, requests remaining
 
 **Algorithm:**
+
 ```
 function sliding_window_check(user_id, limit, window_size=60):
     // Calculate window IDs
@@ -166,6 +177,7 @@ function sliding_window_check(user_id, limit, window_size=60):
 **Space Complexity:** O(1) - Two counters per user
 
 **Example Usage:**
+
 ```
 // User with 100 requests/minute limit
 result = sliding_window_check("user_67890", limit=100, window_size=60)
@@ -178,6 +190,7 @@ else:
 ```
 
 **Why It Works (Example):**
+
 ```
 Time: 1.5 seconds into minute (50% overlap)
 Previous window (0-60s): 80 requests
@@ -202,14 +215,17 @@ At 99% into window: rate = 80 × 0.01 + 75 = 75.8 (mostly current)
 **Purpose:** Check rate limit using Fixed Window Counter (simplest but has boundary burst problem).
 
 **Parameters:**
+
 - `user_id` (string): Unique identifier
 - `limit` (int): Maximum requests per window
 - `window_size` (int): Window size in seconds
 
 **Returns:**
+
 - `(allowed: bool, count: int, reset_time: timestamp)` - Whether allowed, current count, when window resets
 
 **Algorithm:**
+
 ```
 function fixed_window_check(user_id, limit, window_size=60):
     // Calculate current window ID
@@ -244,6 +260,7 @@ function fixed_window_check(user_id, limit, window_size=60):
 **Space Complexity:** O(1) - One counter per user per window
 
 **⚠️ Boundary Burst Problem:**
+
 ```
 Window 1 (0-60s): User makes 100 requests at t=59s
 Window 2 (60-120s): User makes 100 requests at t=60s
@@ -251,6 +268,7 @@ Total: 200 requests in 1 second! (limit should be 100)
 ```
 
 **Example Usage:**
+
 ```
 // Simple hourly limit (acceptable for coarse limits)
 result = fixed_window_check("user_99999", limit=1000, window_size=3600)
@@ -262,6 +280,7 @@ else:
 ```
 
 **When to Use:**
+
 - ✅ Coarse limits (hourly, daily quotas)
 - ✅ When boundary bursts acceptable
 - ❌ Do not use for strict rate limiting
@@ -275,14 +294,17 @@ else:
 **Purpose:** Atomic rate limit check using increment-then-check pattern to prevent race conditions.
 
 **Parameters:**
+
 - `user_id` (string): User identifier
 - `limit` (int): Request limit
 - `window` (int): Window size in seconds
 
 **Returns:**
+
 - `allowed` (bool): Whether request should be allowed
 
 **Algorithm:**
+
 ```
 function check_rate_limit_atomic(user_id, limit, window):
     // Generate key for current window
@@ -306,6 +328,7 @@ function check_rate_limit_atomic(user_id, limit, window):
 ```
 
 **Why Increment-Then-Check:**
+
 ```
 ❌ WRONG (Check-Then-Increment):
   Gateway 1: count = GET(key) → 99
@@ -325,6 +348,7 @@ function check_rate_limit_atomic(user_id, limit, window):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 allowed = check_rate_limit_atomic("user_555", limit=100, window=60)
 if not allowed:
@@ -338,14 +362,17 @@ if not allowed:
 **Purpose:** Wrapper for Redis atomic increment with error handling.
 
 **Parameters:**
+
 - `key` (string): Redis key
 - `amount` (int): Increment amount (default: 1)
 - `ttl` (int): Expiration time in seconds (optional)
 
 **Returns:**
+
 - `new_value` (int): Value after increment
 
 **Algorithm:**
+
 ```
 function redis_atomic_incr(key, amount=1, ttl=null):
     try:
@@ -374,6 +401,7 @@ function redis_atomic_incr(key, amount=1, ttl=null):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 count = redis_atomic_incr("user:123:count", amount=1, ttl=3600)
 ```
@@ -385,14 +413,17 @@ count = redis_atomic_incr("user:123:count", amount=1, ttl=3600)
 **Purpose:** Complete rate limit check with increment-then-check pattern, including headers.
 
 **Parameters:**
+
 - `user_id` (string): User identifier
 - `limit` (int): Request limit
 - `window` (int): Window size in seconds
 
 **Returns:**
+
 - `(allowed: bool, headers: dict)` - Allow decision and HTTP headers
 
 **Algorithm:**
+
 ```
 function increment_then_check(user_id, limit, window):
     window_id = floor(now() / window)
@@ -428,6 +459,7 @@ function create_headers(limit, remaining, reset_time):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 allowed, headers = increment_then_check("user_789", limit=100, window=60)
 
@@ -446,14 +478,17 @@ else:
 **Purpose:** Rate limit check with circuit breaker for graceful degradation when Redis fails.
 
 **Parameters:**
+
 - `user_id` (string): User identifier
 - `limit` (int): Request limit
 - `window` (int): Window size
 
 **Returns:**
+
 - `(allowed: bool, status: string)` - Whether allowed and circuit breaker status
 
 **Algorithm:**
+
 ```
 // Global circuit breaker state
 circuit_breaker = {
@@ -546,11 +581,13 @@ function calculate_error_rate():
 **Space Complexity:** O(n) where n is requests in window
 
 **Circuit Breaker States:**
+
 - **CLOSED:** Normal operation, all requests check Redis
 - **OPEN:** Redis failing, all requests allowed without check (fail-open)
 - **HALF_OPEN:** Testing recovery, single request tries Redis
 
 **Example Usage:**
+
 ```
 allowed, status = check_rate_limit_with_circuit_breaker("user_123", 100, 60)
 
@@ -570,14 +607,17 @@ else:
 **Purpose:** Call Redis with timeout and circuit breaker protection.
 
 **Parameters:**
+
 - `operation` (function): Redis operation to execute
 - `timeout_ms` (int): Timeout in milliseconds (default: 5)
 - `default_value` (any): Value to return on timeout/error
 
 **Returns:**
+
 - Result of operation or default_value on error
 
 **Algorithm:**
+
 ```
 function redis_call_with_timeout(operation, timeout_ms=5, default_value=null):
     try:
@@ -612,6 +652,7 @@ function redis_call_with_timeout(operation, timeout_ms=5, default_value=null):
 **Time Complexity:** O(1) plus operation time
 
 **Example Usage:**
+
 ```
 count = redis_call_with_timeout(
     lambda: redis.INCR("user:123:count"),
@@ -633,13 +674,16 @@ if count == 0:
 **Purpose:** Monitor Redis access patterns and detect "hot keys" (keys accessed abnormally frequently).
 
 **Parameters:**
+
 - `monitoring_window` (int): Time window for detection in seconds (default: 60)
 - `threshold` (int): Accesses per second to trigger alert (default: 10000)
 
 **Returns:**
+
 - `hot_keys` (list): List of detected hot keys with access counts
 
 **Algorithm:**
+
 ```
 // Global state for tracking key access
 key_access_tracker = {}  // key → [timestamp1, timestamp2, ...]
@@ -697,6 +741,7 @@ function cleanup_old_accesses():
 **Space Complexity:** O(n × m)
 
 **Example Usage:**
+
 ```
 // In rate limiter module, record each access
 record_key_access("user:12345:count")
@@ -721,15 +766,18 @@ for hot_key in hot_keys:
 **Purpose:** Check rate limit using local L1 cache to reduce Redis load for hot keys.
 
 **Parameters:**
+
 - `user_id` (string): User identifier
 - `limit` (int): Request limit
 - `window` (int): Window size in seconds
 - `batch_interval` (int): How often to sync to Redis in milliseconds (default: 100)
 
 **Returns:**
+
 - `(allowed: bool, source: string)` - Whether allowed and cache source (L1 or L2)
 
 **Algorithm:**
+
 ```
 // Local in-memory cache (per gateway node)
 l1_cache = {}  // key → {count, last_sync, enabled}
@@ -799,12 +847,14 @@ function disable_l1_cache_for_key(key):
 ```
 
 **Time Complexity:**
+
 - L1 check: O(1) - in-memory, microseconds
 - Redis sync: O(1) - async, doesn't block
 
 **Space Complexity:** O(n) where n = number of hot keys cached
 
 **Example Usage:**
+
 ```
 // Detect hot key
 hot_keys = detect_hot_keys()
@@ -819,6 +869,7 @@ log("Request allowed: " + allowed + ", Source: " + source)
 ```
 
 **Performance Impact:**
+
 ```
 Without L1 Cache:
   100K requests/sec for hot key
@@ -841,12 +892,15 @@ With L1 Cache:
 **Purpose:** Lookup user tier and corresponding rate limit from cache or database.
 
 **Parameters:**
+
 - `user_id` (string): User identifier
 
 **Returns:**
+
 - `(tier: string, limit: int, window: int)` - User tier, request limit, window size
 
 **Algorithm:**
+
 ```
 // Tier configuration
 tier_config = {
@@ -902,12 +956,14 @@ function get_user_tier_and_limit(user_id):
 ```
 
 **Time Complexity:**
+
 - Cache hit: O(1)
 - Cache miss: O(1) database query
 
 **Space Complexity:** O(n) where n = cache size (10K users)
 
 **Example Usage:**
+
 ```
 tier, limit, window = get_user_tier_and_limit("user_12345")
 // tier="premium", limit=1000, window=1
@@ -922,12 +978,15 @@ allowed = check_rate_limit_atomic("user_12345", limit, window)
 **Purpose:** Complete rate limit check with tier-based limits.
 
 **Parameters:**
+
 - `user_id` (string): User identifier
 
 **Returns:**
+
 - `(allowed: bool, tier: string, headers: dict)` - Allow decision, user tier, HTTP headers
 
 **Algorithm:**
+
 ```
 function check_rate_limit_multi_tier(user_id):
     // Lookup user tier and limits
@@ -961,6 +1020,7 @@ function check_rate_limit_multi_tier(user_id):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 allowed, tier, headers = check_rate_limit_multi_tier("user_premium_123")
 
@@ -982,12 +1042,15 @@ else:
 **Purpose:** Load rate limit configuration from etcd with watch for updates.
 
 **Parameters:**
+
 - `config_path` (string): Path in etcd (default: "/rate_limiter/config")
 
 **Returns:**
+
 - `config` (dict): Loaded configuration
 
 **Algorithm:**
+
 ```
 // Global configuration state
 current_config = {}
@@ -1064,6 +1127,7 @@ function init():
 **Time Complexity:** O(1) for config lookup after load
 
 **Example Usage:**
+
 ```
 // On startup
 init()
@@ -1086,13 +1150,16 @@ init()
 **Purpose:** Setup Redis connection pool for efficient connection reuse.
 
 **Parameters:**
+
 - `redis_hosts` (list): List of Redis host:port pairs
 - `pool_size` (int): Connections per host (default: 100)
 
 **Returns:**
+
 - `pool` (RedisPool): Connection pool object
 
 **Algorithm:**
+
 ```
 function connection_pool_setup(redis_hosts, pool_size=100):
     // Calculate optimal pool size
@@ -1124,6 +1191,7 @@ function connection_pool_setup(redis_hosts, pool_size=100):
 **Time Complexity:** O(1) per Redis operation (reuses connections)
 
 **Example Usage:**
+
 ```
 // On startup
 redis_hosts = ["redis-1:6379", "redis-2:6379", "redis-3:6379"]
@@ -1138,6 +1206,7 @@ redis_pool.release_connection(redis_client)
 ---
 
 **Summary:** All algorithms prioritize:
+
 1. **Atomicity:** Prevent race conditions
 2. **Latency:** Sub-millisecond operations
 3. **Scalability:** Horizontal scaling via sharding
