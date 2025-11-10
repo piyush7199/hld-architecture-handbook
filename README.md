@@ -128,15 +128,15 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 #### Specialized Databases
 
-| Topic ID | Concept                                                                                                  | Focus                                                                                                |
-|----------|----------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
-| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)                 | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM.       |
-| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)               | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.                 |
-| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md)            | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                      |
-| 2.1.16   | [Object Storage Deep Dive](02-components/2.1-databases/2.1.16-object-storage-deep-dive.md)               | S3, GCS, Azure Blob, multipart uploads, lifecycle policies, storage classes, CDN integration.        |
-| 2.1.17   | [Time Series Databases Deep Dive](02-components/2.1-databases/2.1.17-time-series-databases-deep-dive.md) | InfluxDB, TimescaleDB, Prometheus, compression, retention policies, downsampling, IoT data.          |
-| 2.1.18   | [Vector Databases Deep Dive](02-components/2.1-databases/2.1.18-vector-databases-deep-dive.md)           | Pinecone, Weaviate, Milvus, FAISS, semantic search, embeddings, k-NN algorithms, AI/ML applications. |
-| 2.1.19   | [Distributed SQL Databases Deep Dive](02-components/2.1-databases/2.1.19-distributed-sql-databases-deep-dive.md) | CockroachDB, TiDB, Google Spanner, YugabyteDB, Raft consensus, multi-region, ACID at scale.              |
+| Topic ID | Concept                                                                                                          | Focus                                                                                                |
+|----------|------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)                         | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM.       |
+| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)                       | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.                 |
+| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md)                    | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                      |
+| 2.1.16   | [Object Storage Deep Dive](02-components/2.1-databases/2.1.16-object-storage-deep-dive.md)                       | S3, GCS, Azure Blob, multipart uploads, lifecycle policies, storage classes, CDN integration.        |
+| 2.1.17   | [Time Series Databases Deep Dive](02-components/2.1-databases/2.1.17-time-series-databases-deep-dive.md)         | InfluxDB, TimescaleDB, Prometheus, compression, retention policies, downsampling, IoT data.          |
+| 2.1.18   | [Vector Databases Deep Dive](02-components/2.1-databases/2.1.18-vector-databases-deep-dive.md)                   | Pinecone, Weaviate, Milvus, FAISS, semantic search, embeddings, k-NN algorithms, AI/ML applications. |
+| 2.1.19   | [Distributed SQL Databases Deep Dive](02-components/2.1-databases/2.1.19-distributed-sql-databases-deep-dive.md) | CockroachDB, TiDB, Google Spanner, YugabyteDB, Raft consensus, multi-region, ACID at scale.          |
 
 ### 2.2 Caching (Folder: [2.2-caching](./02-components/2.2-caching))
 
@@ -162,13 +162,13 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 ### 2.4 Security & Observability (Folder: [2.4-security-observability](./02-components/2.4-security-observability))
 
-| Topic ID | Concept                                                                                          | Focus                                                                         |
-|----------|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
-| 2.4.1    | [Security Fundamentals](02-components/2.4-security-observability/2.4.1-security-fundamentals.md) | Authn/Authz (JWT), TLS/Encryption, Cross-Site Scripting (XSS) & CSRF.         |
-| 2.4.2    | [Observability](02-components/2.4-security-observability/2.4.2-observability.md)                 | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting. |
-| 2.4.3    | [Prometheus & Grafana Deep Dive](02-components/2.4-security-observability/2.4.3-prometheus-grafana-deep-dive.md) | Metrics collection, time-series storage, PromQL, dashboards, alerting, service discovery. |
-| 2.4.4    | [OAuth 2.0 & JWT Deep Dive](02-components/2.4-security-observability/2.4.4-oauth-jwt-deep-dive.md) | OAuth 2.0 flows, JWT structure, token management, refresh tokens, OIDC, security best practices. |
-| 2.4.5    | [ELK Stack & Logging Deep Dive](02-components/2.4-security-observability/2.4.5-elk-stack-logging-deep-dive.md) | Elasticsearch, Logstash, Kibana, Beats, log parsing, retention, correlation, full-text search. |
+| Topic ID | Concept                                                                                                          | Focus                                                                                            |
+|----------|------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| 2.4.1    | [Security Fundamentals](02-components/2.4-security-observability/2.4.1-security-fundamentals.md)                 | Authn/Authz (JWT), TLS/Encryption, Cross-Site Scripting (XSS) & CSRF.                            |
+| 2.4.2    | [Observability](02-components/2.4-security-observability/2.4.2-observability.md)                                 | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting.                    |
+| 2.4.3    | [Prometheus & Grafana Deep Dive](02-components/2.4-security-observability/2.4.3-prometheus-grafana-deep-dive.md) | Metrics collection, time-series storage, PromQL, dashboards, alerting, service discovery.        |
+| 2.4.4    | [OAuth 2.0 & JWT Deep Dive](02-components/2.4-security-observability/2.4.4-oauth-jwt-deep-dive.md)               | OAuth 2.0 flows, JWT structure, token management, refresh tokens, OIDC, security best practices. |
+| 2.4.5    | [ELK Stack & Logging Deep Dive](02-components/2.4-security-observability/2.4.5-elk-stack-logging-deep-dive.md)   | Elasticsearch, Logstash, Kibana, Beats, log parsing, retention, correlation, full-text search.   |
 
 ### 2.5 Distributed Algorithms (Folder: [2.5-algorithms](./02-components/2.5-algorithms))
 
