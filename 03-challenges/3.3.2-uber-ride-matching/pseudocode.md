@@ -1,6 +1,7 @@
 # Uber/Lyft Ride Matching System - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Uber/Lyft ride matching system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Uber/Lyft ride matching system. The main challenge
+document references these functions.
 
 ---
 
@@ -26,14 +27,17 @@ This document contains detailed algorithm implementations for the Uber/Lyft ride
 **Purpose:** Convert latitude/longitude coordinates to a geohash string for spatial indexing.
 
 **Parameters:**
+
 - latitude (float): Latitude coordinate (-90 to 90)
 - longitude (float): Longitude coordinate (-180 to 180)
 - precision (int): Number of characters in geohash (1-12)
 
 **Returns:**
+
 - string: Geohash encoded string (e.g., "9q8yy9")
 
 **Algorithm:**
+
 ```
 function encode_geohash(latitude, longitude, precision):
   // Base32 alphabet for geohash encoding
@@ -79,6 +83,7 @@ function encode_geohash(latitude, longitude, precision):
 **Space Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 geohash = encode_geohash(37.7749, -122.4194, 6)
 // Returns: "9q8yy9"
@@ -91,12 +96,15 @@ geohash = encode_geohash(37.7749, -122.4194, 6)
 **Purpose:** Convert geohash string back to latitude/longitude coordinates (center of cell).
 
 **Parameters:**
+
 - geohash (string): Geohash encoded string
 
 **Returns:**
+
 - tuple: (latitude, longitude, lat_error, lng_error)
 
 **Algorithm:**
+
 ```
 function decode_geohash(geohash):
   base32 = "0123456789bcdefghjkmnpqrstuvwxyz"
@@ -140,6 +148,7 @@ function decode_geohash(geohash):
 **Time Complexity:** O(length(geohash)) = O(1) for fixed precision
 
 **Example Usage:**
+
 ```
 lat, lng, lat_err, lng_err = decode_geohash("9q8yy9")
 // Returns: (37.7749, -122.4194, ±0.0001, ±0.0001)
@@ -152,12 +161,15 @@ lat, lng, lat_err, lng_err = decode_geohash("9q8yy9")
 **Purpose:** Find all 8 adjacent geohash cells for boundary queries.
 
 **Parameters:**
+
 - geohash (string): Target geohash cell
 
 **Returns:**
+
 - list: 8 adjacent geohash strings (N, NE, E, SE, S, SW, W, NW)
 
 **Algorithm:**
+
 ```
 function get_adjacent_geohashes(geohash):
   // Neighbor lookup tables for geohash
@@ -230,6 +242,7 @@ function get_adjacent_geohashes(geohash):
 **Time Complexity:** O(precision × 8) = O(1)
 
 **Example Usage:**
+
 ```
 adjacent = get_adjacent_geohashes("9q8yy9")
 // Returns: ["9q8yyc", "9q8yyd", "9q8yyb", "9q8yy8", "9q8yy3", "9q8yy6", "9q8yy4", "9q8yy5"]
@@ -244,15 +257,18 @@ adjacent = get_adjacent_geohashes("9q8yy9")
 **Purpose:** Update driver's GPS location in Redis geo-index and status store.
 
 **Parameters:**
+
 - driver_id (string): Unique driver identifier
 - latitude (float): New latitude coordinate
 - longitude (float): New longitude coordinate
 - status (string): Driver status (available, busy, offline)
 
 **Returns:**
+
 - bool: Success/failure
 
 **Algorithm:**
+
 ```
 function update_driver_location(driver_id, latitude, longitude, status):
   // Validate coordinates
@@ -292,6 +308,7 @@ function update_driver_location(driver_id, latitude, longitude, status):
 **Time Complexity:** O(log N) where N = number of drivers in geohash
 
 **Example Usage:**
+
 ```
 success = update_driver_location("driver:123", 37.7749, -122.4194, "available")
 ```
@@ -303,12 +320,15 @@ success = update_driver_location("driver:123", 37.7749, -122.4194, "available")
 **Purpose:** Batch update multiple driver locations for efficiency (used by Kafka consumer).
 
 **Parameters:**
+
 - updates (list): List of (driver_id, lat, lng, status) tuples
 
 **Returns:**
+
 - int: Number of successful updates
 
 **Algorithm:**
+
 ```
 function batch_update_driver_locations(updates):
   // Group updates by city for efficient batching
@@ -358,6 +378,7 @@ function batch_update_driver_locations(updates):
 **Time Complexity:** O(M log N) where M = batch size, N = drivers per city
 
 **Example Usage:**
+
 ```
 updates = [
   ("driver:123", 37.7749, -122.4194, "available"),
@@ -377,6 +398,7 @@ count = batch_update_driver_locations(updates)
 **Purpose:** Find N nearest available drivers within a radius of the rider's location.
 
 **Parameters:**
+
 - rider_lat (float): Rider's latitude
 - rider_lng (float): Rider's longitude
 - radius_km (float): Search radius in kilometers (default: 5km)
@@ -384,9 +406,11 @@ count = batch_update_driver_locations(updates)
 - vehicle_type (string): Filter by vehicle type (e.g., "UberX")
 
 **Returns:**
+
 - list: List of driver objects with distance, sorted by distance
 
 **Algorithm:**
+
 ```
 function find_nearest_drivers(rider_lat, rider_lng, radius_km, count, vehicle_type):
   // Determine city shard
@@ -449,6 +473,7 @@ function find_nearest_drivers(rider_lat, rider_lng, radius_km, count, vehicle_ty
 **Time Complexity:** O(M log N) where M = count, N = drivers in radius
 
 **Example Usage:**
+
 ```
 drivers = find_nearest_drivers(37.7749, -122.4194, 5.0, 20, "UberX")
 // Returns: [
@@ -465,15 +490,18 @@ drivers = find_nearest_drivers(37.7749, -122.4194, 5.0, 20, "UberX")
 **Purpose:** Complete matching algorithm that finds drivers, calculates ETAs, ranks, and notifies.
 
 **Parameters:**
+
 - rider_id (string): Rider identifier
 - pickup_lat (float): Pickup location latitude
 - pickup_lng (float): Pickup location longitude
 - vehicle_type (string): Requested vehicle type
 
 **Returns:**
+
 - string: trip_id if successful, null if no drivers available
 
 **Algorithm:**
+
 ```
 function match_rider_with_driver(rider_id, pickup_lat, pickup_lng, vehicle_type):
   // Step 1: Find nearby drivers
@@ -554,6 +582,7 @@ function match_rider_with_driver(rider_id, pickup_lat, pickup_lng, vehicle_type)
 **Time Complexity:** O(N log N + M) where N = nearby drivers, M = ETA calculations
 
 **Example Usage:**
+
 ```
 trip_id = match_rider_with_driver("rider:789", 37.7749, -122.4194, "UberX")
 // Returns: "trip:123e4567-e89b-12d3-a456-426614174000"
@@ -568,15 +597,18 @@ trip_id = match_rider_with_driver("rider:789", 37.7749, -122.4194, "UberX")
 **Purpose:** Calculate estimated time of arrival from driver to rider using OSRM routing engine.
 
 **Parameters:**
+
 - driver_lat (float): Driver's current latitude
 - driver_lng (float): Driver's current longitude
 - rider_lat (float): Rider's pickup latitude
 - rider_lng (float): Rider's pickup longitude
 
 **Returns:**
+
 - dict: {minutes: float, distance_km: float, route: list}
 
 **Algorithm:**
+
 ```
 function calculate_eta(driver_lat, driver_lng, rider_lat, rider_lng):
   // Generate cache key
@@ -638,6 +670,7 @@ function calculate_eta(driver_lat, driver_lng, rider_lat, rider_lng):
 **Time Complexity:** O(1) cached, O(E log V) for OSRM A* pathfinding
 
 **Example Usage:**
+
 ```
 eta = calculate_eta(37.7749, -122.4194, 37.7750, -122.4000)
 // Returns: {minutes: 5.2, distance_km: 2.3, route_found: true}
@@ -650,12 +683,15 @@ eta = calculate_eta(37.7749, -122.4194, 37.7750, -122.4000)
 **Purpose:** Calculate ETAs for multiple driver-rider pairs in parallel (batch optimization).
 
 **Parameters:**
+
 - eta_requests (list): List of {driver_lat, driver_lng, rider_lat, rider_lng} dicts
 
 **Returns:**
+
 - list: List of ETA results
 
 **Algorithm:**
+
 ```
 function calculate_etas_batch(eta_requests):
   etas = []
@@ -717,6 +753,7 @@ function calculate_etas_batch(eta_requests):
 **Time Complexity:** O(M) where M = number of requests (parallelized)
 
 **Example Usage:**
+
 ```
 requests = [
   {driver_lat: 37.7749, driver_lng: -122.4194, rider_lat: 37.7750, rider_lng: -122.4000},
@@ -735,13 +772,16 @@ etas = calculate_etas_batch(requests)
 **Purpose:** Handle driver acceptance of trip using atomic compare-and-set (CAS) operation.
 
 **Parameters:**
+
 - trip_id (string): Trip identifier
 - driver_id (string): Driver attempting to accept
 
 **Returns:**
+
 - bool: True if acceptance succeeded (first driver), False if trip already taken
 
 **Algorithm:**
+
 ```
 function accept_trip(trip_id, driver_id):
   // Atomic CAS operation: only one driver can win
@@ -781,6 +821,7 @@ function accept_trip(trip_id, driver_id):
 **Time Complexity:** O(1) for atomic UPDATE
 
 **Example Usage:**
+
 ```
 success = accept_trip("trip:123", "driver:456")
 // Returns: true (first driver) or false (too late)
@@ -793,15 +834,18 @@ success = accept_trip("trip:123", "driver:456")
 **Purpose:** Mark trip as completed and process payment.
 
 **Parameters:**
+
 - trip_id (string): Trip identifier
 - driver_id (string): Driver completing trip
 - end_lat (float): Drop-off latitude
 - end_lng (float): Drop-off longitude
 
 **Returns:**
+
 - dict: {success: bool, fare: float, payment_status: string}
 
 **Algorithm:**
+
 ```
 function complete_trip(trip_id, driver_id, end_lat, end_lng):
   // Step 1: Validate trip state
@@ -871,6 +915,7 @@ function complete_trip(trip_id, driver_id, end_lat, end_lng):
 **Time Complexity:** O(1) database operations + O(1) payment API call
 
 **Example Usage:**
+
 ```
 result = complete_trip("trip:123", "driver:456", 37.7850, -122.4100)
 // Returns: {success: true, fare: 15.50, payment_status: "paid"}
@@ -885,13 +930,16 @@ result = complete_trip("trip:123", "driver:456", 37.7850, -122.4100)
 **Purpose:** Calculate surge pricing multiplier based on supply/demand ratio in a geohash cell.
 
 **Parameters:**
+
 - geohash (string): Geohash cell identifier
 - city_code (string): City identifier
 
 **Returns:**
+
 - float: Surge multiplier (1.0× to 3.0×)
 
 **Algorithm:**
+
 ```
 function calculate_surge_multiplier(geohash, city_code):
   // Step 1: Count available drivers in cell
@@ -944,6 +992,7 @@ function calculate_surge_multiplier(geohash, city_code):
 **Time Complexity:** O(D + P) where D = drivers in cell, P = pending trips
 
 **Example Usage:**
+
 ```
 multiplier = calculate_surge_multiplier("9q8yy9", "sf")
 // Returns: 2.0 (high surge)
@@ -956,12 +1005,15 @@ multiplier = calculate_surge_multiplier("9q8yy9", "sf")
 **Purpose:** Background job that recalculates surge pricing for all active geohash cells every 30 seconds.
 
 **Parameters:**
+
 - city_code (string): City to refresh
 
 **Returns:**
+
 - int: Number of cells updated
 
 **Algorithm:**
+
 ```
 function refresh_surge_pricing(city_code):
   // Get all active geohash cells (cells with recent activity)
@@ -998,6 +1050,7 @@ function refresh_surge_pricing(city_code):
 **Time Complexity:** O(C × (D + P)) where C = number of cells
 
 **Example Usage:**
+
 ```
 count = refresh_surge_pricing("sf")
 // Returns: 47 (47 cells updated)
@@ -1012,13 +1065,16 @@ count = refresh_surge_pricing("sf")
 **Purpose:** Map latitude/longitude coordinates to a city code for geographic sharding.
 
 **Parameters:**
+
 - latitude (float): Latitude coordinate
 - longitude (float): Longitude coordinate
 
 **Returns:**
+
 - string: City code (e.g., "sf", "nyc", "lon")
 
 **Algorithm:**
+
 ```
 function map_coordinates_to_city(latitude, longitude):
   // City bounding boxes (simplified)
@@ -1070,6 +1126,7 @@ function map_coordinates_to_city(latitude, longitude):
 **Time Complexity:** O(C) where C = number of cities (constant)
 
 **Example Usage:**
+
 ```
 city = map_coordinates_to_city(37.7749, -122.4194)
 // Returns: "sf"
@@ -1084,14 +1141,17 @@ city = map_coordinates_to_city(37.7749, -122.4194)
 **Purpose:** Detect if a location is near a city/geohash boundary (requires multi-shard query).
 
 **Parameters:**
+
 - latitude (float): Location latitude
 - longitude (float): Location longitude
 - threshold_km (float): Distance threshold (default: 10km)
 
 **Returns:**
+
 - bool: True if near boundary
 
 **Algorithm:**
+
 ```
 function is_near_city_boundary(latitude, longitude, threshold_km):
   city_code = map_coordinates_to_city(latitude, longitude)
@@ -1118,6 +1178,7 @@ function is_near_city_boundary(latitude, longitude, threshold_km):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 near_boundary = is_near_city_boundary(37.7749, -122.4194, 10.0)
 // Returns: false (in center of SF)
@@ -1130,15 +1191,18 @@ near_boundary = is_near_city_boundary(37.7749, -122.4194, 10.0)
 **Purpose:** Query multiple city shards when near boundary to avoid missing drivers.
 
 **Parameters:**
+
 - rider_lat (float): Rider latitude
 - rider_lng (float): Rider longitude
 - radius_km (float): Search radius
 - count (int): Number of drivers to return
 
 **Returns:**
+
 - list: Combined list of drivers from multiple shards
 
 **Algorithm:**
+
 ```
 function query_cross_boundary(rider_lat, rider_lng, radius_km, count):
   primary_city = map_coordinates_to_city(rider_lat, rider_lng)
@@ -1182,6 +1246,7 @@ function query_cross_boundary(rider_lat, rider_lng, radius_km, count):
 **Time Complexity:** O(S × M log N) where S = shards queried, M = count, N = drivers per shard
 
 **Example Usage:**
+
 ```
 drivers = query_cross_boundary(37.2500, -122.0000, 5.0, 20)
 // Queries both SF and San Jose shards if near boundary
@@ -1196,13 +1261,16 @@ drivers = query_cross_boundary(37.2500, -122.0000, 5.0, 20)
 **Purpose:** Update driver's availability status (available, busy, offline, on_break).
 
 **Parameters:**
+
 - driver_id (string): Driver identifier
 - new_status (string): New status value
 
 **Returns:**
+
 - bool: Success/failure
 
 **Algorithm:**
+
 ```
 function update_driver_status(driver_id, new_status):
   valid_statuses = ["available", "busy", "offline", "on_break"]
@@ -1245,6 +1313,7 @@ function update_driver_status(driver_id, new_status):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 success = update_driver_status("driver:123", "busy")
 ```
@@ -1258,14 +1327,17 @@ success = update_driver_status("driver:123", "busy")
 **Purpose:** Charge rider's credit card via Stripe API with retry logic.
 
 **Parameters:**
+
 - rider_id (string): Rider identifier
 - amount (float): Amount to charge in dollars
 - trip_id (string): Trip identifier for idempotency
 
 **Returns:**
+
 - dict: {success: bool, charge_id: string, error: string}
 
 **Algorithm:**
+
 ```
 function charge_rider(rider_id, amount, trip_id):
   // Get rider's payment method
@@ -1331,6 +1403,7 @@ function charge_rider(rider_id, amount, trip_id):
 **Time Complexity:** O(R) where R = retry attempts (max 3)
 
 **Example Usage:**
+
 ```
 result = charge_rider("rider:789", 15.50, "trip:123")
 // Returns: {success: true, charge_id: "ch_1A2B3C4D", error: null}
@@ -1345,13 +1418,16 @@ result = charge_rider("rider:789", 15.50, "trip:123")
 **Purpose:** Calculate great-circle distance between two lat/lng points.
 
 **Parameters:**
+
 - lat1, lng1 (float): First point coordinates
 - lat2, lng2 (float): Second point coordinates
 
 **Returns:**
+
 - float: Distance in kilometers
 
 **Algorithm:**
+
 ```
 function haversine_distance(lat1, lng1, lat2, lng2):
   R = 6371.0  // Earth radius in kilometers
@@ -1372,6 +1448,7 @@ function haversine_distance(lat1, lng1, lat2, lng2):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 distance = haversine_distance(37.7749, -122.4194, 37.7750, -122.4000)
 // Returns: 1.5 (km)

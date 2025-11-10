@@ -6,712 +6,943 @@
 
 ## 📊 Visual Diagrams & Resources
 
-- **[High-Level Design Diagrams](./hld-diagram.md)** - System architecture, feature store, model serving, and Lambda
-  architecture
-- **[Sequence Diagrams](./sequence-diagrams.md)** - Real-time serving flows, batch training, feature computation, and
-  similarity search
-- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices and ML
-  infrastructure
-- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations for recommendation logic
+- **[High-Level Design Diagrams](./hld-diagram.md)** - Lambda architecture, feature store, model serving flow
+- **[Sequence Diagrams](./sequence-diagrams.md)** - Real-time serving, batch training, feature updates
+- **[Design Decisions (This Over That)](./this-over-that.md)** - In-depth analysis of architectural choices
+- **[Pseudocode Implementations](./pseudocode.md)** - Detailed algorithm implementations
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
-Design a highly scalable, low-latency recommendation system that provides personalized content (products, videos,
-articles) to 100 million daily active users. The system must serve recommendations in under 50ms while continuously
-learning from user behavior through both real-time features and offline batch training. Think Netflix's "Recommended For
-You", Amazon's "Products You May Like", or TikTok's "For You Page".
+Design a recommendation system that provides real-time, highly personalized recommendations to users (products, content,
+videos, articles) with extremely low latency (<50ms). The system must:
+
+- **Serve** personalized recommendations instantly (100k QPS, <50ms p99 latency)
+- **Train** ML models offline on petabytes of historical data (clickstream, purchases, ratings)
+- **Update** real-time features (user's last 5 views, current session context)
+- **Scale** to 100M daily active users with diverse recommendation scenarios
+- **Handle** cold-start problem for new users and new items
+
+**Similar Systems:** Netflix recommendations, Amazon product recommendations, YouTube video suggestions, TikTok "For
+You" feed, Spotify Discover Weekly
 
 ---
 
-## 1. Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements (FRs)
+### Functional Requirements
 
-| Requirement                 | Description                                                          | Priority    |
-|-----------------------------|----------------------------------------------------------------------|-------------|
-| **Real-Time Serving**       | Generate personalized recommendations instantly (<50ms)              | Must Have   |
-| **Offline Training**        | Train ML models on historical user behavior (clicks, views, ratings) | Must Have   |
-| **Feature Store**           | Maintain real-time features (e.g., "last 5 items viewed")            | Must Have   |
-| **Item-to-Item Similarity** | Recommend items similar to currently viewed item                     | Must Have   |
-| **Multi-Strategy Blending** | Combine collaborative filtering, content-based, and popularity       | Must Have   |
-| **A/B Testing**             | Support multiple recommendation strategies simultaneously            | Should Have |
-| **Cold Start Handling**     | Serve recommendations for new users/items with no history            | Should Have |
-| **Diversity & Exploration** | Balance relevance with discovery of new content                      | Should Have |
+1. **Personalized Feed** - Generate "For You" recommendations based on user history and preferences
+2. **Similar Items** - "You may also like" recommendations based on current item
+3. **Real-Time Context** - Incorporate current session behavior (last 5 views, search queries)
+4. **Cold Start Handling** - Provide recommendations for new users (no history) and new items
+5. **A/B Testing** - Support multiple recommendation algorithms simultaneously
+6. **Explainability** - Provide reasons for recommendations ("Because you watched...")
 
-### Non-Functional Requirements (NFRs)
+### Non-Functional Requirements
 
-| Requirement           | Target             | Rationale                              |
-|-----------------------|--------------------|----------------------------------------|
-| **Low Latency**       | < 50 ms (p99)      | Cannot delay page load                 |
-| **High Availability** | 99.99% uptime      | Core user experience feature           |
-| **High Throughput**   | 100k+ requests/sec | Peak traffic during prime hours        |
-| **Model Freshness**   | < 24 hours         | Capture evolving user preferences      |
-| **Scalability**       | Petabytes of data  | Years of clickstream logs for training |
+1. **Low Latency (Serving):** <50ms p99 latency for recommendation API calls
+2. **High Throughput:** 100k QPS for read requests (recommendation serving)
+3. **High Availability:** 99.99% uptime (recommendations critical for engagement)
+4. **Model Freshness:** Models retrained daily (24-hour lag acceptable)
+5. **Feature Freshness:** Real-time features updated within 1 second
+6. **Scalability:** Handle 100M DAU with 10+ recommendations per user per day
 
 ### Scale Estimation
 
-| Metric                       | Assumption                                    | Calculation                                             | Result                                         |
-|------------------------------|-----------------------------------------------|---------------------------------------------------------|------------------------------------------------|
-| **Daily Active Users (DAU)** | 100 Million users                             | -                                                       | -                                              |
-| **Recommendation QPS**       | 100M users × 10 sessions × 3 recs/session     | $\frac{3 \text{B}}{24 \text{h} \times 3600 \text{s/h}}$ | $\sim 35,000$ QPS (avg), $\sim 100,000$ (peak) |
-| **Clickstream Events**       | 100M DAU × 50 events/day                      | -                                                       | $\sim 5$ Billion events per day                |
-| **Training Data (5 years)**  | $5 \text{B events/day} \times 365 \times 5$   | $9.125 \text{T} \times 1 \text{kB/event}$               | $\sim 9$ Petabytes of historical data          |
-| **Feature Store Lookups**    | 100k QPS × 1 user feature + 10 item features  | -                                                       | $\sim 1.1$ Million Redis lookups per second    |
-| **Model Size**               | 10M users × 10M items × 100 dims (embeddings) | $10^{14} \times 4 \text{ bytes (float32)}$              | $\sim 400$ TB (sparse, compressed to ~10 TB)   |
+| Metric                      | Calculation                                  | Result                        |
+|-----------------------------|----------------------------------------------|-------------------------------|
+| **Daily Active Users**      | Given                                        | 100 Million DAU               |
+| **Recommendation Requests** | 100M users × 10 requests/user/day            | 1 Billion requests/day        |
+| **Peak QPS**                | 1B requests / 86,400 sec × 3x peak           | **100,000 QPS** (peak)        |
+| **Avg QPS**                 | 1B requests / 86,400 sec                     | 11,574 QPS (average)          |
+| **Latency Target**          | Given                                        | <50ms p99                     |
+| **Training Data**           | 100M users × 100 actions/user/day × 365 days | **3.65 trillion events/year** |
+| **Training Data Size**      | 3.65T events × 100 bytes/event               | **365 TB/year**               |
+| **Feature Store QPS**       | Same as recommendation QPS                   | 100,000 reads/sec             |
+| **Model Storage**           | 100M users × 128D embeddings × 4 bytes       | ~50 GB (user embeddings)      |
+
+**Storage Breakdown:**
+
+- **User Embeddings:** 100M users × 128 dimensions × 4 bytes = 50 GB
+- **Item Embeddings:** 10M items × 128 dimensions × 4 bytes = 5 GB
+- **Feature Store:** 100M users × 1 KB features = 100 GB
+- **Training Data (1 year):** 365 TB (compressed: ~100 TB with Parquet)
 
 ---
 
-## 2. High-Level Architecture
+## 3. High-Level Architecture
 
-> 📊 **See detailed architecture diagrams:** [HLD Diagrams](./hld-diagram.md)
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
 
-The system follows the **Lambda Architecture** pattern (see **2.3.5**), splitting into two independent loops:
+The system follows **Lambda Architecture** with two distinct processing paths:
 
-1. **Slow Path (Batch Layer):** Offline training of large ML models on historical data using Hadoop/Spark.
-2. **Fast Path (Speed Layer):** Real-time feature computation and low-latency serving using Kafka + Redis.
+**1. Batch Layer (Offline Training)**
 
-### Key Components
+- Process historical data (petabytes) to train accurate ML models
+- Runs daily (24-hour lag acceptable)
+- Uses Spark/Hadoop for distributed training
 
-| Component                     | Responsibility                                  | Technology Options                 | Scalability              |
-|-------------------------------|-------------------------------------------------|------------------------------------|--------------------------|
-| **Clickstream Ingestion**     | Capture user events (views, clicks, buys)       | Kafka, Kinesis, Pulsar             | Horizontal (partitions)  |
-| **Feature Store (Real-Time)** | Low-latency feature lookups (<5ms)              | Redis Cluster, DynamoDB            | Horizontal (sharding)    |
-| **Feature Store (Offline)**   | Historical feature computation                  | Spark, Flink → S3/HDFS             | Horizontal (batch)       |
-| **Batch Training Cluster**    | Train large ML models (collaborative filtering) | Hadoop, Spark MLlib, TensorFlow    | Horizontal (distributed) |
-| **Model Store**               | Store trained model artifacts                   | S3, MinIO, Model Registry (MLflow) | Object storage           |
-| **Model Serving API**         | Serve recommendations via API                   | TensorFlow Serving, gRPC, FastAPI  | Horizontal (stateless)   |
-| **Similarity Index (ANN)**    | Fast nearest neighbor search for items          | FAISS, Annoy, HNSW, Milvus         | Horizontal (partitioned) |
-| **Recommendation Service**    | Orchestrate feature fetch + model inference     | Go, Java, Python (stateless)       | Horizontal               |
-| **Cache Layer**               | Cache popular recommendations                   | Redis, Memcached                   | Horizontal (sharding)    |
+**2. Speed Layer (Real-Time Serving)**
 
----
+- Serves recommendations in <50ms using pre-trained models
+- Updates real-time features (user's last actions) from Kafka stream
+- Uses Redis Feature Store for low-latency lookups
 
-## 3. Detailed Component Design
+**ASCII Architecture Diagram:**
 
-### 3.1 Data Model and Storage
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         CLIENT LAYER                             │
+│  [Mobile App]  [Web Browser]  [Smart TV]  [Third-Party Apps]    │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │
+                             │ HTTP/REST (100k QPS)
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                       SERVING LAYER                              │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  Recommendation API (gRPC/REST)                            │ │
+│  │  - User personalization                                    │ │
+│  │  - Similar items                                           │ │
+│  │  - Cold start handling                                     │ │
+│  │  Load Balancer: 100 instances (1000 QPS each)             │ │
+│  └────────────┬───────────────────────┬───────────────────────┘ │
+└───────────────┼───────────────────────┼──────────────────────────┘
+                │                       │
+    ┌───────────▼──────┐   ┌────────────▼─────────┐
+    │  Feature Store   │   │   Model Store        │
+    │  (Redis)         │   │   (S3 + Cache)       │
+    │  - User features │   │   - User embeddings  │
+    │  - Real-time ctx │   │   - Item embeddings  │
+    │  <1ms latency    │   │   - Trained models   │
+    └───────────▲──────┘   └──────────────────────┘
+                │
+┌───────────────┴──────────────────────────────────────────────────┐
+│                       SPEED LAYER (Real-Time)                    │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  Kafka Streams / Flink                                     │ │
+│  │  - Process user events in real-time                        │ │
+│  │  - Update feature store (last 5 views, session context)   │ │
+│  │  - <1 second latency                                       │ │
+│  └────────────▲───────────────────────────────────────────────┘ │
+└───────────────┼──────────────────────────────────────────────────┘
+                │
+┌───────────────┴──────────────────────────────────────────────────┐
+│                  EVENT COLLECTION                                │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  Kafka Cluster                                             │ │
+│  │  - Topics: user_events, item_events, feedback             │ │
+│  │  - Throughput: 50k events/sec                             │ │
+│  │  - Retention: 7 days (for real-time), Archive to S3       │ │
+│  └────────────▲───────────────────────────────────────────────┘ │
+└───────────────┼──────────────────────────────────────────────────┘
+                │
+┌───────────────┴──────────────────────────────────────────────────┐
+│                   BATCH LAYER (Offline Training)                 │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  Spark Cluster (Daily Training Jobs)                      │ │
+│  │  - Collaborative Filtering (Matrix Factorization/ALS)     │ │
+│  │  - Deep Learning (Two-Tower Model, BERT4Rec)              │ │
+│  │  - Training Time: 4-6 hours                               │ │
+│  │  - Training Data: S3 (365 TB/year)                        │ │
+│  └────────────┬───────────────────────────────────────────────┘ │
+└───────────────┼──────────────────────────────────────────────────┘
+                │
+                ▼
+         ┌──────────────┐
+         │  Model Store │
+         │  (S3 + Cache)│
+         └──────────────┘
+```
 
-The system stores three critical types of data:
+**Key Components:**
 
-#### 3.1.1 User-Item Interaction Events (Clickstream)
+1. **Recommendation API** (Serving Layer)
+    - Handles 100k QPS with <50ms latency
+    - Fetches features from Redis, loads model from cache
+    - Combines signals (collaborative filtering + content-based + real-time)
 
-Stored in **Kafka** (streaming buffer) → **Cassandra** or **ClickHouse** (historical store).
+2. **Feature Store** (Redis)
+    - Stores user features (last 5 views, preferences, demographics)
+    - Updated in real-time (<1 second) from Kafka stream
+    - Key-value store for O(1) lookups
 
-**Schema (Kafka Event):**
+3. **Model Store** (S3 + In-Memory Cache)
+    - Stores trained ML models (user/item embeddings, neural networks)
+    - Updated daily after batch training completes
+    - Cached in serving instances (hot-loaded)
 
-| Field        | Type    | Notes                                 |
-|--------------|---------|---------------------------------------|
-| `user_id`    | `INT64` | Unique user identifier                |
-| `item_id`    | `INT64` | Unique item identifier                |
-| `event_type` | `ENUM`  | `VIEW`, `CLICK`, `PURCHASE`, `RATING` |
-| `timestamp`  | `INT64` | Unix timestamp (ms)                   |
-| `session_id` | `UUID`  | Session identifier                    |
-| `context`    | `JSON`  | Device, location, referrer            |
+4. **Speed Layer** (Kafka Streams/Flink)
+    - Processes real-time events (views, clicks, purchases)
+    - Updates Feature Store with latest user actions
+    - Maintains session context (current browsing session)
 
-*See pseudocode.md::ClickstreamEvent for full schema definition.*
-
-#### 3.1.2 User Features (Real-Time + Batch)
-
-Stored in **Redis** (real-time) + **S3** (batch snapshots).
-
-**Real-Time Features (Redis):**
-
-| Key              | Value (JSON)                                                      | TTL    |
-|------------------|-------------------------------------------------------------------|--------|
-| `user:{user_id}` | `{"last_5_items": [123, 456, ...], "last_action_ts": 1698765432}` | 7 days |
-
-**Batch Features (S3 Parquet):**
-
-| Field                  | Type           | Notes                            |
-|------------------------|----------------|----------------------------------|
-| `user_id`              | `INT64`        | Primary key                      |
-| `total_purchases`      | `INT32`        | Lifetime purchase count          |
-| `avg_session_duration` | `FLOAT32`      | Average session length (seconds) |
-| `preferred_categories` | `ARRAY<INT>`   | Top 5 category IDs by engagement |
-| `user_embedding`       | `ARRAY<FLOAT>` | 128-dim learned vector           |
-
-*See pseudocode.md::UserFeatures for feature engineering logic.*
-
-#### 3.1.3 Item Features and Embeddings
-
-Stored in **PostgreSQL** (metadata) + **FAISS/Milvus** (vector index).
-
-**Item Metadata (PostgreSQL):**
-
-| Field         | Type        | Notes                    |
-|---------------|-------------|--------------------------|
-| `item_id`     | `BIGINT`    | Primary key              |
-| `category_id` | `INT`       | Category classification  |
-| `created_at`  | `TIMESTAMP` | Item creation time       |
-| `popularity`  | `FLOAT`     | Global popularity score  |
-| `metadata`    | `JSONB`     | Title, description, tags |
-
-**Item Embeddings (FAISS Index):**
-
-- **128-dimensional vectors** learned via collaborative filtering or content-based models.
-- **HNSW algorithm** for approximate nearest neighbor (ANN) search in <5ms.
-
-*See pseudocode.md::ItemEmbedding for embedding generation.*
-
----
-
-### 3.2 The Lambda Architecture (Batch + Speed Layers)
-
-#### Why Lambda Architecture?
-
-| Aspect          | Batch Layer (Slow Path)        | Speed Layer (Fast Path)        |
-|-----------------|--------------------------------|--------------------------------|
-| **Purpose**     | Train accurate, complex models | Capture real-time user signals |
-| **Latency**     | Hours (24h model refresh)      | Milliseconds (<50ms serving)   |
-| **Data Volume** | Petabytes (historical)         | GB/s (streaming)               |
-| **Technology**  | Hadoop/Spark                   | Kafka + Redis + Flink          |
-| **Output**      | Static trained model           | Real-time features             |
-
-*See this-over-that.md for detailed comparison with Kappa Architecture.*
-
----
-
-### 3.3 Recommendation Serving Flow (Real-Time)
-
-> 📊 **See detailed sequence diagrams:** [Sequence Diagrams](./sequence-diagrams.md)
-
-**Step-by-Step Flow (Target: <50ms end-to-end):**
-
-1. **Client Request** → API Gateway → Recommendation Service
-    - Input: `user_id`, `context` (current page, device)
-    - *Latency Budget: 0ms*
-
-2. **Feature Fetch (Parallel gRPC Calls)**
-    - **User Features:** Fetch from Redis Feature Store (`user:{user_id}`)
-        - Returns: Last 5 viewed items, last action timestamp
-        - *Latency: 2ms*
-    - **Item Candidate Fetch:** Query Similarity Index (FAISS) for item-to-item recs
-        - Returns: Top 100 candidate items
-        - *Latency: 5ms*
-    - *Total Parallel Latency: 5ms*
-
-3. **Model Inference**
-    - Load model from Model Serving API (TensorFlow Serving/gRPC)
-    - Compute scores for candidate items using user features + item embeddings
-    - *Latency: 20ms*
-
-4. **Ranking & Filtering**
-    - Apply business rules (remove already purchased, diversify categories)
-    - Re-rank top 20 items
-    - *Latency: 3ms*
-
-5. **Response to Client**
-    - Return top 10 recommendations
-    - *Total Latency: ~30ms (within 50ms budget)*
-
-*See pseudocode.md::generate_recommendations() for detailed algorithm.*
+5. **Batch Layer** (Spark)
+    - Trains ML models on historical data (365 TB)
+    - Runs daily (overnight batch jobs)
+    - Generates user/item embeddings using collaborative filtering
 
 ---
 
-### 3.4 Candidate Generation Strategies
+## 4. Data Model
 
-The system uses a **multi-strategy approach** to generate candidate items:
+### User Features (Redis Feature Store)
 
-| Strategy                    | Description                                            | Candidate Count | Latency |
-|-----------------------------|--------------------------------------------------------|-----------------|---------|
-| **Collaborative Filtering** | Users who liked X also liked Y (Matrix Factorization)  | 50              | 20ms    |
-| **Content-Based**           | Items similar to user's past interactions (embeddings) | 30              | 5ms     |
-| **Item-to-Item Similarity** | Items similar to currently viewed item (ANN search)    | 50              | 5ms     |
-| **Trending/Popular**        | Globally popular items in user's preferred categories  | 20              | 2ms     |
+```
+Key: user:{user_id}:features
+Value: {
+  "user_id": "123",
+  "recent_views": ["item_456", "item_789", "item_012", "item_345", "item_678"],
+  "recent_searches": ["laptop", "gaming mouse"],
+  "preferences": {
+    "categories": ["Electronics", "Gaming"],
+    "price_range": [100, 1000],
+    "brands": ["Apple", "Samsung", "Sony"]
+  },
+  "demographics": {
+    "age_group": "25-34",
+    "gender": "M",
+    "location": "US-CA"
+  },
+  "session_context": {
+    "current_category": "Electronics",
+    "session_start": 1698765432,
+    "page_views_in_session": 5
+  },
+  "last_updated": 1698765432
+}
+TTL: 24 hours
+```
 
-**Total Candidate Pool:** ~150 items → Ranked by ML model → Top 10 served
+### Item Features (Redis Feature Store)
 
-*See pseudocode.md::CandidateGenerator for implementation.*
+```
+Key: item:{item_id}:features
+Value: {
+  "item_id": "456",
+  "title": "Apple MacBook Pro M3",
+  "category": "Electronics > Laptops",
+  "price": 1999.00,
+  "brand": "Apple",
+  "tags": ["laptop", "m3", "apple", "macbook", "pro"],
+  "popularity_score": 0.95,
+  "rating": 4.8,
+  "num_reviews": 1234,
+  "embedding_version": "v2024-10"
+}
+TTL: 7 days
+```
+
+### User Embeddings (Model Store)
+
+```
+Key: user_embedding:{user_id}
+Value: float32[128]  // 128-dimensional vector
+Size: 512 bytes per user
+Storage: In-memory cache (hot users) + S3 (all users)
+```
+
+### Item Embeddings (Model Store)
+
+```
+Key: item_embedding:{item_id}
+Value: float32[128]  // 128-dimensional vector
+Size: 512 bytes per item
+Storage: In-memory cache (hot items) + S3 (all items)
+ANN Index: HNSW for fast similarity search
+```
+
+### Training Data (S3 - Parquet Format)
+
+```
+Table: user_interactions
+Partitioned by: date (YYYY-MM-DD)
+
+Columns:
+- user_id (string)
+- item_id (string)
+- action_type (string): view, click, add_to_cart, purchase, rate
+- timestamp (bigint): Unix timestamp
+- session_id (string)
+- context (json): device, location, referrer
+- rating (float): For explicit feedback (1-5 stars)
+- dwell_time (int): Time spent on item page (seconds)
+
+Size: ~1 GB per partition (100M events)
+Retention: 2 years (730 partitions × 1 GB = 730 GB compressed)
+```
 
 ---
 
-### 3.5 Offline Training Pipeline (Batch Layer)
+## 5. Detailed Component Design
 
-> 📊 **See batch training architecture:** [HLD Diagrams - Batch Training](./hld-diagram.md#batch-training-pipeline)
+### 5.1 Recommendation API (Serving Layer)
 
-**Training Schedule:** Daily (every 24 hours)
+**Tech Stack:**
 
-**Pipeline Steps:**
+- Language: Go or Java (low latency, high throughput)
+- Framework: gRPC (internal), REST (external)
+- Load Balancer: Envoy or Nginx
+- Instances: 100 instances (1000 QPS each)
 
-1. **Data Extraction** (4 hours)
-    - Read last 90 days of clickstream data from Cassandra/ClickHouse
-    - Filter noise (bots, outliers)
-    - Output: Parquet files in S3 (~5 TB)
+**Recommendation Flow:**
 
-2. **Feature Engineering** (6 hours)
-    - Compute user features (total purchases, avg session length, preferred categories)
-    - Compute item features (popularity, engagement rate)
-    - Output: Feature tables in S3
+1. **Receive Request**
+   ```
+   GET /recommendations?user_id=123&context=homepage&num_results=20
+   ```
 
-3. **Model Training** (10 hours)
-    - **Collaborative Filtering:** Alternating Least Squares (ALS) on user-item matrix
-    - **Deep Learning:** Two-tower neural network (user tower + item tower)
-    - Output: Model artifacts (10 GB) saved to Model Store (S3/MLflow)
+2. **Fetch User Features** (from Redis Feature Store)
+    - Recent views, preferences, demographics
+    - Latency: <1ms (Redis local cache)
 
-4. **Model Deployment** (1 hour)
-    - Load new model into TensorFlow Serving
-    - Gradual rollout (10% → 50% → 100% traffic)
-    - Monitor A/B test metrics (CTR, conversion rate)
+3. **Load ML Model** (from in-memory cache)
+    - User embedding, item embeddings
+    - Latency: ~0ms (pre-loaded in memory)
 
-**Total Training Time:** ~21 hours (leaves 3 hours buffer before next cycle)
+4. **Candidate Generation** (100-1000 candidates)
+    - Collaborative Filtering: Top 500 items based on user embedding similarity
+    - Content-Based: Top 300 items based on recent views
+    - Popular Items: Top 200 items (trending, high engagement)
 
-*See pseudocode.md::train_collaborative_filtering() for training logic.*
+5. **Ranking** (Score 1000 candidates)
+    - Multi-layer perceptron (MLP) model
+    - Features: user embedding · item embedding, popularity, price, category match
+    - Output: Personalized score for each candidate
+
+6. **Post-Processing**
+    - Deduplication (remove already viewed items)
+    - Diversity (ensure variety in categories)
+    - Business rules (promote sponsored items, new arrivals)
+
+7. **Return Top N** (e.g., 20 items)
+    - Latency: ~30ms (p50), ~50ms (p99)
+
+**Optimization Techniques:**
+
+1. **Caching**
+    - **User embedding cache:** In-memory (hot users)
+    - **Item embedding cache:** In-memory (hot items, 10% of catalog)
+    - **Popular recommendations cache:** Pre-computed top 1000 items for generic queries
+
+2. **Parallelization**
+    - Fetch user features and item candidates in parallel (goroutines/threads)
+    - Scoring: Batch matrix multiplication (GPU acceleration for deep models)
+
+3. **Fallback Strategies**
+    - If user features unavailable → Use demographic-based recommendations
+    - If model unavailable → Use popularity-based recommendations
+    - Circuit breaker for downstream dependencies (Feature Store, Model Store)
+
+### 5.2 Feature Store (Redis)
+
+**Purpose:** Store and serve real-time user/item features with <1ms latency.
+
+**Tech Stack:**
+
+- Redis Cluster (6 nodes, 3 replicas)
+- Memory: 500 GB (100M users × 5 KB features)
+- Persistence: AOF (Append-Only File) for durability
+
+**Feature Update Pipeline:**
+
+1. **Event Collection** (Kafka)
+    - User action (view, click, purchase) → Kafka topic `user_events`
+
+2. **Stream Processing** (Kafka Streams or Flink)
+    - Aggregate recent actions (last 5 views) in sliding window
+    - Compute session context (current category, page views)
+
+3. **Write to Redis**
+    - Update `user:{user_id}:features` with latest data
+    - Latency: <100ms (event → Redis)
+
+**Example: Update Recent Views**
+
+*See pseudocode.md::update_recent_views() for implementation*
+
+When user views item "789":
+
+1. Fetch current recent_views: ["456", "123", "999", "888", "777"]
+2. Add new item to front: ["789", "456", "123", "999", "888"]
+3. Trim to max 5 items
+4. Write back to Redis
+5. Set TTL: 24 hours
+
+### 5.3 Batch Training (Spark)
+
+**Purpose:** Train ML models on historical data (365 TB) to generate accurate user/item embeddings.
+
+**Tech Stack:**
+
+- Apache Spark (100-node cluster)
+- Training Data: S3 (Parquet format, partitioned by date)
+- Training Framework: Spark MLlib (ALS), PyTorch (Deep Learning)
+
+**Training Pipeline (Daily Job):**
+
+1. **Data Collection** (6 hours, 12 AM - 6 AM)
+    - Read last 30 days of user interactions from S3
+    - Filter out bots, invalid events
+    - Aggregate implicit feedback (views, clicks) and explicit feedback (ratings)
+
+2. **Feature Engineering** (1 hour)
+    - User features: Interaction history, demographics, engagement metrics
+    - Item features: Category, price, popularity, tags
+
+3. **Model Training** (4 hours)
+    - **Collaborative Filtering:** Matrix Factorization (ALS algorithm)
+        - Input: User-item interaction matrix (100M users × 10M items)
+        - Output: User embeddings (128D), Item embeddings (128D)
+        - Algorithm: Alternating Least Squares (Spark MLlib)
+
+    - **Deep Learning:** Two-Tower Model (optional, for higher accuracy)
+        - User tower: [user features] → MLP → 128D embedding
+        - Item tower: [item features] → MLP → 128D embedding
+        - Training: Contrastive learning (positive pairs: user-item interactions)
+
+4. **Model Evaluation** (1 hour)
+    - Offline metrics: Precision@10, Recall@10, NDCG@10, AUC
+    - Hold-out validation set (last 7 days)
+    - Compare to baseline model (previous day)
+
+5. **Model Deployment** (30 min)
+    - Export embeddings to S3 (Parquet format)
+    - Blue-green deployment (gradual rollout to 10% → 100%)
+    - Monitor online metrics (CTR, engagement)
+
+**Total Runtime:** ~12 hours (overnight job)
+
+### 5.4 Real-Time Feature Updates (Kafka Streams)
+
+**Purpose:** Process user events in real-time and update Feature Store within 1 second.
+
+**Tech Stack:**
+
+- Kafka Streams or Apache Flink
+- Stateful processing (maintain user session state)
+- Throughput: 50k events/sec
+
+**Processing Logic:**
+
+*See pseudocode.md::process_user_event() for implementation*
+
+1. **Consume Event** from Kafka topic `user_events`
+   ```json
+   {
+     "user_id": "123",
+     "event_type": "view",
+     "item_id": "789",
+     "timestamp": 1698765432,
+     "session_id": "sess-abc-123"
+   }
+   ```
+
+2. **Update Session Context** (stateful operation)
+    - Track page views in current session
+    - Identify current category (infer from recent views)
+
+3. **Update Recent Views** (Redis)
+    - Append item to recent_views list (max 5 items)
+    - Update timestamp
+
+4. **Update Aggregates** (windowed aggregation)
+    - Category preferences (count views per category in last 7 days)
+    - Brand preferences
+
+5. **Write to Redis** (Feature Store)
+    - Latency: <100ms (event → Redis)
+
+### 5.5 Candidate Generation and Ranking
+
+**Candidate Generation (Recall):**
+
+Goal: Generate 1000 candidates from 10M item catalog in <10ms.
+
+**Three Sources:**
+
+1. **Collaborative Filtering** (500 candidates)
+    - Compute: user_embedding · item_embeddings (dot product)
+    - Use Approximate Nearest Neighbors (ANN) for fast search
+    - Algorithm: HNSW (Hierarchical Navigable Small World)
+    - Latency: <5ms for 500 candidates
+
+2. **Content-Based** (300 candidates)
+    - Based on user's recent views and preferences
+    - Filter items by category, price range, brand
+    - Use inverted index for fast filtering
+
+3. **Popular Items** (200 candidates)
+    - Trending items (high engagement in last 24 hours)
+    - New arrivals (recently added to catalog)
+    - Editorial picks (curated by content team)
+
+**Ranking (Precision):**
+
+Goal: Score 1000 candidates and return top 20 in <20ms.
+
+**Ranking Model:**
+
+*See pseudocode.md::rank_candidates() for implementation*
+
+Input features (per candidate):
+
+- User embedding · Item embedding (dot product)
+- User features: age, gender, location
+- Item features: price, category, popularity, rating
+- Context features: time of day, device type
+- Interaction features: category match, brand match
+
+Model: Multi-layer Perceptron (MLP) with 3 hidden layers
+
+- Layer 1: 128 neurons (ReLU)
+- Layer 2: 64 neurons (ReLU)
+- Layer 3: 32 neurons (ReLU)
+- Output: 1 neuron (sigmoid) → score [0, 1]
+
+Training: Logistic regression (binary classification)
+
+- Positive examples: User clicked/purchased item
+- Negative examples: User viewed but did not click
+
+**Inference:**
+
+- Batch inference: Score all 1000 candidates in one forward pass
+- Latency: <10ms (CPU) or <2ms (GPU)
 
 ---
 
-### 3.6 Feature Store Architecture
+## 6. Bottlenecks and Scaling Strategies
 
-The **Feature Store** is the bridge between the batch layer and the speed layer, providing:
+### Bottleneck 1: Serving Latency (>50ms)
 
-1. **Real-Time Features:** Derived from Kafka stream (last 5 views, last action timestamp)
-2. **Batch Features:** Pre-computed from historical data (user embeddings, lifetime stats)
+**Problem:**
+
+- Multiple network calls: Feature Store (Redis), Model Store (S3)
+- Complex computation: Candidate generation (ANN), ranking (MLP inference)
+- Target: <50ms p99, but currently ~80ms
+
+**Solutions:**
+
+1. **Pre-Compute Popular Recommendations**
+    - Cache top 1000 recommendations for generic queries (no user context)
+    - Covers 30% of traffic (anonymous users, cold start)
+    - Latency: <5ms (Redis cache hit)
+
+2. **In-Memory Caching**
+    - Load user/item embeddings in serving instance memory
+    - Avoids Redis roundtrip for hot users/items
+    - Cache hit rate: 80% (Pareto principle: 20% of users generate 80% of traffic)
+
+3. **Model Simplification**
+    - Use lightweight ranking model (logistic regression instead of deep MLP)
+    - Trade-off: 2% accuracy loss for 10x faster inference
+
+4. **Parallelization**
+    - Fetch features and generate candidates in parallel (goroutines)
+    - Use gRPC multiplexing for batch requests
+
+5. **Edge Caching (CDN)**
+    - Cache recommendations at CDN edge (CloudFlare, Fastly)
+    - TTL: 1 minute (acceptable staleness for non-personalized scenarios)
+
+### Bottleneck 2: Feature Store Overload (100k QPS)
+
+**Problem:**
+
+- Redis cluster handles 100k reads/sec
+- Each read: ~1 KB data (user features)
+- Memory: 500 GB (exceeds single-node capacity)
+
+**Solutions:**
+
+1. **Redis Cluster Sharding**
+    - Shard by user_id (consistent hashing)
+    - 10 Redis nodes (10k QPS each)
+    - Replication: 3x (master + 2 replicas)
+
+2. **Feature Compression**
+    - Store only essential features (recent 5 views, not full history)
+    - Use efficient encoding (protobuf instead of JSON)
+    - Reduce payload size: 1 KB → 200 bytes (5x compression)
+
+3. **Read Replicas**
+    - Route reads to replicas (read-heavy workload)
+    - Master: Handles writes only (~1k QPS)
+    - Replicas: Handle reads (100k QPS split across replicas)
+
+4. **Local Cache (Serving Instance)**
+    - Cache hot user features in serving instance memory
+    - Eviction: LRU (Least Recently Used)
+    - Cache hit rate: 70% (reduces Redis load by 70%)
+
+### Bottleneck 3: Batch Training Scalability (365 TB)
+
+**Problem:**
+
+- Training data: 365 TB/year (3.65 trillion events)
+- Training time: 12 hours (too long, blocks next-day deployment)
+- Spark cluster: 100 nodes (expensive)
+
+**Solutions:**
+
+1. **Incremental Training**
+    - Train only on last 30 days (not full year)
+    - Reduces data: 365 TB → 30 TB (12x smaller)
+    - Training time: 12 hours → 2 hours
+
+2. **Sample-Based Training**
+    - Train on 10% random sample (representative)
+    - Reduces data: 30 TB → 3 TB (10x smaller)
+    - Trade-off: 1-2% accuracy loss
+
+3. **Model Distillation**
+    - Train large, accurate model offline (weekly)
+    - Distill to smaller model (daily fine-tuning)
+    - Faster training, similar accuracy
+
+4. **Feature Pre-Aggregation**
+    - Pre-compute aggregates (user's top categories, brands) offline
+    - Training uses pre-aggregated features (not raw events)
+    - Reduces training complexity
+
+### Bottleneck 4: Cold Start Problem
+
+**Problem:**
+
+- New users: No interaction history → Cannot generate personalized recommendations
+- New items: No user interactions → Cannot compute item embeddings
+
+**Solutions:**
+
+1. **New User Cold Start**
+    - **Option 1:** Demographic-based recommendations (age, gender, location)
+    - **Option 2:** Onboarding quiz ("Select your interests")
+    - **Option 3:** Popular items (trending, editorial picks)
+
+2. **New Item Cold Start**
+    - **Option 1:** Content-based features (category, tags, price)
+    - **Option 2:** Similar items (based on content features, not interactions)
+    - **Option 3:** Promote as "New Arrivals" (boost in ranking)
+
+3. **Hybrid Approach**
+    - Combine collaborative filtering (if available) + content-based (always available)
+    - Weight: 70% collaborative + 30% content-based (for warm users)
+    - Weight: 0% collaborative + 100% content-based (for cold users)
+
+---
+
+## 7. Multi-Algorithm Serving (A/B Testing)
+
+**Challenge:** Run multiple recommendation algorithms simultaneously for A/B testing.
 
 **Architecture:**
 
 ```
-Kafka (Events)
-  ↓
-Kafka Streams / Flink (Stream Processor)
-  ↓
-Redis Cluster (Real-Time Feature Store)
-  ↓
-Recommendation Service (Fetch features in <5ms)
+                     [Recommendation API]
+                             |
+          ┌──────────────────┼──────────────────┐
+          │                  │                  │
+    [Algorithm A]      [Algorithm B]      [Algorithm C]
+  Collaborative      Content-Based      Deep Learning
+   Filtering             (Baseline)       (Two-Tower)
+      50%                  25%                 25%
 ```
 
-**Key Design Decisions:**
+**Implementation:**
 
-| Aspect                | Decision                   | Rationale                                                  |
-|-----------------------|----------------------------|------------------------------------------------------------|
-| **Real-Time Storage** | Redis Cluster              | Sub-5ms latency, supports atomic updates (INCR)            |
-| **Batch Storage**     | S3 (Parquet)               | Cost-effective for petabyte-scale historical data          |
-| **Stream Processor**  | Kafka Streams              | Exactly-once semantics, fault-tolerant stateful processing |
-| **Feature Format**    | JSON (Redis), Parquet (S3) | JSON for flexibility, Parquet for compression              |
+1. **User Bucketing** (Consistent Hashing)
+    - Hash user_id → Assign to bucket [A, B, C]
+    - Bucket A: 50% of users (Collaborative Filtering)
+    - Bucket B: 25% of users (Content-Based)
+    - Bucket C: 25% of users (Deep Learning)
 
-*See this-over-that.md for Redis vs DynamoDB comparison.*
+2. **Model Versioning**
+    - Store multiple models in Model Store (S3)
+    - Model A: `s3://models/collaborative-v2024-10-29.pkl`
+    - Model B: `s3://models/content-based-v2024-10-29.pkl`
+    - Model C: `s3://models/two-tower-v2024-10-29.pkl`
 
----
+3. **Metrics Collection**
+    - Track per-algorithm metrics (CTR, engagement, conversion)
+    - Send to analytics pipeline (Kafka → ClickHouse → Grafana)
 
-### 3.7 Similarity Search (Item-to-Item)
-
-**Problem:** Given an item `item_id`, find the 50 most similar items in <5ms from a catalog of 10 million items.
-
-**Solution:** **Approximate Nearest Neighbors (ANN)** using **FAISS** with **HNSW** (Hierarchical Navigable Small World)
-index.
-
-**How It Works:**
-
-1. Each item is represented as a **128-dimensional embedding vector** (learned during training).
-2. All item vectors are indexed in **FAISS** using the **HNSW algorithm**.
-3. At query time, compute similarity via **cosine distance** in the embedding space.
-
-**Performance:**
-
-- **Query Latency:** <5ms for top-50 similar items
-- **Index Size:** 10M items × 128 dims × 4 bytes = ~5 GB (fits in RAM)
-- **Accuracy:** 95% recall@50 (acceptable trade-off for speed)
-
-*See pseudocode.md::find_similar_items() for implementation.*
+4. **Winner Selection**
+    - After 1 week: Statistical significance test (t-test)
+    - Promote winning algorithm to 100% traffic
 
 ---
 
-## 4. Architectural Decisions (This Over That)
+## 8. Common Anti-Patterns
 
-> 📊 **See detailed analysis:** [Design Decisions](./this-over-that.md)
+### ❌ Anti-Pattern 1: Synchronous Model Training During Serving
 
-### 4.1 Lambda Architecture vs Kappa Architecture
+**Problem:**
 
-| Aspect                | Lambda (Chosen)                 | Kappa (Alternative)               |
-|-----------------------|---------------------------------|-----------------------------------|
-| **Training Data**     | Batch (historical, petabytes)   | Stream-only (recent, limited)     |
-| **Model Accuracy**    | High (trained on full history)  | Lower (limited lookback)          |
-| **System Complexity** | Higher (two separate pipelines) | Lower (single streaming pipeline) |
-| **Latency**           | High (24h model refresh)        | Low (continuous retraining)       |
-
-**Decision:** Lambda Architecture for now. Migrate to Kappa when stream processing matures.
-
----
-
-### 4.2 Redis vs DynamoDB for Feature Store
-
-| Aspect          | Redis (Chosen)                  | DynamoDB (Alternative)      |
-|-----------------|---------------------------------|-----------------------------|
-| **Latency**     | <2ms (in-memory)                | 5-10ms (SSD-backed)         |
-| **Cost**        | Moderate (pay for RAM)          | Higher (pay for throughput) |
-| **Scalability** | Manual sharding (Redis Cluster) | Auto-scaling (serverless)   |
-| **Persistence** | Optional (AOF/RDB snapshots)    | Fully durable               |
-
-**Decision:** Redis for <50ms latency requirement. DynamoDB as fallback for durability.
-
----
-
-### 4.3 TensorFlow Serving vs Custom gRPC Service
-
-| Aspect               | TensorFlow Serving (Chosen)      | Custom Service (Alternative)        |
-|----------------------|----------------------------------|-------------------------------------|
-| **Latency**          | 10-20ms (batching, GPU)          | 5-10ms (CPU, no framework overhead) |
-| **Flexibility**      | Limited (TensorFlow models only) | Full control (any algorithm)        |
-| **Ops Complexity**   | Lower (managed infra)            | Higher (custom deployment)          |
-| **Model Versioning** | Built-in (A/B testing support)   | Manual implementation               |
-
-**Decision:** TensorFlow Serving for managed ops. Migrate to custom service if latency becomes critical.
-
----
-
-## 5. Bottlenecks and Future Scaling
-
-### 5.1 Serving Latency (Current: 30-50ms)
-
-**Problem:** Multiple network calls (Redis, Model Serving, FAISS) add up to 30-50ms.
-
-**Mitigations:**
-
-1. **Pre-Compute Popular Recommendations**
-    - Cache top 10 recommendations for 80% of users (based on rough user segments)
-    - Store in Redis with 1-hour TTL
-    - Reduces latency to <5ms for cache hits
-
-2. **Single-Flight gRPC Calls**
-    - Parallelize feature fetch and candidate generation using Go's goroutines or async I/O
-    - Reduces sequential latency from 27ms → 5ms (longest call)
-
-3. **Model Optimization**
-    - Quantize model weights (float32 → int8) for 4x smaller size and faster inference
-    - Use TensorFlow Lite or ONNX Runtime for optimized serving
-
-*See pseudocode.md::optimize_latency() for implementation.*
-
----
-
-### 5.2 Feature Store Throughput (Current: 1.1M lookups/sec)
-
-**Problem:** Redis is single-threaded per shard, limiting throughput.
-
-**Mitigations:**
-
-1. **Increase Redis Cluster Shards**
-    - Scale from 10 shards → 50 shards (distribute load)
-    - Use consistent hashing to route `user_id` to specific shard
-
-2. **Read Replicas**
-    - Deploy 2 read replicas per master shard
-    - Route all feature reads to replicas (master handles writes only)
-
-3. **Feature Denormalization**
-    - Duplicate frequently accessed features across multiple keys
-    - Trade storage for reduced query complexity
-
----
-
-### 5.3 Model Freshness (Current: 24 hours)
-
-**Problem:** User preferences change quickly (e.g., breaking news, trending products). 24-hour model refresh is too
-slow.
-
-**Mitigations:**
-
-1. **Incremental Model Updates**
-    - Instead of full retrain, update model incrementally every 1-2 hours using mini-batch gradient descent
-    - Requires streaming ML framework (Flink ML, River)
-
-2. **Hybrid Real-Time Boosting**
-    - Use batch model as base score
-    - Apply real-time boost based on trending signals (e.g., +10% score for items clicked in last hour)
-    - Implemented in ranking layer (no model retrain needed)
-
-3. **Migrate to Kappa Architecture**
-    - Replace batch training with continuous stream-based training
-    - Requires significant engineering investment (future roadmap)
-
-*See this-over-that.md::Model-Freshness for detailed trade-offs.*
-
----
-
-### 5.4 Cold Start Problem
-
-**Problem:** New users have no history. New items have no engagement data.
-
-**Mitigations:**
-
-**New Users:**
-
-1. Explicit onboarding (ask for interests during signup)
-2. Serve globally popular items in selected categories
-3. Aggressively explore (serve diverse content to learn preferences fast)
-
-**New Items:**
-
-1. Use content-based filtering (metadata, title, description similarity)
-2. Manual curation (editorial picks for new items)
-3. Exploration budget (show new items to 5% of users, monitor engagement)
-
-*See pseudocode.md::handle_cold_start() for implementation.*
-
----
-
-## 6. Common Anti-Patterns
-
-### ❌ **Anti-Pattern 1: Synchronous Model Inference in Critical Path**
-
-**Problem:** Calling TensorFlow Serving synchronously adds 20ms to every request, violating latency SLA.
-
-**Why It's Bad:**
-
-- P99 latency spikes to 80-100ms during model server load
-- Single point of failure (model server down = no recommendations)
+- Training model on-the-fly during recommendation request
+- Latency: >5 seconds (unacceptable)
 
 **Solution:**
+✅ **Pre-Train Models Offline** (Batch Layer)
 
-✅ **Use Pre-Computed Recommendations**
+- Train models once per day in batch job
+- Serve pre-computed embeddings (cached in memory)
+- Latency: <50ms
 
-- Generate and cache recommendations for all users every 1 hour
-- Serve from Redis cache (<2ms)
-- Fall back to real-time inference only for cache misses (5% of requests)
+### ❌ Anti-Pattern 2: Single Recommendation Algorithm
 
-```
-function get_recommendations(user_id):
-  cached = redis.get(f"recs:{user_id}")
-  if cached:
-    return cached  // <2ms
-  
-  // Cache miss: compute in real-time
-  features = fetch_features(user_id)
-  recommendations = model_serving_api.predict(features)  // 20ms
-  redis.set(f"recs:{user_id}", recommendations, ttl=3600)
-  return recommendations
-```
+**Problem:**
 
----
-
-### ❌ **Anti-Pattern 2: Training on Raw Clickstream Events**
-
-**Problem:** Directly training on raw events (views, clicks) without aggregation or filtering.
-
-**Why It's Bad:**
-
-- Bots and outliers pollute training data (one user with 10,000 clicks/day)
-- Implicit feedback (views) is noisy (accidental clicks, curiosity browsing)
-- Model overfits to power users
+- Only collaborative filtering (fails for cold start)
+- Or only content-based (ignores user preferences)
 
 **Solution:**
+✅ **Hybrid Approach** (Ensemble)
 
-✅ **Feature Engineering + Data Cleaning**
+- Combine collaborative filtering + content-based + popularity
+- Weight: 60% collaborative + 30% content-based + 10% popular
+- Handles cold start gracefully
 
-- Filter bot traffic (>100 events/minute from single user)
-- Aggregate events into sessions (group by 30-minute window)
-- Weight events by type: `PURCHASE=10`, `CLICK=3`, `VIEW=1`
-- Cap user engagement (max 50 events/day per user for training)
+### ❌ Anti-Pattern 3: No Real-Time Features
 
-*See pseudocode.md::clean_training_data() for implementation.*
+**Problem:**
 
----
-
-### ❌ **Anti-Pattern 3: Using Single Recommendation Strategy**
-
-**Problem:** Relying only on collaborative filtering (users who liked X also liked Y).
-
-**Why It's Bad:**
-
-- **Filter Bubble:** Users only see items similar to past behavior (no discovery)
-- **Cold Start:** Fails for new users/items with no history
-- **Popularity Bias:** Always recommends popular items (ignores niche interests)
+- Only use batch features (updated daily)
+- Ignores user's current session behavior
 
 **Solution:**
+✅ **Real-Time Feature Store** (Speed Layer)
 
-✅ **Multi-Strategy Blending + Exploration**
+- Update features in real-time (<1 second) from Kafka stream
+- Incorporate current session context (last 5 views)
+- Improves personalization significantly (+15% CTR)
 
-- Blend 4 strategies: collaborative (50%), content-based (20%), popular (20%), random exploration (10%)
-- Use Thompson Sampling for exploration (balance exploitation vs exploration)
-- Enforce diversity constraint (no more than 3 items from same category in top 10)
+### ❌ Anti-Pattern 4: No Diversity in Recommendations
 
-*See pseudocode.md::blend_strategies() for implementation.*
+**Problem:**
 
----
-
-### ❌ **Anti-Pattern 4: Ignoring Temporal Dynamics**
-
-**Problem:** Treating all historical data equally (5-year-old click has same weight as today's click).
-
-**Why It's Bad:**
-
-- User preferences evolve (past interests may no longer be relevant)
-- Seasonal trends ignored (e.g., holiday shopping patterns)
-- Model becomes stale and less accurate over time
+- All recommendations from same category (filter bubble)
+- Example: User views 1 laptop → Recommended 20 laptops
 
 **Solution:**
+✅ **Diversity Post-Processing**
 
-✅ **Time-Decay Weighting + Sliding Window**
+- Ensure variety in categories (max 5 items per category)
+- Add exploration (10% random items from different categories)
+- Balance exploitation (user preferences) vs exploration (discovery)
 
-- Apply exponential decay to historical events: $\text{weight} = e^{-\lambda \cdot \text{days\_ago}}$
-- Use 90-day sliding window for training (ignore older data)
-- Separate models for different time periods (e.g., holiday season model)
+### ❌ Anti-Pattern 5: Ignoring Negative Signals
 
-*See pseudocode.md::apply_time_decay() for implementation.*
+**Problem:**
+
+- Only use positive feedback (clicks, purchases)
+- Ignores negative signals (user skipped item, closed page quickly)
+
+**Solution:**
+✅ **Incorporate Negative Feedback**
+
+- Explicit: User dislikes item (thumbs down)
+- Implicit: Low dwell time (<5 seconds), did not click, did not purchase
+- Use in training: Negative examples for logistic regression
 
 ---
 
-## 7. Alternative Approaches
+## 9. Alternative Approaches
 
-### 7.1 Kappa Architecture (Stream-Only)
+### Approach 1: Fully Online Learning (Kappa Architecture)
 
-**How It Works:**
+**Description:**
 
-- Replace batch training with continuous stream-based training using Flink ML or Kafka Streams
-- Model updates incrementally every hour instead of daily full retrain
+- Replace batch training with continuous online learning
+- Train model incrementally on real-time stream (no batch jobs)
 
 **Pros:**
 
-- ✅ Lower model freshness latency (1 hour vs 24 hours)
-- ✅ Simpler architecture (single pipeline)
-- ✅ Captures breaking trends faster
+- ✅ No 24-hour lag (model always up-to-date)
+- ✅ Adapts to user behavior changes instantly
+- ✅ Handles concept drift (user preferences change over time)
 
 **Cons:**
 
-- ❌ Limited training data (only recent events, not full history)
-- ❌ Stream processing is complex and expensive
-- ❌ Requires mature streaming ML infrastructure
+- ❌ More complex (stateful stream processing)
+- ❌ Harder to debug (no reproducible batch runs)
+- ❌ Requires careful model update strategy (avoid catastrophic forgetting)
 
-**When to Use:** When model freshness is critical (news, social media, live events).
+**When to Use:** When freshness is critical (TikTok "For You" feed, news recommendations)
 
----
+### Approach 2: Rule-Based Recommendations (No ML)
 
-### 7.2 Federated Learning (On-Device Training)
+**Description:**
 
-**How It Works:**
-
-- Train recommendation models locally on user devices (mobile phones)
-- Aggregate model updates on server without seeing raw user data
+- Use hand-crafted rules instead of ML models
+- Example: "Users who viewed X also viewed Y"
 
 **Pros:**
 
-- ✅ Privacy-preserving (user data never leaves device)
-- ✅ Captures hyper-personalized signals
+- ✅ Simple to implement and debug
+- ✅ No training infrastructure needed
+- ✅ Explainable (business can understand rules)
 
 **Cons:**
 
-- ❌ High device compute/battery cost
-- ❌ Complex model aggregation logic
-- ❌ Limited to simple models (cannot train large neural networks)
+- ❌ Not personalized (same for all users)
+- ❌ Requires manual tuning (rules become outdated)
+- ❌ Lower accuracy than ML models (10-20% worse CTR)
 
-**When to Use:** Privacy-sensitive applications (healthcare, finance).
+**When to Use:** Small-scale systems (<1M users), simple use cases
 
----
+### Approach 3: Graph-Based Recommendations (Neo4j)
 
-### 7.3 Graph-Based Recommendations (GNN)
+**Description:**
 
-**How It Works:**
-
-- Model users and items as nodes in a graph (edges = interactions)
-- Use Graph Neural Networks (GNN) to learn embeddings that capture graph structure
+- Model users and items as graph (nodes = users/items, edges = interactions)
+- Use graph algorithms (PageRank, community detection) for recommendations
 
 **Pros:**
 
-- ✅ Captures complex relationships (friends-of-friends, co-purchased items)
-- ✅ Better cold start (propagate signals through graph)
+- ✅ Natural representation of relationships
+- ✅ Explainable (show path: User → Item1 → Item2)
+- ✅ Handles complex relationships (multi-hop: friend-of-friend)
 
 **Cons:**
 
-- ❌ Computationally expensive (graph traversal + message passing)
-- ❌ Hard to scale to billions of nodes/edges
-- ❌ Requires specialized infrastructure (Neo4j, DGL)
+- ❌ Slow queries (graph traversal expensive)
+- ❌ Hard to scale (graph databases limited to single node)
+- ❌ Not suitable for real-time serving (<50ms)
 
-**When to Use:** Social networks, e-commerce with rich relationship data.
+**When to Use:** Social networks (LinkedIn, Facebook), relationship-heavy domains
 
 ---
 
-## 8. Monitoring and Observability
+## 10. Monitoring and Observability
 
 ### Key Metrics
 
-| Metric                       | Target    | Alert Threshold | Purpose                        |
-|------------------------------|-----------|-----------------|--------------------------------|
-| **Serving Latency (p99)**    | <50ms     | >100ms          | User experience                |
-| **Cache Hit Rate**           | >80%      | <70%            | Reduce model inference load    |
-| **Model Inference Time**     | <20ms     | >50ms           | Detect model server overload   |
-| **Feature Fetch Latency**    | <5ms      | >10ms           | Redis performance              |
-| **CTR (Click-Through Rate)** | 5-10%     | <3%             | Recommendation relevance       |
-| **Conversion Rate**          | 2-5%      | <1%             | Business impact                |
-| **Model Training Duration**  | <20 hours | >24 hours       | Ensure daily refresh completes |
-| **Feature Store QPS**        | 100k      | >200k           | Capacity planning              |
+**Business Metrics:**
 
-*See this-over-that.md::Monitoring for detailed dashboard design.*
+| Metric                   | Target        | Alert Threshold |
+|--------------------------|---------------|-----------------|
+| Click-Through Rate (CTR) | >5%           | <4%             |
+| Conversion Rate          | >2%           | <1.5%           |
+| Engagement (dwell time)  | >60 seconds   | <45 seconds     |
+| Diversity (categories)   | >5 categories | <3 categories   |
+| Cold Start Coverage      | >95%          | <90%            |
 
----
+**System Metrics:**
 
-## 9. Trade-offs Summary
+| Metric                | Target    | Alert Threshold |
+|-----------------------|-----------|-----------------|
+| API Latency (p99)     | <50ms     | >100ms          |
+| API QPS               | 100k      | <50k (degraded) |
+| Feature Store Latency | <1ms      | >5ms            |
+| Cache Hit Rate        | >80%      | <70%            |
+| Model Freshness       | <24 hours | >48 hours       |
+| Error Rate            | <0.1%     | >1%             |
 
-| What We Gain                            | What We Sacrifice                                             |
-|-----------------------------------------|---------------------------------------------------------------|
-| ✅ **High Accuracy** (petabyte training) | ❌ Model freshness (24h lag)                                   |
-| ✅ **Low Latency** (<50ms serving)       | ❌ High infrastructure cost (Redis, FAISS, TensorFlow Serving) |
-| ✅ **Scalability** (100k QPS)            | ❌ System complexity (Lambda Architecture)                     |
-| ✅ **Multi-Strategy Flexibility**        | ❌ Harder to debug/explain recommendations                     |
-| ✅ **Handles Cold Start** (hybrid)       | ❌ Suboptimal for new users initially                          |
+**Dashboards:**
 
----
+1. **Real-Time Dashboard** (Grafana)
+    - API QPS, latency (p50, p95, p99)
+    - Error rate, timeout rate
+    - Cache hit rate (Feature Store, Model Store)
 
-## 10. Real-World Examples
+2. **Business Dashboard** (Looker/Tableau)
+    - Daily CTR, conversion rate
+    - A/B test results (algorithm comparison)
+    - Revenue impact (attributable to recommendations)
 
-| Company     | Use Case                | Key Techniques                                                       |
-|-------------|-------------------------|----------------------------------------------------------------------|
-| **Netflix** | Video recommendations   | Two-tower neural network, A/B testing, matrix factorization          |
-| **Amazon**  | Product recommendations | Item-to-item collaborative filtering, real-time session features     |
-| **YouTube** | Video recommendations   | Deep neural networks, candidate generation + ranking, exploration    |
-| **Spotify** | Music recommendations   | Collaborative filtering, NLP on song metadata, session-based recs    |
-| **TikTok**  | For You Page            | Real-time features, short-term engagement signals, diversity ranking |
+3. **Training Dashboard** (MLflow)
+    - Training job status (running, failed, completed)
+    - Offline metrics (Precision@10, NDCG@10)
+    - Model version, deployment status
 
----
+### Alerts
 
-## 11. Key Takeaways
+**Critical Alerts** (PagerDuty, 24/7 on-call):
 
-1. **Lambda Architecture** is essential for balancing accuracy (batch training) and freshness (real-time features).
-2. **Feature Store** is the critical component bridging batch and speed layers.
-3. **Pre-compute and cache** aggressively to meet <50ms latency SLA (80% cache hit rate).
-4. **Multi-strategy blending** (collaborative + content-based + exploration) prevents filter bubbles.
-5. **ANN (FAISS/HNSW)** enables sub-5ms similarity search for item-to-item recommendations.
-6. **Cold start** requires hybrid approach (explicit signals + exploration + content-based).
-7. **Model freshness vs accuracy** is the fundamental trade-off (24h batch vs real-time stream).
+- API latency >100ms for 5 minutes → Page on-call engineer
+- Error rate >1% for 5 minutes → Page on-call engineer
+- Feature Store down (Redis cluster unavailable) → Page on-call engineer
 
----
+**Warning Alerts** (Slack, email):
 
-## 12. References
-
-### Academic Papers
-
-- **[Collaborative Filtering for Implicit Feedback Datasets](http://yifanhu.net/PUB/cf.pdf)** - Hu, Koren, Volinsky (
-  2008) - Foundation for ALS algorithm
-- *
-  *[Deep Neural Networks for YouTube Recommendations](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/45530.pdf)
-  ** - Covington et al. (2016) - Two-tower architecture
-- **[The Netflix Recommender System: Algorithms, Business Value, and Innovation](https://dl.acm.org/doi/10.1145/2843948)
-  ** - Gomez-Uribe, Hunt (2015) - Production ML at scale
-
-### Technical Documentation
-
-- **[FAISS: A Library for Efficient Similarity Search](https://github.com/facebookresearch/faiss)** - Facebook Research
-- **[TensorFlow Serving](https://www.tensorflow.org/tfx/guide/serving)** - Google
-- **[MLflow Model Registry](https://www.mlflow.org/docs/latest/model-registry.html)** - Databricks
-
-### Related Chapters
-
-- **[2.3.5 Batch vs Stream Processing](../../02-components/2.3.5-batch-vs-stream-processing.md)** - Lambda vs Kappa
-  architecture
-- **[2.1.1 RDBMS Deep Dive](../../02-components/2.1.1-rdbms-deep-dive.md)** - PostgreSQL for item metadata
-- **[2.2.1 Caching Deep Dive](../../02-components/2.2.1-caching-deep-dive.md)** - Redis feature store design
-- **[2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md)** - Clickstream ingestion
-- **[3.1.3 Distributed ID Generator](../3.1.3-distributed-id-generator/)** - User/Item ID generation
-- **[3.4.3 Distributed Monitoring System](../3.4.3-monitoring-system/)** - Monitoring ML pipelines
+- CTR drops >10% compared to yesterday → Alert ML team
+- Model training job failed → Alert ML engineers
+- Cache hit rate <70% → Alert infrastructure team
 
 ---
 
-## 13. Performance Summary
+## 11. Trade-offs Summary
 
-| Component              | Latency  | Throughput | Bottleneck          | Mitigation            |
-|------------------------|----------|------------|---------------------|-----------------------|
-| **Feature Fetch**      | 2-5ms    | 1.1M QPS   | Redis single-thread | Increase shards (50+) |
-| **Model Inference**    | 10-20ms  | 10k QPS    | GPU compute         | Batch inference       |
-| **ANN Search (FAISS)** | 2-5ms    | 100k QPS   | Index size (RAM)    | Partition by category |
-| **Total Serving**      | 30-50ms  | 100k QPS   | Sequential calls    | Parallelize + cache   |
-| **Batch Training**     | 20 hours | 1 job/day  | Spark shuffle       | Optimize joins        |
+| What We Gain                              | What We Sacrifice                               |
+|-------------------------------------------|-------------------------------------------------|
+| ✅ Low latency serving (<50ms)             | ❌ Complex architecture (Lambda with two layers) |
+| ✅ High accuracy (collaborative filtering) | ❌ 24-hour model lag (batch training)            |
+| ✅ Real-time features (<1 second)          | ❌ Additional infrastructure (Kafka, Redis)      |
+| ✅ Scalable (100k QPS)                     | ❌ High cost ($25k/month)                        |
+| ✅ Handles cold start (hybrid approach)    | ❌ Model complexity (multiple algorithms)        |
+| ✅ A/B testing support                     | ❌ More operational overhead                     |
 
 ---
+
+## 12. Real-World Examples
+
+### Netflix
+
+- **Scale:** 200M users, 10k+ recommendations per user per day
+- **Architecture:** Lambda (offline training + online serving)
+- **Algorithms:** Matrix factorization, deep learning (two-tower), bandits
+- **Key Innovation:** Row-based personalization (even thumbnail images personalized)
+
+### Amazon
+
+- **Scale:** 300M users, item-to-item collaborative filtering
+- **Architecture:** Batch pre-computation (item-item similarity matrix)
+- **Algorithms:** "Customers who bought X also bought Y"
+- **Key Innovation:** Real-time updates (purchase → update recommendations within 1 minute)
+
+### YouTube
+
+- **Scale:** 2B users, 1B hours watched daily
+- **Architecture:** Two-stage (candidate generation + ranking)
+- **Algorithms:** Deep neural networks (watch time prediction)
+- **Key Innovation:** Real-time features (watch history in current session)
+
+---
+
+## 13. References
+
+### Related System Design Components
+
+- **[2.3.5 Batch vs Stream Processing](../../02-components/2.3.5-batch-vs-stream-processing.md)** - Lambda Architecture
+- **[2.2.1 Caching Deep Dive](../../02-components/2.2.1-caching-deep-dive.md)** - Feature Store caching
+- **[2.1.11 Redis Deep Dive](../../02-components/2.1.11-redis-deep-dive.md)** - In-memory feature store
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md)** - Real-time event streaming
+- **[2.3.7 Apache Spark Deep Dive](../../02-components/2.3.7-apache-spark-deep-dive.md)** - Batch training pipeline
+- **[2.1.4 Database Scaling](../../02-components/2.1.4-database-scaling.md)** - Data storage strategies
+
+### Related Design Challenges
+
+- **[3.4.2 News Feed](../3.4.2-news-feed/)** - Real-time personalization, feed ranking
+- **[3.4.1 Stock Exchange](../3.4.1-stock-exchange/)** - Low-latency serving patterns
+- **[3.2.1 Twitter Timeline](../3.2.1-twitter-timeline/)** - Fanout strategies for recommendations
+
+### External Resources
+
+- **Netflix Paper:** [Recommender Systems Handbook](https://www.springer.com/gp/book/9780387858197) - Comprehensive guide
+- **YouTube Paper:** [Deep Neural Networks for YouTube Recommendations](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/45530.pdf) - Two-tower model
+- **Amazon Paper:** [Item-to-Item Collaborative Filtering](https://www.cs.umd.edu/~samir/498/Amazon-Recommendations.pdf) - Collaborative filtering
+- **Apache Spark:** [MLlib Documentation](https://spark.apache.org/docs/latest/ml-guide.html) - Machine learning library
+- **Redis Documentation:** [Redis Data Structures](https://redis.io/docs/data-types/) - Feature store patterns
+
+### Books
+
+- *Recommender Systems Handbook* by Francesco Ricci et al. - Comprehensive guide to recommendation algorithms
+- *Designing Machine Learning Systems* by Chip Huyen - ML system architecture and serving patterns
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Lambda architecture and distributed systems
+
+---
+
+This design provides a **production-ready, scalable blueprint** for building a recommendation system that serves personalized recommendations in <50ms while training on petabytes of historical data! 🚀

@@ -1,6 +1,7 @@
 # E-commerce Flash Sale System - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the flash sale system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the flash sale system. The main challenge document
+references these functions.
 
 ---
 
@@ -24,14 +25,17 @@ This document contains detailed algorithm implementations for the flash sale sys
 **Purpose:** Atomically check and decrement inventory using Redis Lua script.
 
 **Parameters:**
+
 - product_id (string): Product identifier
 - user_id (integer): User making reservation
 - quantity (integer): Number of items to reserve (default: 1)
 
 **Returns:**
+
 - dict: {success: bool, reservation_id: UUID, message: string}
 
 **Algorithm:**
+
 ```
 function reserve_inventory(product_id, user_id, quantity):
   // Generate idempotency key
@@ -108,6 +112,7 @@ function reserve_inventory(product_id, user_id, quantity):
 **Space Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 result = reserve_inventory("iphone-15", user_id=123, quantity=1)
 if result["success"]:
@@ -123,13 +128,16 @@ else:
 **Purpose:** Return inventory to stock (compensation transaction when payment fails).
 
 **Parameters:**
+
 - reservation_id (UUID): Reservation to cancel
 - reason (string): Cancellation reason
 
 **Returns:**
+
 - bool: Success/failure
 
 **Algorithm:**
+
 ```
 function unreserve_inventory(reservation_id, reason):
   // Get reservation details
@@ -167,6 +175,7 @@ function unreserve_inventory(reservation_id, reason):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 success = unreserve_inventory(reservation_id, reason="payment_failed")
 ```
@@ -180,14 +189,17 @@ success = unreserve_inventory(reservation_id, reason="payment_failed")
 **Purpose:** Charge customer via Stripe API with idempotency key to prevent double-charging.
 
 **Parameters:**
+
 - user_id (integer): User to charge
 - amount (decimal): Amount in dollars
 - idempotency_key (UUID): Unique key to prevent duplicate charges
 
 **Returns:**
+
 - dict: {success: bool, charge_id: string, error: string}
 
 **Algorithm:**
+
 ```
 function charge_customer(user_id, amount, idempotency_key):
   // Get user's payment method
@@ -259,6 +271,7 @@ function charge_customer(user_id, amount, idempotency_key):
 **Time Complexity:** O(R) where R = retry attempts (max 3)
 
 **Example Usage:**
+
 ```
 result = charge_customer(user_id=123, amount=999.00, idempotency_key=uuid)
 if result["success"]:
@@ -276,12 +289,15 @@ else:
 **Purpose:** Execute multi-step payment saga with automatic compensation on failure.
 
 **Parameters:**
+
 - reservation_id (UUID): Reservation to process
 
 **Returns:**
+
 - dict: {success: bool, order_id: integer, error: string}
 
 **Algorithm:**
+
 ```
 function execute_payment_saga(reservation_id):
   // Initialize saga context (tracks completed steps for compensation)
@@ -390,6 +406,7 @@ function compensate_order(order_data):
 **Time Complexity:** O(N) where N = number of saga steps (3 in this case)
 
 **Example Usage:**
+
 ```
 result = execute_payment_saga(reservation_id)
 if result["success"]:
@@ -407,14 +424,17 @@ else:
 **Purpose:** Implement token bucket rate limiting algorithm at CDN edge.
 
 **Parameters:**
+
 - ip_address (string): Client IP address
 - rate_limit (integer): Requests per second allowed (default: 10)
 - bucket_size (integer): Maximum burst size (default: 20)
 
 **Returns:**
+
 - dict: {allowed: bool, tokens_remaining: integer, retry_after: integer}
 
 **Algorithm:**
+
 ```
 function token_bucket_rate_limit(ip_address, rate_limit=10, bucket_size=20):
   key = f"rate_limit:{ip_address}"
@@ -466,6 +486,7 @@ function token_bucket_rate_limit(ip_address, rate_limit=10, bucket_size=20):
 **Space Complexity:** O(1) per IP address
 
 **Example Usage:**
+
 ```
 result = token_bucket_rate_limit("192.168.1.1", rate_limit=10, bucket_size=20)
 if result["allowed"]:
@@ -483,12 +504,15 @@ else:
 **Purpose:** Background worker that scans for expired reservations and returns inventory to Redis.
 
 **Parameters:**
+
 - batch_size (integer): Number of reservations to process per run (default: 1000)
 
 **Returns:**
+
 - integer: Number of reservations cleaned up
 
 **Algorithm:**
+
 ```
 function cleanup_expired_reservations(batch_size=1000):
   // Query expired reservations
@@ -557,6 +581,7 @@ function cleanup_expired_reservations(batch_size=1000):
 **Space Complexity:** O(N) for reservation batch
 
 **Example Usage:**
+
 ```
 // Run as cron job every 60 seconds
 while true:
@@ -573,12 +598,15 @@ while true:
 **Purpose:** Check if request with given idempotency key has already been processed.
 
 **Parameters:**
+
 - idempotency_key (UUID): Unique key identifying the request
 
 **Returns:**
+
 - dict: {exists: bool, status: string, response: dict} or null
 
 **Algorithm:**
+
 ```
 function check_idempotency(idempotency_key):
   key = f"idempotency:{idempotency_key}"
@@ -600,6 +628,7 @@ function check_idempotency(idempotency_key):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 existing = check_idempotency(idempotency_key)
 if existing != null:
@@ -618,14 +647,17 @@ if existing != null:
 **Purpose:** Cache the result of a request to prevent duplicate processing.
 
 **Parameters:**
+
 - idempotency_key (UUID): Unique key identifying the request
 - status (string): Request status (SUCCESS or FAILED)
 - response (dict): Response to cache
 
 **Returns:**
+
 - bool: Success/failure
 
 **Algorithm:**
+
 ```
 function cache_idempotency_result(idempotency_key, status, response):
   key = f"idempotency:{idempotency_key}"
@@ -645,6 +677,7 @@ function cache_idempotency_result(idempotency_key, status, response):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 // After successful payment
 cache_idempotency_result(
@@ -663,14 +696,17 @@ cache_idempotency_result(
 **Purpose:** Reserve inventory using split counter optimization (10 sharded keys).
 
 **Parameters:**
+
 - product_id (string): Product identifier
 - user_id (integer): User making reservation
 - num_shards (integer): Number of split counter shards (default: 10)
 
 **Returns:**
+
 - dict: {success: bool, shard_used: integer, reservation_id: UUID}
 
 **Algorithm:**
+
 ```
 function reserve_with_split_counter(product_id, user_id, num_shards=10):
   // Calculate initial shard based on user_id hash
@@ -727,6 +763,7 @@ function reserve_with_split_counter(product_id, user_id, num_shards=10):
 **Space Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 result = reserve_with_split_counter("iphone-15", user_id=123, num_shards=10)
 if result["success"]:
@@ -746,9 +783,11 @@ else:
 **Parameters:** None
 
 **Returns:**
+
 - string: UUID in format "550e8400-e29b-41d4-a716-446655440000"
 
 **Algorithm:**
+
 ```
 function generate_uuid():
   // Use cryptographically secure random number generator
@@ -773,6 +812,7 @@ function generate_uuid():
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 idempotency_key = generate_uuid()
 // "550e8400-e29b-41d4-a716-446655440000"
@@ -785,13 +825,16 @@ idempotency_key = generate_uuid()
 **Purpose:** Send push notification and email to user.
 
 **Parameters:**
+
 - user_id (integer): User to notify
 - notification_data (dict): Notification content
 
 **Returns:**
+
 - bool: Success/failure
 
 **Algorithm:**
+
 ```
 function send_notification(user_id, notification_data):
   user = db.query("SELECT email, push_token FROM users WHERE id = ?", [user_id])
@@ -826,6 +869,7 @@ function send_notification(user_id, notification_data):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 send_notification(user_id=123, {
   "type": "order_confirmed",
@@ -841,13 +885,16 @@ send_notification(user_id=123, {
 **Purpose:** Calculate price for product and quantity (with potential flash sale discount).
 
 **Parameters:**
+
 - product_id (string): Product identifier
 - quantity (integer): Number of items
 
 **Returns:**
+
 - decimal: Total price in dollars
 
 **Algorithm:**
+
 ```
 function calculate_price(product_id, quantity):
   product = db.query(
@@ -878,6 +925,7 @@ function calculate_price(product_id, quantity):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 price = calculate_price("iphone-15", quantity=1)
 // 999.00 (if base_price=999, discount=0)
@@ -902,11 +950,13 @@ This pseudocode implementation provides 18 comprehensive functions across 8 sect
 8. **Utility Functions** (3 functions): generate_uuid(), send_notification(), calculate_price()
 
 **Key Algorithms:**
+
 - **Atomic Operations:** Lua scripts for Redis check-and-decrement
 - **Distributed Transactions:** Saga pattern with compensation
 - **Rate Limiting:** Token bucket with refill
 - **Idempotency:** UUID-based deduplication
 - **Split Counter:** Sharded inventory for 10× throughput
 
-All functions include error handling, logging, and are designed for production use in high-concurrency scenarios (100K QPS).
+All functions include error handling, logging, and are designed for production use in high-concurrency scenarios (100K
+QPS).
 

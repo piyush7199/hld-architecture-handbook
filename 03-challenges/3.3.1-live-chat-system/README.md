@@ -13,7 +13,7 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
 Design a real-time messaging system like WhatsApp or Slack that supports billions of users sending messages with
 sub-500ms latency. The system must maintain persistent connections for instant message delivery, ensure messages are
@@ -23,49 +23,50 @@ presence updates (online/offline status). The solution must handle both one-on-o
 
 ---
 
-## 1. Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
 ### Functional Requirements (FRs)
 
-| Requirement | Description | Priority |
-|-------------|-------------|----------|
-| **Send/Receive Messages** | Messages delivered near-instantly to online users (push notification if offline) | Must Have |
-| **Message Persistence** | All messages reliably stored and retrievable (message history) | Must Have |
-| **Strict Ordering** | Messages within a conversation delivered in correct sequence | Must Have |
-| **Presence Service** | Real-time online/offline status for all users | Must Have |
-| **Read Receipts** | Track message status: sent, delivered, read | Must Have |
-| **Group Chat** | Support group conversations (up to 256 members) | Must Have |
-| **Message History** | Users can retrieve past messages (years of history) | Should Have |
-| **File Sharing** | Support images, videos, documents | Should Have |
-| **End-to-End Encryption** | Optional E2E encryption (client-side) | Nice to Have |
+| Requirement               | Description                                                                      | Priority     |
+|---------------------------|----------------------------------------------------------------------------------|--------------|
+| **Send/Receive Messages** | Messages delivered near-instantly to online users (push notification if offline) | Must Have    |
+| **Message Persistence**   | All messages reliably stored and retrievable (message history)                   | Must Have    |
+| **Strict Ordering**       | Messages within a conversation delivered in correct sequence                     | Must Have    |
+| **Presence Service**      | Real-time online/offline status for all users                                    | Must Have    |
+| **Read Receipts**         | Track message status: sent, delivered, read                                      | Must Have    |
+| **Group Chat**            | Support group conversations (up to 256 members)                                  | Must Have    |
+| **Message History**       | Users can retrieve past messages (years of history)                              | Should Have  |
+| **File Sharing**          | Support images, videos, documents                                                | Should Have  |
+| **End-to-End Encryption** | Optional E2E encryption (client-side)                                            | Nice to Have |
 
 ### Non-Functional Requirements (NFRs)
 
-| Requirement | Target | Rationale |
-|-------------|--------|-----------|
-| **Low Latency** | < 500 ms (p99) | Real-time feel for users |
-| **Fault Tolerance** | Zero message loss | Messages must be durable |
-| **High Availability** | 99.99% uptime | Users expect always-on service |
+| Requirement                | Target                      | Rationale                           |
+|----------------------------|-----------------------------|-------------------------------------|
+| **Low Latency**            | < 500 ms (p99)              | Real-time feel for users            |
+| **Fault Tolerance**        | Zero message loss           | Messages must be durable            |
+| **High Availability**      | 99.99% uptime               | Users expect always-on service      |
 | **Concurrent Connections** | 100M persistent connections | 10% of 1B MAU online simultaneously |
-| **Message Throughput** | 10K messages/sec | Peak traffic handling |
-| **Scalability** | Horizontal scaling | Add servers as users grow |
+| **Message Throughput**     | 10K messages/sec            | Peak traffic handling               |
+| **Scalability**            | Horizontal scaling          | Add servers as users grow           |
 
 ### Scale Estimation
 
-| Metric | Assumption | Calculation | Result |
-|--------|-----------|-------------|--------|
-| **Total Users (MAU)** | 1 Billion monthly active users | - | 1B MAU |
-| **Daily Active Users** | 50% of MAU | $1\text{B} \times 0.5$ | 500M DAU |
-| **Concurrent Connections** | 10% of MAU online | $1\text{B} \times 0.1$ | 100M persistent connections |
-| **Messages per Day** | 50 messages per DAU | $500\text{M} \times 50$ | 25 Billion messages/day |
-| **Peak QPS** | 3× average | $25\text{B} / 86400 \times 3$ | ~870K messages/sec (peak) |
-| **Average QPS** | 25B messages over 24 hours | $25\text{B} / 86400$ | ~290K messages/sec |
-| **Storage per Message** | 1 KB average (text + metadata) | - | 1 KB/message |
-| **Daily Storage** | 25B messages × 1 KB | $25\text{B} \times 1\text{KB}$ | 25 TB/day |
-| **5-Year Storage** | 25 TB × 365 × 5 | $25 \times 365 \times 5$ | ~45 PB (45,000 TB) |
-| **Bandwidth (Outgoing)** | 290K msg/sec × 1 KB × 2 (fanout) | $290\text{K} \times 1\text{KB} \times 2$ | ~580 MB/sec |
+| Metric                     | Assumption                       | Calculation                              | Result                      |
+|----------------------------|----------------------------------|------------------------------------------|-----------------------------|
+| **Total Users (MAU)**      | 1 Billion monthly active users   | -                                        | 1B MAU                      |
+| **Daily Active Users**     | 50% of MAU                       | $1\text{B} \times 0.5$                   | 500M DAU                    |
+| **Concurrent Connections** | 10% of MAU online                | $1\text{B} \times 0.1$                   | 100M persistent connections |
+| **Messages per Day**       | 50 messages per DAU              | $500\text{M} \times 50$                  | 25 Billion messages/day     |
+| **Peak QPS**               | 3× average                       | $25\text{B} / 86400 \times 3$            | ~870K messages/sec (peak)   |
+| **Average QPS**            | 25B messages over 24 hours       | $25\text{B} / 86400$                     | ~290K messages/sec          |
+| **Storage per Message**    | 1 KB average (text + metadata)   | -                                        | 1 KB/message                |
+| **Daily Storage**          | 25B messages × 1 KB              | $25\text{B} \times 1\text{KB}$           | 25 TB/day                   |
+| **5-Year Storage**         | 25 TB × 365 × 5                  | $25 \times 365 \times 5$                 | ~45 PB (45,000 TB)          |
+| **Bandwidth (Outgoing)**   | 290K msg/sec × 1 KB × 2 (fanout) | $290\text{K} \times 1\text{KB} \times 2$ | ~580 MB/sec                 |
 
 **Key Insights:**
+
 - **100M concurrent WebSocket connections** require massive connection management infrastructure
 - **45 PB storage** over 5 years requires distributed storage (Cassandra, S3)
 - **870K peak QPS** requires horizontal scaling across multiple data centers
@@ -73,9 +74,9 @@ presence updates (online/offline status). The solution must handle both one-on-o
 
 ---
 
-## 2. High-Level Architecture
+## 3. High-Level Architecture
 
-> 📊 **See detailed architecture diagrams:** [HLD Diagrams](./hld-diagram.md)
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
 
 ### System Overview
 
@@ -134,33 +135,35 @@ presence updates (online/offline status). The solution must handle both one-on-o
 
 ### Key Components
 
-| Component | Responsibility | Technology | Scalability |
-|-----------|---------------|------------|-------------|
+| Component             | Responsibility                                            | Technology         | Scalability                                    |
+|-----------------------|-----------------------------------------------------------|--------------------|------------------------------------------------|
 | **WebSocket Servers** | Maintain persistent connections, push messages to clients | Node.js, Go, Netty | Horizontal (1000 servers for 100M connections) |
-| **Load Balancer** | Route clients to sticky WebSocket server | NGINX, HAProxy | Horizontal + DNS |
-| **Message Router** | Validate, sequence, route messages to Kafka | Go, Java service | Horizontal (stateless) |
-| **Kafka Cluster** | Ordered, durable message log (source of truth) | Apache Kafka | Horizontal (partitioned) |
-| **History Workers** | Persist messages from Kafka to Cassandra | Kafka consumers | Horizontal |
-| **Delivery Workers** | Read from Kafka, push to online users | Kafka consumers | Horizontal |
-| **Cassandra Cluster** | Store message history (billions of messages) | Apache Cassandra | Horizontal (sharded) |
-| **Redis Cluster** | Store presence data (online/offline status) | Redis | Horizontal (sharded) |
-| **Sequence Manager** | Generate globally unique, ordered message IDs | ZooKeeper, etcd | HA with leader election |
+| **Load Balancer**     | Route clients to sticky WebSocket server                  | NGINX, HAProxy     | Horizontal + DNS                               |
+| **Message Router**    | Validate, sequence, route messages to Kafka               | Go, Java service   | Horizontal (stateless)                         |
+| **Kafka Cluster**     | Ordered, durable message log (source of truth)            | Apache Kafka       | Horizontal (partitioned)                       |
+| **History Workers**   | Persist messages from Kafka to Cassandra                  | Kafka consumers    | Horizontal                                     |
+| **Delivery Workers**  | Read from Kafka, push to online users                     | Kafka consumers    | Horizontal                                     |
+| **Cassandra Cluster** | Store message history (billions of messages)              | Apache Cassandra   | Horizontal (sharded)                           |
+| **Redis Cluster**     | Store presence data (online/offline status)               | Redis              | Horizontal (sharded)                           |
+| **Sequence Manager**  | Generate globally unique, ordered message IDs             | ZooKeeper, etcd    | HA with leader election                        |
 
 ---
 
-## 3. Detailed Component Design
+## 4. Detailed Component Design
 
-### 3.1 WebSocket Connection Management
+### 4.1 WebSocket Connection Management
 
 **Challenge:** Maintain 100M persistent connections with sticky routing.
 
 **Solution:**
+
 - Each WebSocket server holds ~100K connections (OS limit: ~65K file descriptors)
 - Required servers: $100\text{M} / 100\text{K} = 1000$ servers
 - Sticky sessions: Load balancer routes same `user_id` to same server (hash-based)
 - Heartbeat: Every 30 seconds to detect dead connections
 
 **Connection State:**
+
 ```
 user:12345:connection → {
     ws_server_id: "ws-server-42",
@@ -174,28 +177,28 @@ user:12345:connection → {
 
 ---
 
-### 3.2 Message Flow Architecture
+### 4.2 Message Flow Architecture
 
 #### Send Message Flow
 
 **Steps:**
+
 1. **Client sends message** via WebSocket to WS Server
 2. **WS Server** forwards to Message Router
 3. **Message Router:**
-   - Validates sender authentication
-   - Requests sequence ID from Sequence Manager
-   - Wraps message with metadata (sender_id, chat_id, seq_id, timestamp)
+    - Validates sender authentication
+    - Requests sequence ID from Sequence Manager
+    - Wraps message with metadata (sender_id, chat_id, seq_id, timestamp)
 4. **Publishes to Kafka** topic partitioned by `chat_id`
 5. **Kafka persists** message (durable, ordered log)
 6. **Two consumers process in parallel:**
-   - **History Worker:** Writes to Cassandra for persistence
-   - **Delivery Worker:** Reads and pushes to recipient's WS Server
+    - **History Worker:** Writes to Cassandra for persistence
+    - **Delivery Worker:** Reads and pushes to recipient's WS Server
 7. **WS Server pushes** message over recipient's WebSocket
 8. **Client receives** and sends ACK back
 
-> 📊 **See detailed flow:** [Sequence Diagrams](./sequence-diagrams.md)
-
 **Why Kafka?**
+
 - ✅ **Strict Ordering:** Kafka partitions guarantee order per `chat_id`
 - ✅ **Durability:** Messages replicated across brokers
 - ✅ **Replayability:** History and Delivery workers can restart from any offset
@@ -205,677 +208,1031 @@ user:12345:connection → {
 
 ---
 
-### 3.3 Kafka Partitioning Strategy
+### 4.3 Message Ordering & Sequence IDs
 
-**Goal:** Ensure strict message ordering within each conversation while enabling parallel processing.
+**Problem:** Ensure messages within a chat arrive in correct order globally.
 
-**Strategy:** Partition messages by `chat_id`
+**Solution: Centralized Sequence Manager**
+
+**How It Works:**
+
+- Sequence Manager maintains counter per `chat_id`
+- Uses ZooKeeper or etcd for distributed coordination
+- Generates strictly increasing sequence IDs
+
+**Sequence ID Format (64-bit):**
 
 ```
-partition_number = hash(chat_id) % NUM_PARTITIONS
+┌─────────────────────────────────────────────────────────┐
+│  41 bits: Timestamp (ms)  │  10 bits: Node ID │ 12 bits: Sequence │
+└─────────────────────────────────────────────────────────┘
 ```
 
 **Benefits:**
-- All messages for chat "ABC" go to partition 7
-- Partition 7 guarantees sequential ordering
-- Different chats processed in parallel across partitions
-- Recommended: **1000 partitions** for 870K QPS = ~870 msg/sec per partition
 
-**Kafka Configuration:**
-- Partitions: 1000
-- Replication Factor: 3 (durability)
-- Retention: 7 days (replayability)
+- Globally unique across all servers
+- Time-ordered (sortable)
+- Distributed generation (multiple Sequence Manager nodes)
 
-*See [this-over-that.md](this-over-that.md) for comparison with alternatives.*
+**Alternative: Kafka Offset as Sequence**
 
----
+- Use Kafka partition offset as sequence number
+- Simpler (no external service needed)
+- Trade-off: Tightly couples to Kafka implementation
 
-### 3.4 Data Model
-
-#### Messages Table (Cassandra)
-
-Primary table for storing all message history.
-
-```sql
-CREATE TABLE messages (
-    chat_id UUID,
-    seq_id BIGINT,
-    sender_id UUID,
-    recipient_id UUID,
-    content TEXT,
-    message_type VARCHAR(20),  -- 'text', 'image', 'video'
-    timestamp TIMESTAMP,
-    deleted BOOLEAN DEFAULT false,
-    deleted_at TIMESTAMP,
-    edited_at TIMESTAMP,
-    PRIMARY KEY ((chat_id), seq_id)
-) WITH CLUSTERING ORDER BY (seq_id DESC);
-```
-
-**Why Cassandra over PostgreSQL?**
-
-| Factor | Cassandra | PostgreSQL |
-|--------|-----------|------------|
-| **Write Throughput** | 290K writes/sec ✅ | ~10K writes/sec ❌ |
-| **Storage** | 45 PB easily ✅ | Sharding complex for TB+ ❌ |
-| **Horizontal Scaling** | Add nodes easily ✅ | Manual sharding ❌ |
-| **Time-Series** | Optimized ✅ | Suboptimal ❌ |
-| **Cost** | $2-3/GB/month | $10-15/GB/month ❌ |
-
-*See [this-over-that.md: Cassandra vs PostgreSQL](this-over-that.md) for detailed analysis.*
-
-#### Message Status Table (Cassandra)
-
-Track delivery and read receipts.
-
-```sql
-CREATE TABLE message_status (
-    message_id BIGINT,
-    chat_id UUID,
-    user_id UUID,
-    sent_at TIMESTAMP,
-    delivered_at TIMESTAMP,
-    read_at TIMESTAMP,
-    PRIMARY KEY ((message_id), user_id)
-);
-```
-
-#### User Presence (Redis)
-
-Store online/offline status with automatic expiration.
-
-```
-Key: user:{user_id}:presence
-Value: "online"
-TTL: 60 seconds
-```
-
-**Presence Logic:**
-- Set key to "online" with 60-second TTL on connection
-- Heartbeat every 30 seconds refreshes TTL
-- If no heartbeat, key expires → user automatically offline
-- Query: `GET user:12345:presence` returns "online" or NULL
-
-*See [pseudocode.md::presence_service()](pseudocode.md) for implementation.*
+*See [pseudocode.md::generate_sequence_id()](pseudocode.md) for implementation.*
 
 ---
 
-### 3.5 Sequence ID Generation
+### 4.4 Presence Service (Online/Offline Status)
 
-**Goal:** Generate globally unique, time-ordered message IDs for strict ordering.
+**Challenge:** Track online status for 1B users in real-time.
 
-**Algorithm:** Snowflake-style 64-bit IDs
-
-```
-[41 bits: Timestamp] [10 bits: Node ID] [13 bits: Sequence]
-```
-
-**Bit Breakdown:**
-- **41 bits timestamp:** Milliseconds since epoch (69 years range)
-- **10 bits node ID:** Supports 1024 nodes (0-1023)
-- **13 bits sequence:** 8192 IDs per millisecond per node
-
-**Throughput per node:**
-- 8192 IDs per millisecond
-- 8.192 million IDs per second per node
-- 1000 nodes = 8.192 billion IDs/second
-
-**Generation Logic:**
-```
-function generate_sequence_id():
-    timestamp = current_timestamp_milliseconds()
-    node_id = THIS_NODE_ID  // Assigned by ZooKeeper
-    sequence = increment_sequence_for_current_millisecond()
-    
-    if sequence > 8191:
-        wait_for_next_millisecond()
-        sequence = 0
-    
-    id = (timestamp << 23) | (node_id << 13) | sequence
-    return id
-```
-
-**Properties:**
-- IDs are roughly sortable by time
-- Globally unique (no collisions)
-- No coordination needed (except node ID assignment)
-
-*See [pseudocode.md::generate_sequence_id()](pseudocode.md) for full implementation.*
-
----
-
-### 3.6 Presence Service
-
-**Challenge:** Track online/offline status for 1B users with sub-millisecond lookup latency.
-
-**Solution: Redis with TTL-based Presence**
+**Solution: Redis with TTL**
 
 **Data Model:**
+
 ```
-Key: user:{user_id}:presence
-Value: "online"
-TTL: 60 seconds
+user:12345:presence → {
+    status: "online",
+    last_seen: 1704067200,
+    ws_server: "ws-server-42"
+}
+TTL: 60 seconds (auto-expire if no heartbeat)
 ```
 
-**Operations:**
+**How It Works:**
 
-1. **Set Online (on connection):**
-   ```
-   SET user:12345:presence "online" EX 60
-   ```
+1. On WebSocket connect: `SET user:12345:presence "online" EX 60`
+2. Heartbeat every 30s: `EXPIRE user:12345:presence 60` (refresh TTL)
+3. On disconnect: `DEL user:12345:presence`
+4. On TTL expire: User automatically marked offline
 
-2. **Heartbeat (every 30 seconds):**
-   ```
-   EXPIRE user:12345:presence 60
-   ```
+**Query Presence:**
 
-3. **Check Presence:**
-   ```
-   GET user:12345:presence
-   → "online" (if present) or NULL (if offline)
-   ```
+```
+GET user:12345:presence → "online" or NULL (offline)
+```
 
-4. **Batch Check (for group chat):**
-   ```
-   MGET user:12345:presence user:67890:presence user:99999:presence
-   → ["online", NULL, "online"]
-   ```
+**Optimization: Batch Presence Queries**
 
-**Why Redis over Database?**
+- Use `MGET` to fetch presence for multiple users at once
+- Example: Group chat with 50 members → Single `MGET` call
 
-| Factor | Redis | PostgreSQL |
-|--------|-------|------------|
-| **Latency** | <1ms ✅ | 5-20ms ❌ |
-| **Throughput** | 1M ops/sec ✅ | 10K ops/sec ❌ |
-| **TTL Support** | Native ✅ | Manual cleanup ❌ |
-| **Sharding** | Easy (20 shards) ✅ | Complex ❌ |
-
-**Scaling:**
-- 100M online users × 100 bytes/user = 10 GB data
-- 20 Redis shards = 500 MB per shard
-- Shard key: `hash(user_id) % 20`
-
-*See [pseudocode.md::presence_operations()](pseudocode.md) for implementation.*
+*See [pseudocode.md::update_presence()](pseudocode.md) for implementation.*
 
 ---
 
-### 3.7 Read Receipts
+### 4.5 Read Receipts & Message Status
 
 **Message States:**
 
-1. **SENT ✓:** Message written to Kafka (sender confirmation)
-2. **DELIVERED ✓✓:** Message pushed to recipient's device (gray checkmark)
-3. **READ ✓✓:** Recipient viewed message (blue checkmark)
+1. **Sent:** Message sent by sender (stored in Kafka)
+2. **Delivered:** Message delivered to recipient's device
+3. **Read:** Recipient opened chat and viewed message
 
-**Implementation Flow:**
+**Implementation:**
 
-1. **Sender sends message:**
-   - Message written to Kafka
-   - Sender immediately sees "SENT ✓" status
+**Sent Status:**
 
-2. **Recipient receives message:**
-   - Delivery worker pushes to recipient's WebSocket
-   - Recipient's app sends ACK
-   - Update `message_status.delivered_at = now()`
-   - Notify sender: "DELIVERED ✓✓"
+- Automatically tracked when message written to Kafka
+- Sender receives ACK from Message Router
 
-3. **Recipient views message:**
-   - Client detects message in viewport for >2 seconds
-   - Client sends READ event via WebSocket
-   - Publish READ event to Kafka
-   - Read Receipt Worker updates `message_status.read_at = now()`
-   - Notify sender: "READ ✓✓" (blue checkmark)
+**Delivered Status:**
 
-**Group Chat Optimization:**
+- Recipient's client sends ACK after receiving message via WebSocket
+- ACK published to Kafka, processed by Read Receipt Worker
+- Stored in Cassandra: `message_status` table
 
-For groups > 50 members, tracking individual read receipts is expensive.
+**Read Status:**
 
-**Solution:**
-- Track only "last read message ID" per user
-- Query: "Show me unread count" = `last_message_id - user_last_read_id`
+- Recipient's client sends READ event when user views message
+- Published to Kafka, processed by Read Receipt Worker
+- Updated in Cassandra
 
-*See [sequence-diagrams.md: Read Receipt Flow](sequence-diagrams.md) for detailed flow.*
+**Data Model:**
+
+```
+message_status:
+  message_id: uuid
+  chat_id: uuid
+  sender_id: uuid
+  recipient_id: uuid
+  sent_at: timestamp
+  delivered_at: timestamp (nullable)
+  read_at: timestamp (nullable)
+```
+
+*See [pseudocode.md::handle_read_receipt()](pseudocode.md) for implementation.*
 
 ---
 
-### 3.8 Group Chat
+### 4.6 Group Chat vs 1-1 Chat
 
-**Challenge:** Deliver message to 256 members efficiently (fanout problem).
+**1-1 Chat:**
 
-**Fanout Strategies:**
+- Simple: 2 participants
+- Kafka partition key: `hash(user1_id, user2_id)`
+- Direct message delivery
 
-#### Small Groups (< 50 members): Synchronous Fanout
+**Group Chat (up to 256 members):**
 
-**Flow:**
-1. Message published to Kafka (single write)
-2. Delivery worker reads message
-3. Lookup all 50 members
-4. Check presence for each (batch query)
-5. Push to all online members in parallel (10 goroutines)
-6. Queue offline members with push notification
+- Complex: N participants (fanout problem)
+- Kafka partition key: `group_id`
+- Fanout: Delivery Worker must push to all N members
 
-**Latency:** ~100-200ms for all members
+**Fanout Strategy:**
 
-#### Large Groups (50-256 members): Asynchronous Fanout
+**Small Groups (< 50 members):**
 
-**Flow:**
-1. Message published to Kafka
-2. Sender gets immediate "SENT" ACK
-3. Background fanout workers process in batches
-4. Push to online members over 500ms-1s
+- Push to all members synchronously
+- Acceptable latency
 
-**Trade-off:**
-- Faster sender experience (25ms ACK)
-- Slight delay for recipients in large groups (acceptable)
+**Large Groups (50-256 members):**
 
-**Read Receipt Handling:**
-- Small groups: Track all read receipts
-- Large groups: Track only "last read message ID" per user (too expensive to track 256 receipts per message)
+- Async fanout using worker queue
+- Members receive message with slight delay (100-500ms)
+
+**Optimization: Read Receipt Aggregation**
+
+- Store only "last read message ID" per user
+- Don't store individual read receipts for large groups (too expensive)
 
 *See [pseudocode.md::fanout_group_message()](pseudocode.md) for implementation.*
 
 ---
 
-### 3.9 Offline Message Handling
+### 4.7 Message History Storage (Cassandra)
 
-**Challenge:** User offline when message arrives.
+**Why Cassandra?**
 
-**Solution: Offline Queue + Push Notification**
+- ✅ **Write-Heavy:** 25 TB/day of new messages
+- ✅ **Horizontal Scaling:** Add nodes as data grows (45 PB over 5 years)
+- ✅ **Time-Series:** Optimized for time-ordered reads (`chat_id`, `timestamp`)
+- ✅ **High Availability:** Replication factor 3, no single point of failure
 
-**Flow:**
+**Data Model:**
 
-1. **Delivery worker checks presence:**
-   ```
-   GET user:67890:presence → NULL (offline)
-   ```
+```
+CREATE TABLE messages (
+    chat_id UUID,
+    timestamp TIMESTAMP,
+    message_id UUID,
+    sender_id UUID,
+    content TEXT,
+    message_type TEXT,  -- 'text', 'image', 'video', 'file'
+    file_url TEXT,      -- for media messages
+    PRIMARY KEY (chat_id, timestamp, message_id)
+) WITH CLUSTERING ORDER BY (timestamp DESC);
+```
 
-2. **Add to offline queue (Redis List):**
-   ```
-   LPUSH offline_messages:67890 {message_json}
-   EXPIRE offline_messages:67890 604800  // 7 days
-   ```
+**Query Pattern:**
 
-3. **Send push notification (FCM/APNS):**
-   - Single message: "Alice: Hello!"
-   - Multiple messages (>10): "You have 47 new messages"
-   - Avoid spamming with 47 separate notifications
+```
+SELECT * FROM messages
+WHERE chat_id = ?
+  AND timestamp >= ?
+  AND timestamp <= ?
+ORDER BY timestamp DESC
+LIMIT 100;
+```
 
-4. **User comes online:**
-   ```
-   LRANGE offline_messages:67890 0 -1  // Fetch all
-   → [message1, message2, ..., message47]
-   ```
+**Benefits:**
 
-5. **Push all messages via WebSocket**
+- Partition key: `chat_id` → All messages for a chat on same node
+- Clustering key: `timestamp` → Messages sorted by time
+- Efficient range queries for history fetching
 
-6. **Clear queue:**
-   ```
-   DEL offline_messages:67890
-   ```
+**Optimization: Hot Chat Cache**
 
-**Edge Cases:**
-- Queue > 10K messages: Fetch in batches of 100
-- User never comes back online: 7-day TTL auto-cleanup
-- Multiple devices: Each fetches and clears queue (idempotent)
+- Cache last 100 messages of active chats in Redis
+- 90%+ of reads served from cache (recent messages)
+- Fallback to Cassandra for older history
 
-*See [pseudocode.md::offline_message_queue()](pseudocode.md) for implementation.*
+*See [pseudocode.md::store_message_cassandra()](pseudocode.md) for implementation.*
 
 ---
 
-## 4. Why This Over That?
+## 5. Why This Over That?
 
-> 📊 **Full analysis:** [Design Decisions (This Over That)](./this-over-that.md)
-
-### Decision 1: WebSockets vs Long Polling vs SSE
+### Decision 1: WebSockets vs Long Polling vs Server-Sent Events
 
 **Chosen:** WebSockets
 
-**Why:**
-- ✅ **Full-duplex:** Bidirectional communication (send + receive)
-- ✅ **Low latency:** <50ms (persistent connection)
-- ✅ **Efficient:** No HTTP overhead per message
-- ✅ **Real-time:** Instant push to client
+**Why WebSockets?**
 
-**Alternatives:**
-- ❌ **Long Polling:** 1-5s latency, inefficient (new request per message)
-- ❌ **SSE (Server-Sent Events):** One-way only (server → client), browser connection limits
+- ✅ **Full-Duplex:** Both client and server can push messages anytime
+- ✅ **Low Latency:** Single persistent connection (no connection overhead)
+- ✅ **Efficient:** No HTTP headers on every message (saves bandwidth)
+- ✅ **Real-Time:** True push notifications (no polling delay)
 
-### Decision 2: Kafka vs Database for Ordering
+**Why Not Long Polling?**
 
-**Chosen:** Kafka as Message Log
+- ❌ **High Overhead:** Client repeatedly opens/closes HTTP connections
+- ❌ **Latency:** Delay between polling requests (1-5 seconds)
+- ❌ **Server Load:** 100M clients polling every second = massive load
 
-**Why:**
-- ✅ **Strict Ordering:** Partitions guarantee sequential order
-- ✅ **Durability:** Replicated across brokers (zero message loss)
-- ✅ **Decoupling:** Write path (sender) and read path (receiver) independent
-- ✅ **Replayability:** Can reprocess from any offset (recovery)
-- ✅ **High Throughput:** 290K writes/sec easily
+**Why Not Server-Sent Events (SSE)?**
 
-**Alternatives:**
-- ❌ **PostgreSQL:** Can't handle 290K writes/sec, no ordering guarantee
-- ❌ **Cassandra:** No built-in change log, no ordering within partition
+- ❌ **One-Way Only:** Server can push, but client must use separate HTTP requests for uploads
+- ❌ **Browser Limits:** Max 6 SSE connections per domain
 
-### Decision 3: Cassandra vs PostgreSQL vs MongoDB
-
-**Chosen:** Cassandra for Message Storage
-
-**Why:**
-- ✅ **Write-heavy:** 290K writes/sec, 25 TB/day
-- ✅ **Horizontal Scaling:** Add nodes for 45 PB over 5 years
-- ✅ **Time-series Optimized:** Query by `(chat_id, timestamp)`
-- ✅ **Cost-effective:** $2-3/GB/month vs $10-15 for RDBMS
-
-**Alternatives:**
-- ❌ **PostgreSQL:** Manual sharding for TB-scale, write bottleneck
-- ❌ **MongoDB:** Not optimized for time-series, higher cost
-
-### Decision 4: Redis vs Memcached for Presence
-
-**Chosen:** Redis
-
-**Why:**
-- ✅ **TTL Support:** Native expiration (automatic offline)
-- ✅ **Data Structures:** HASH, LIST, SET for complex presence
-- ✅ **Persistence:** AOF/RDB for recovery
-- ✅ **Pub/Sub:** For typing indicators
-
-**Alternatives:**
-- ❌ **Memcached:** No TTL per key, no persistence, simpler data types
+*See [this-over-that.md](this-over-that.md) for detailed analysis.*
 
 ---
 
-## 5. Bottlenecks and Future Scaling
+### Decision 2: Kafka vs Database for Message Ordering
 
-### Bottleneck 1: Connection Management (100M Connections)
+**Chosen:** Kafka as message log
 
-**Problem:**
-- Each server limited to ~100K connections (OS file descriptors)
-- Sticky sessions create uneven load
+**Why Kafka?**
 
-**Solutions:**
-1. **Increase servers:** 1000 WebSocket servers for 100M connections
-2. **OS tuning:** Increase `ulimit -n 1000000` (file descriptors)
-3. **Consistent hashing:** Evenly distribute users across servers
-4. **Connection pooling:** Reuse connections for multiplexing
+- ✅ **Ordering Guarantee:** Messages in same partition are strictly ordered
+- ✅ **Durable:** Replicated log that survives failures
+- ✅ **Decoupling:** Write and read paths are independent
+- ✅ **Replayability:** Can reprocess messages from any point in time
 
-### Bottleneck 2: Sequence Manager (Single Point of Failure)
+**Why Not PostgreSQL/MySQL?**
 
-**Problem:**
-- All message requests hit Sequence Manager
-- 290K QPS → bottleneck
-- Single point of failure
+- ❌ **Ordering Hard:** Concurrent inserts can arrive out-of-order
+- ❌ **Write Bottleneck:** 290K writes/sec too high for single RDBMS
+- ❌ **No Replayability:** Once read, message is consumed (no log concept)
 
-**Solutions:**
-1. **Pre-allocate ID ranges:** Each server gets batch of 1000 IDs
-   - Reduces Sequence Manager calls by 99%
-   - 290K QPS → 290 QPS to Sequence Manager
-2. **Alternative: Use Kafka offset as sequence ID**
-   - No Sequence Manager needed
-   - Trade-off: Couples to Kafka implementation
+**Why Not Cassandra Directly?**
+
+- ❌ **No Ordering Guarantee:** Writes across nodes can arrive out-of-order
+- ❌ **No Change Log:** Can't stream changes to consumers
+
+*See [this-over-that.md](this-over-that.md) for detailed analysis.*
+
+---
+
+## 6. Bottlenecks and Future Scaling
+
+### 6.1 Bottleneck: WebSocket Server Connection Limits
+
+**Problem:** Each server limited to ~100K connections due to OS file descriptor limits.
+
+**Mitigation:**
+
+- **Horizontal Scaling:** Add more servers (1000 servers for 100M connections)
+- **OS Tuning:** Increase file descriptor limit (`ulimit -n 1000000`)
+- **Use Efficient Runtime:** Go or Node.js with non-blocking I/O
+
+**Calculation:**
+
+```
+Max connections per server: 100,000
+Required connections: 100,000,000
+Servers needed: 100M / 100K = 1,000 servers
+```
+
+---
+
+### 6.2 Bottleneck: Sequence Manager (Single Point)
+
+**Problem:** Centralized Sequence Manager becomes bottleneck at high QPS.
+
+**Mitigation:**
+
+**Option 1: Pre-allocate ID Ranges**
+
+- Sequence Manager pre-allocates blocks of 1000 IDs to each Message Router
+- Message Router uses local IDs without calling Sequence Manager
+- 99% reduction in Sequence Manager calls
+
+**Option 2: Use Kafka Offset**
+
+- Use Kafka partition offset as sequence number
+- Eliminates need for separate Sequence Manager
+- Trade-off: Couples to Kafka implementation
 
 *See [pseudocode.md::preallocate_id_range()](pseudocode.md) for implementation.*
 
-### Bottleneck 3: Hot Chat Rooms
+---
 
-**Problem:**
-- Celebrity group chat with 1M messages/day
-- Single Kafka partition can't handle load
+### 6.3 Bottleneck: Message Delivery to Offline Users
 
-**Solutions:**
-1. **Split by time:** Partition by `(chat_id, date)`
-   - Each day gets new partition
-2. **Caching:** Hot messages cached in Redis
-3. **Read replicas:** Multiple consumers for same partition
+**Problem:** Recipient offline when message sent. How to deliver later?
 
-### Bottleneck 4: Cross-Region Latency
+**Solution: Push Notifications + Message Queue**
 
-**Problem:**
-- US user → EU user = +100-200ms latency (across Atlantic)
-- Single Sequence Manager in US = +50ms for EU
+**When Recipient Offline:**
 
-**Solutions:**
-1. **Regional Kafka clusters:** Each region has local Kafka
-2. **Cross-region replication:** Async replication between regions
-3. **Global Sequence Manager:** Single source of truth (accept +50ms)
-4. **Alternative: Regional IDs:** Each region generates IDs (no global ordering)
+1. Delivery Worker detects recipient offline (checks Presence Service)
+2. Stores message in offline queue: `offline_messages:user:12345` (Redis List)
+3. Sends push notification to recipient's device (via FCM/APNS)
+
+**When Recipient Comes Online:**
+
+1. Client connects via WebSocket
+2. Client queries offline queue: `LRANGE offline_messages:user:12345 0 -1`
+3. Server pushes all pending messages
+4. Clear queue: `DEL offline_messages:user:12345`
+
+**Optimization: Batch Notifications**
+
+- Don't send push for every message if user receives 100 messages while offline
+- Batch: "You have 100 new messages from Alice"
+
+*See [pseudocode.md::deliver_offline_messages()](pseudocode.md) for implementation.*
 
 ---
 
-## 6. Common Anti-Patterns
+### 6.4 Bottleneck: Multi-Region Consistency
 
-### ❌ Anti-Pattern 1: Using Redis as Primary Message Database
+**Problem:** Users in different continents. How to ensure global message ordering?
 
-**Why Bad:**
-- 45 PB in Redis = $$millions per year
-- Redis is volatile (lost on crash without persistence)
-- Memory-only storage not cost-effective for archives
-
-**✅ Best Practice:**
-- Cassandra for persistent storage ($2-3/GB/month)
-- Redis for hot cache (last 100 messages per chat)
-
-### ❌ Anti-Pattern 2: No Message Ordering Guarantee
-
-**Why Bad:**
-- UUIDs have no time order
-- Client receives: "I'm here" before "Where are you?"
-- Terrible UX
-
-**✅ Best Practice:**
-- Snowflake IDs (timestamp-based)
-- Kafka partitioning by `chat_id`
-
-### ❌ Anti-Pattern 3: Synchronous Database Writes on Send
-
-**Why Bad:**
-- Sender waits 10-50ms for Cassandra write
-- Blocks fast ACK to user
-
-**✅ Best Practice:**
-- Write to Kafka first (5ms)
-- Immediate ACK to sender
-- Async workers write to Cassandra
-
-### ❌ Anti-Pattern 4: No Message Deduplication
-
-**Why Bad:**
-- Network retries cause duplicate messages
-- User sees "Hello!" twice
-
-**✅ Best Practice:**
-- Client generates `request_id` (UUID)
-- Server caches processed `request_id` for 5 minutes
-- Duplicate requests return cached response
-
-*See [pseudocode.md::deduplicate_message()](pseudocode.md) for implementation.*
-
----
-
-## 7. Alternative Approaches
-
-### Alternative 1: Fanout-on-Read (Pull Model)
+**Solution: Multi-Region Kafka with Global Sequence Manager**
 
 **Architecture:**
-- Don't push messages to users
-- User pulls messages on demand (polling or WebSocket query)
 
-**When to Use:**
-- Very large groups (>1000 members)
-- Broadcast channels (1M subscribers)
-- Example: Twitter celebrity tweets
+```
+Region US          Region EU          Region Asia
+  |                  |                   |
+  └────────────┬─────┴─────────┬─────────┘
+            Global Sequence Manager
+            (Single source of truth)
+                     │
+            Kafka Multi-Region Replication
+```
+
+**Trade-offs:**
+
+- ✅ **Strict Ordering:** Single Sequence Manager ensures global order
+- ❌ **Higher Latency:** Cross-region calls add 100-200ms
+- ❌ **Complexity:** Kafka MirrorMaker for replication
+
+**Alternative: Regional Ordering Only**
+
+- Each region has independent Sequence Manager
+- Messages ordered within region, but not globally
+- Trade-off: Acceptable for most users (95%+ same-region)
+
+---
+
+## 7. Common Anti-Patterns
+
+### Anti-Pattern 1: Storing Messages in Redis
+
+❌ **Using Redis as message database:**
+
+**Why It's Bad:**
+
+- ❌ **Memory Cost:** $45 \text{PB}$ in Redis = $\$$millions/year
+- ❌ **Volatile:** Redis data lost if cluster fails (need RDB/AOF)
+- ❌ **Limited Query:** Can't efficiently query by timestamp range
+
+✅ **Better: Use Cassandra for storage, Redis for hot cache**
+
+---
+
+### Anti-Pattern 2: No Message Ordering
+
+❌ **Using UUID as message ID (no ordering):**
+
+**Why It's Bad:**
+
+```
+Message 1: "Hello" (UUID: abc123)
+Message 2: "How are you?" (UUID: def456)
+
+Client receives: "How are you?" then "Hello" ❌
+```
+
+✅ **Better: Use timestamp-based sequence IDs**
+
+*See [pseudocode.md::generate_sequence_id()](pseudocode.md) for implementation.*
+
+---
+
+### Anti-Pattern 3: Synchronous Database Writes
+
+❌ **Writing to Cassandra synchronously before ACK:**
+
+**Why It's Bad:**
+
+- ❌ **High Latency:** Cassandra write = 10-50ms
+- ❌ **Blocks User:** Sender waits for persistence before seeing "sent"
+
+✅ **Better: Write to Kafka first (5ms), then async to Cassandra**
+
+---
+
+## 8. Alternative Approaches
+
+### Approach A: HTTP Polling (Not Chosen)
+
+**Architecture:** Client polls server every 1 second for new messages
 
 **Pros:**
-- ✅ No fanout cost on write
-- ✅ Scales to millions of followers
+
+- ✅ **Simple:** No persistent connections
+- ✅ **Firewall-Friendly:** Works through proxies
 
 **Cons:**
-- ❌ Higher read latency (must query on demand)
-- ❌ More complex client logic
 
-### Alternative 2: Hybrid Fanout
+- ❌ **High Latency:** 1-5 second delay
+- ❌ **Inefficient:** 100M clients × 1 poll/sec = 100M req/sec (even if no messages)
+- ❌ **Battery Drain:** Constant polling kills mobile battery
 
-**Architecture:**
-- Small chats: Fanout-on-Write (push)
-- Large groups: Fanout-on-Read (pull)
-
-**When to Use:**
-- Mix of small chats and large groups
-- Example: Slack (channels + DMs)
+**Why Not Chosen:** Latency and efficiency requirements not met.
 
 ---
 
-## 8. Monitoring and Observability
+### Approach B: P2P (Peer-to-Peer)
 
-### Critical Metrics
+**Architecture:** Clients connect directly to each other (like BitTorrent)
 
-| Metric | Target | Alert Threshold |
-|--------|--------|-----------------|
-| **Message Latency (P99)** | < 500ms | > 1000ms 🔴 |
-| **Active Connections** | 100M | < 95M or > 105M 🟡 |
-| **Kafka Consumer Lag** | < 1000 msgs | > 10K msgs 🔴 |
-| **Message Loss Rate** | 0% | > 0.01% 🔴 |
-| **WebSocket Server Health** | 99.99% | Server down 🔴 |
-| **Cassandra Write Latency** | < 50ms | > 100ms 🟡 |
+**Pros:**
+
+- ✅ **No Server:** Decentralized
+- ✅ **Low Cost:** No infrastructure
+
+**Cons:**
+
+- ❌ **NAT Traversal:** Firewall issues
+- ❌ **No History:** Messages lost if both clients offline
+- ❌ **No Ordering:** No central coordinator
+
+**Why Not Chosen:** Reliability and ordering requirements not met.
+
+---
+
+## 9. Monitoring and Observability
+
+### Key Metrics
+
+| Metric                      | Target          | Alert Threshold  | Description                   |
+|-----------------------------|-----------------|------------------|-------------------------------|
+| **Message Latency (P99)**   | < 500 ms        | > 1 second       | End-to-end delivery time      |
+| **WebSocket Connections**   | 100M            | < 80M (capacity) | Total active connections      |
+| **Kafka Lag**               | < 1000 messages | > 10K messages   | Consumer lag behind producers |
+| **Message Loss Rate**       | 0%              | > 0.001%         | Messages not delivered        |
+| **Presence Update Latency** | < 100 ms        | > 500 ms         | Online/offline status update  |
+| **Cassandra Write Latency** | < 50 ms         | > 200 ms         | Message persistence time      |
 
 ### Dashboards
 
-1. **Real-Time Overview:**
-   - Active connections (line chart)
-   - Messages/sec (line chart)
-   - Latency distribution (histogram)
+**Dashboard 1: Real-Time Health**
 
-2. **Kafka Health:**
-   - Consumer lag per partition
-   - Broker health
-   - Replication lag
+- Active WebSocket connections per server
+- Message throughput (msg/sec)
+- Kafka lag per consumer group
+- Redis hit rate (presence cache)
 
-3. **Storage Health:**
-   - Cassandra write/read latency
-   - Disk usage (45 PB capacity)
-   - Redis memory usage
+**Dashboard 2: User Experience**
 
-### Alerts
+- Message delivery latency (P50, P99, P999)
+- Connection success rate
+- Offline message queue depth
+- Read receipt processing time
 
-**🔴 Critical (Page On-Call):**
-- Kafka consumer lag > 10K messages
-- WebSocket server down (100K users affected)
-- Message loss detected
-- Sequence Manager unavailable
+### Critical Alerts
 
-**🟡 Warning (Investigate Next Day):**
-- Cassandra latency > 100ms
-- Redis memory > 90%
-- Connection count > 105M (capacity planning)
-
-*See [hld-diagram.md: Monitoring Dashboard](hld-diagram.md) for visualization.*
+- 🔴 **Kafka consumer lag > 10K:** Messages delayed, users not receiving messages
+- 🔴 **WebSocket server down:** 100K users disconnected
+- 🔴 **Sequence Manager unavailable:** No new messages can be sent
+- 🟡 **Cassandra write latency > 200ms:** History storage slow
+- 🟡 **Redis presence cache miss rate > 50%:** Presence queries slow
 
 ---
 
-## 9. Trade-offs Summary
+## 10. Trade-offs Summary
 
-### What We Gained ✅
+### What We Gained
 
-| Benefit | Explanation |
-|---------|-------------|
-| **Real-time Delivery** | <500ms end-to-end via WebSockets |
-| **Strict Ordering** | Kafka partitions guarantee sequence |
-| **Zero Message Loss** | Kafka durability + Cassandra persistence |
-| **Horizontal Scaling** | Add servers/nodes as users grow |
-| **High Availability** | 99.99% uptime with multi-AZ |
+✅ **Real-Time:** Sub-500ms message delivery via WebSockets
+✅ **Ordered:** Strict message ordering within conversations via Kafka
+✅ **Durable:** Zero message loss via Kafka replication
+✅ **Scalable:** 100M concurrent connections, 45 PB storage
+✅ **Available:** 99.99% uptime via distributed architecture
 
-### What We Sacrificed ❌
+### What We Sacrificed
 
-| Trade-off | Impact |
-|-----------|--------|
-| **Complexity** | Kafka + Cassandra + Redis + WS servers |
-| **Cost** | 1000 servers + massive clusters = $$ |
-| **Eventual Consistency** | Read receipts delayed by 100-500ms |
-| **Stateful Servers** | Sticky sessions complicate load balancing |
-| **Multi-Region Latency** | +100-200ms for cross-continent messages |
+❌ **Complexity:** Kafka, Cassandra, Redis all required (high ops burden)
+❌ **Cost:** 1000 WebSocket servers + Kafka cluster + Cassandra cluster = expensive
+❌ **Eventual Consistency:** Read receipts, presence may lag slightly
+❌ **Stateful Servers:** WebSocket servers require sticky sessions
+❌ **Multi-Region Latency:** Global ordering requires cross-region coordination (100-200ms)
 
 ---
 
-## 10. Real-World Implementations
+## 11. Real-World Implementations
 
 ### WhatsApp
 
-**Architecture:**
-- **Erlang** for WebSocket servers (2M connections per server!)
-- **Kafka-like** message log
-- **Cassandra** for message storage
-- **2 billion users**, **100 billion messages/day**
-
-**Key Insight:** Erlang's lightweight processes enable 2M connections per server vs 100K with Go/Node.js.
+- **Architecture:** Erlang servers for WebSocket connections (2M connections per server)
+- **Message Broker:** Custom XMPP-based protocol + Kafka-like log
+- **Storage:** Cassandra for message history
+- **Scale:** 2B users, 100B messages/day
+- **Key Insight:** End-to-end encryption implemented client-side (Signal Protocol)
 
 ### Slack
 
-**Architecture:**
-- **Node.js** WebSocket servers
-- **Kafka** for message log
-- **MySQL (sharded)** + **Vitess** for storage
-- **Redis** for presence and caching
-- **10M+ DAU**, billions of messages
-
-**Key Insight:** MySQL with Vitess (sharding layer) instead of Cassandra for strong consistency.
+- **Architecture:** Node.js WebSocket servers
+- **Message Broker:** Kafka for message log
+- **Storage:** MySQL (sharded) for messages, Redis for presence
+- **Scale:** 10M+ DAU, billions of messages
+- **Key Insight:** Heavy use of Redis for caching recent messages (90%+ cache hit rate)
 
 ### Discord
 
+- **Architecture:** Elixir/Erlang for WebSocket connections
+- **Message Broker:** Custom message queue (Go-based)
+- **Storage:** Cassandra for history, Redis for hot data
+- **Scale:** 150M MAU, 4B messages/day
+- **Key Insight:** Voice chat requires different optimization (UDP vs TCP)
+
+---
+
+## 12. Deep Dive: Handling Edge Cases
+
+### 12.1 Message Deduplication
+
+**Problem:** Network retries can cause duplicate messages.
+
+**Example:**
+
+```
+Client sends: "Hello"
+Network timeout (no ACK received)
+Client retries: "Hello" (duplicate!)
+```
+
+**Solution: Idempotency with Message ID**
+
+Each message has unique ID (generated client-side):
+
+```
+message_id: UUID v4 (client-generated)
+```
+
+**Server-side deduplication:**
+
+1. Check if `message_id` already processed
+2. Store processed IDs in Redis (TTL: 24 hours)
+3. If duplicate, return success (idempotent)
+
+**Implementation:**
+
+```
+Redis key: processed_message:{message_id}
+TTL: 86400 seconds (24 hours)
+
+On receive:
+  if EXISTS processed_message:{message_id}:
+    return SUCCESS (already processed)
+  else:
+    process message
+    SET processed_message:{message_id} 1 EX 86400
+```
+
+*See [pseudocode.md::handle_duplicate_message()](pseudocode.md) for implementation.*
+
+---
+
+### 12.2 Clock Skew & Time Synchronization
+
+**Problem:** Different servers have different clocks → messages may arrive out-of-order.
+
+**Example:**
+
+```
+Server 1 (clock: 10:00:00) sends message A (timestamp: 10:00:00)
+Server 2 (clock: 09:59:55) sends message B (timestamp: 09:59:55)
+
+Recipient receives: B, then A (wrong order!)
+```
+
+**Solution: Logical Clocks (Sequence IDs)**
+
+Don't rely on timestamps alone. Use strictly increasing sequence IDs from centralized Sequence Manager:
+
+```
+Message A: seq_id = 1001, timestamp = 10:00:00
+Message B: seq_id = 1002, timestamp = 09:59:55
+
+Order by seq_id, not timestamp → A before B ✅
+```
+
+**NTP Synchronization:**
+
+- All servers sync with NTP every 5 minutes
+- Alert if clock drift > 1 second
+- Use sequence IDs as primary ordering mechanism
+
+---
+
+### 12.3 Split Brain (Network Partition)
+
+**Problem:** Two data centers can't communicate. Each thinks the other is down.
+
+**Scenario:**
+
+```
+DC1 (US-East)          DC2 (US-West)
+    |                       |
+    X  Network partition   X
+    |                       |
+Both accept writes independently
+→ Conflicting message orders!
+```
+
+**Solution: Quorum-Based Writes**
+
+**Approach 1: Single-Region Write Master**
+
+- Only one region (e.g., US-East) can accept writes
+- Other regions read-only
+- Trade-off: Higher latency for users in other regions
+
+**Approach 2: Conflict-Free Replicated Data Types (CRDTs)**
+
+- Messages are commutative (order doesn't affect final state)
+- Use vector clocks to detect conflicts
+- Trade-off: Complex implementation
+
+**Recommendation:** Single write master for chat (simpler, acceptable latency).
+
+---
+
+### 12.4 Message Editing & Deletion
+
+**Problem:** User edits/deletes message. How to sync across all recipients?
+
+**Edit Flow:**
+
+1. Client sends EDIT event (message_id, new_content)
+2. Router publishes to Kafka
+3. Update in Cassandra: `message_id → content = new_content, edited_at = now()`
+4. Broadcast to all online recipients
+5. Offline recipients see edited version when they come online
+
+**Delete Flow:**
+
+1. Client sends DELETE event (message_id)
+2. Soft delete in Cassandra: `deleted = true, deleted_at = now()`
+3. Content not actually deleted (compliance, legal)
+4. Broadcast tombstone to recipients
+5. Clients hide message locally
+
+**Data Model:**
+
+```sql
+CREATE TABLE messages (
+    ...
+    deleted BOOLEAN DEFAULT false,
+    deleted_at TIMESTAMP,
+    edited BOOLEAN DEFAULT false,
+    edited_at TIMESTAMP,
+    edit_history LIST<TEXT>  -- Store previous versions
+);
+```
+
+*See [pseudocode.md::handle_message_edit()](pseudocode.md) for implementation.*
+
+---
+
+### 12.5 Rate Limiting per User
+
+**Problem:** Spam/abuse. User sends 1000 messages/second.
+
+**Solution: Multi-Level Rate Limiting**
+
+**Level 1: Per-User Rate Limit (Redis)**
+
+```
+rate_limit:user:{user_id}:messages → count
+TTL: 60 seconds
+
+If count > 100 messages/minute:
+  Return 429 Too Many Requests
+  Temporarily block user
+```
+
+**Level 2: Per-Chat Rate Limit**
+
+```
+rate_limit:chat:{chat_id}:messages → count
+TTL: 60 seconds
+
+If count > 1000 messages/minute (all users combined):
+  Slow down message processing
+  Alert moderators
+```
+
+**Level 3: IP-Based Rate Limit**
+
+```
+rate_limit:ip:{ip_address}:messages → count
+TTL: 60 seconds
+
+If count > 500 messages/minute:
+  Block IP temporarily (DDoS protection)
+```
+
+*See [pseudocode.md::check_rate_limit_user()](pseudocode.md) for implementation.*
+
+---
+
+### 12.6 Graceful Degradation Strategies
+
+**When Kafka is Down:**
+
+- Buffer messages in WebSocket server memory (max 1000 messages)
+- Return "Sending..." status to client
+- Retry publishing to Kafka every 5 seconds
+- After 5 minutes, fail with error (inform user)
+
+**When Cassandra is Down:**
+
+- Messages still delivered (via Kafka)
+- History queries fail → Return cached messages only
+- Display warning: "Some history unavailable"
+
+**When Redis (Presence) is Down:**
+
+- Assume all users online (fail safe)
+- No presence information displayed
+- Message delivery continues normally
+
+**Priority: Message delivery > History > Presence**
+
+---
+
+### 12.7 Connection Stickiness & Load Balancing
+
+**Problem:** User's WebSocket connection must stay on same server.
+
+**Solution: Consistent Hashing Load Balancer**
+
+**Load Balancer Configuration:**
+
+```
+upstream websocket_servers {
+    hash $user_id consistent;  # Sticky by user_id
+    server ws-server-1:8080;
+    server ws-server-2:8080;
+    server ws-server-3:8080;
+}
+```
+
+**Benefits:**
+
+- Same user always routes to same server
+- Connection state preserved
+- No need for shared session store
+
+**Handling Server Failure:**
+
+- If server dies, load balancer re-hashes to different server
+- Client automatically reconnects
+- Fetch offline messages from queue
+
+---
+
+## 13. Interview Discussion Points
+
+### 13.1 Why Kafka Over Direct Database Writes?
+
+**Interviewer:** "Why not just write messages directly to Cassandra?"
+
+**Answer:**
+
+**Without Kafka (Direct Write):**
+
+```
+Client → WebSocket Server → Cassandra → Respond to client
+Latency: 50-100ms (Cassandra write)
+```
+
+**With Kafka:**
+
+```
+Client → WebSocket Server → Kafka → Respond to client
+Latency: 5-10ms (Kafka write)
+
+Background workers:
+  Kafka → Cassandra (async)
+  Kafka → Delivery Worker → Recipient
+```
+
+**Benefits:**
+
+1. **Lower Latency:** Sender gets ACK faster (5ms vs 50ms)
+2. **Ordering:** Kafka guarantees order per partition
+3. **Decoupling:** Write and read paths independent
+4. **Replayability:** Can reprocess messages from any offset
+5. **Reliability:** Kafka handles temporary Cassandra outages
+
+**Trade-off:** More complexity (need to operate Kafka cluster).
+
+---
+
+### 13.2 How to Handle 1 Million Concurrent Connections?
+
+**Interviewer:** "100M connections seems impossible on commodity hardware."
+
+**Answer:**
+
+**Math:**
+
+```
+Connections per server: 100,000 (OS limit ~65K file descriptors, tuned to 100K)
+Required connections: 100,000,000
+Servers needed: 100M / 100K = 1,000 servers
+```
+
+**Server Specs (each):**
+
+- CPU: 8-16 cores (handle I/O multiplexing)
+- RAM: 32-64 GB (100K connections × 64 KB buffers = 6.4 GB minimum)
+- Network: 10 Gbps NIC
+- OS: Linux with tuned kernel parameters
+
+**OS Tuning:**
+
+```bash
+ulimit -n 1000000          # File descriptors
+sysctl -w net.core.somaxconn=65535
+sysctl -w net.ipv4.tcp_max_syn_backlog=8192
+```
+
+**Technology Choices:**
+
+- **Go:** Goroutines scale to 1M+ connections
+- **Erlang/Elixir:** Lightweight processes (WhatsApp uses this)
+- **Node.js:** Event loop, but single-threaded (harder to scale)
+- **Java/Netty:** NIO, excellent performance
+
+---
+
+### 13.3 What if User is in Group with 1000 Members?
+
+**Interviewer:** "How do you fanout to 1000 members efficiently?"
+
+**Answer:**
+
+**Problem:**
+
+```
+User sends message to group with 1000 members
+→ Need to push to 1000 connections
+→ If done synchronously: 1000 × 10ms = 10 seconds!
+```
+
+**Solution: Async Fanout with Worker Pool**
+
 **Architecture:**
-- **Elixir/Erlang** for real-time
-- **Custom Go-based** message queue (not Kafka)
-- **Cassandra** for message storage
-- **ScyllaDB** (Cassandra-compatible) for performance
-- **150M MAU**, **4 billion messages/day**
 
-**Key Insight:** Custom message queue optimized for their specific use case (gaming-focused features).
+```
+Message → Kafka (single write, fast)
+         ↓
+    Fanout Worker Pool (100 workers)
+         ↓
+    Each worker handles 10 users
+    → 1000 users / 100 workers = 10 users/worker
+    → Parallel fanout: ~100ms total
+```
+
+**Optimizations:**
+
+1. **Batch WebSocket writes:** Send to multiple connections in parallel
+2. **Prioritize online users:** Deliver to online users first, queue for offline
+3. **Compression:** Compress message once, send to all (save bandwidth)
+4. **Smart routing:** Group members in same region get faster delivery
+
+**Trade-off:** Small delay (100-500ms) for large groups vs instant for 1-1 chat.
+
+---
+
+### 13.4 How to Ensure Messages Aren't Lost?
+
+**Interviewer:** "What guarantees zero message loss?"
+
+**Answer:**
+
+**Multi-Level Durability:**
+
+**Level 1: Client ACKs**
+
+```
+Client sends message
+   ↓
+Server ACKs (message in Kafka, replicated)
+   ↓
+Client shows "Sent ✓"
+```
+
+**Level 2: Kafka Replication**
+
+```
+Producer: acks=all (wait for all replicas)
+Replication factor: 3 (message on 3 brokers)
+Min in-sync replicas: 2 (can lose 1 broker safely)
+```
+
+**Level 3: Cassandra Durability**
+
+```
+Consistency level: QUORUM (2 out of 3 nodes)
+Commit log: Append-only, fsync on write
+Replication factor: 3
+```
+
+**Level 4: Offline Message Queue**
+
+```
+If recipient offline:
+  Store in Redis List (persistence: AOF)
+  Send push notification
+  Deliver when user comes online
+```
+
+**Failure Scenarios:**
+
+- **Kafka broker dies:** Other 2 replicas have message ✅
+- **Cassandra node dies:** QUORUM still satisfied ✅
+- **Redis dies:** Kafka has message, can replay ✅
+- **WebSocket server dies:** Client reconnects, fetches from Kafka offset ✅
+
+**Only way to lose message:** All 3 Kafka replicas + all 3 Cassandra replicas fail simultaneously (extremely unlikely).
 
 ---
 
-## 11. Interview Discussion Points
+### 13.5 Multi-Tenancy: How to Isolate Large Enterprise Customers?
 
-### Q1: Why Kafka Over Direct Database Writes?
-
-**Answer:**
-- **Ordering:** Kafka partitions guarantee sequential order per `chat_id`
-- **Decoupling:** Write path (sender) and read path (receiver) are independent
-- **Durability:** Replicated across brokers (zero message loss)
-- **Throughput:** Can handle 290K writes/sec easily
-- **Replayability:** Can reprocess messages from any offset (disaster recovery)
-
-### Q2: How to Handle 100 Million Concurrent Connections?
+**Interviewer:** "What if one customer sends 1B messages/day?"
 
 **Answer:**
-1. **1000 WebSocket servers** (100K connections each)
-2. **Sticky sessions:** Load balancer routes same `user_id` to same server
-3. **OS tuning:** Increase file descriptors (`ulimit -n 1000000`)
-4. **Heartbeat:** 30-second intervals to detect dead connections
-5. **Horizontal scaling:** Add servers as needed
 
-### Q3: What If User Is in Group with 1000 Members?
+**Problem:** One customer (e.g., Slack workspace with 100K users) can overwhelm shared infrastructure.
 
-**Answer:**
-- **Fanout-on-Read** instead of Fanout-on-Write
-- User queries: "Give me last 100 messages for group_id"
-- No push to 1000 members on every message
-- Trade-off: Slightly higher latency (query on demand)
-- Example: Slack public channels, Twitter
+**Solution: Tenant-Based Sharding**
 
-### Q4: How to Ensure Messages Aren't Lost?
+**Kafka Partitioning:**
 
-**Answer:**
-1. **Kafka Durability:** Replication factor 3 (message on 3 brokers)
-2. **Cassandra Replication:** RF=3 across nodes
-3. **Client-Side Retry:** If no ACK in 5 seconds, retry with same `request_id`
-4. **Deduplication:** Server ignores duplicate `request_id`
-5. **Monitoring:** Alert on message loss (should be 0%)
+```
+Small customers: chat_id-based partitions (shared)
+Large customers: dedicated partitions
 
-### Q5: Multi-Tenancy: How to Isolate Large Enterprise Customers?
+tenant:acme-corp → Kafka topic: chat-acme-corp
+  → Dedicated consumer groups
+  → Isolated from other customers
+```
 
-**Answer:**
-1. **Dedicated Kafka partitions:** Enterprise customers get separate partitions
-2. **Dedicated Cassandra keyspace:** Logical isolation
-3. **Rate limiting per tenant:** Prevent one customer from overwhelming system
-4. **Resource quotas:** CPU/memory limits per tenant
-5. **Separate clusters:** Very large enterprises (e.g., Fortune 500) get dedicated clusters
+**WebSocket Server Pools:**
+
+```
+Pool 1: General users (shared)
+Pool 2: Enterprise customer "acme-corp" (dedicated)
+Pool 3: Enterprise customer "globex" (dedicated)
+```
+
+**Benefits:**
+
+- **Isolation:** Large customer doesn't affect others
+- **Custom SLA:** Enterprise customers get higher guarantees
+- **Billing:** Easy to track per-customer usage
+
+**Trade-off:** Higher operational complexity (more clusters to manage).
 
 ---
+
+## 14. References
+
+### Related System Design Components
+
+- **[2.0.3 Real-Time Communication](../../02-components/2.0.3-real-time-communication.md)** - WebSocket protocol,
+  alternatives
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md)** - Partitions, ordering, consumer groups
+- **[2.1.3 Specialized Databases](../../02-components/2.1.3-specialized-databases.md)** - Wide-column storage (
+  Cassandra)
+- **[2.1.9 Cassandra Deep Dive](../../02-components/2.1.9-cassandra-deep-dive.md)** - Time-series data, horizontal
+  scaling
+- **[2.1.11 Redis Deep Dive](../../02-components/2.1.11-redis-deep-dive.md)** - In-memory storage, presence tracking
+- **[2.5.3 Distributed Locking](../../02-components/2.5.3-distributed-locking.md)** - Sequence Manager coordination
+- **[1.2.3 API Gateway & Service Mesh](../../01-principles/1.2.3-api-gateway-servicemesh.md)** - WebSocket routing
+- **[2.5.1 Rate Limiting Algorithms](../../02-components/2.5.1-rate-limiting-algorithms.md)** - Spam prevention
+
+### Related Design Challenges
+
+- **[3.2.1 Twitter Timeline](../3.2.1-twitter-timeline/)** - Fanout strategies for group chats
+- **[3.2.2 Notification Service](../3.2.2-notification-service/)** - Push notifications, offline message delivery
+- **[3.3.2 Uber Ride Matching](../3.3.2-uber-ride-matching/)** - Real-time location updates, WebSocket patterns
+
+### External Resources
+
+- **WebSocket Protocol:** [RFC 6455](https://tools.ietf.org/html/rfc6455) - WebSocket specification
+- **Kafka Documentation:** [Apache Kafka](https://kafka.apache.org/documentation/) - Message ordering, partitions
+- **Cassandra Documentation:** [Apache Cassandra](https://cassandra.apache.org/doc/latest/) - Wide-column database
+- **WhatsApp Architecture:** [WhatsApp Engineering Blog](https://engineering.fb.com/category/core-data/) - Real-world
+  implementation
+- **Slack Architecture:** [Slack Engineering Blog](https://slack.engineering/) - Message delivery patterns
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Chapters on message queues, ordering, and real-time
+  systems
+- *High Performance Browser Networking* by Ilya Grigorik - WebSocket optimization and real-time communication

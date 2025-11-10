@@ -13,317 +13,401 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
-Design a real-time ride-matching system like Uber or Lyft that connects riders with nearby drivers within seconds. The system must handle millions of concurrent drivers continuously updating their GPS coordinates, support sub-100ms proximity searches to find the nearest available drivers, provide accurate ETAs, handle trip lifecycle management (request → match → pickup → trip → payment), and ensure high availability despite network failures and connection drops.
+Design a real-time ride-matching system like Uber or Lyft that connects riders with nearby drivers within seconds. The
+system must handle millions of concurrent drivers continuously updating their GPS coordinates, support sub-100ms
+proximity searches to find the nearest available drivers, provide accurate ETAs, handle trip lifecycle management (
+request → match → pickup → trip → payment), and ensure high availability despite network failures and connection drops.
 
-**Core Challenge:** Efficiently index and query millions of moving objects (drivers) in two-dimensional space (latitude/longitude) with sub-second latency while handling 1M+ location updates per second.
+**Core Challenge:** Efficiently index and query millions of moving objects (drivers) in two-dimensional space (
+latitude/longitude) with sub-second latency while handling 1M+ location updates per second.
 
 ---
 
-## Requirements
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements
+### Functional Requirements (FRs)
 
-- **Driver Location Updates:** Drivers report GPS coordinates every 4 seconds (heartbeat)
-- **Proximity Search:** Find N nearest available drivers within radius for a rider
-- **Real-Time ETA:** Calculate estimated time of arrival for matched drivers
-- **Trip Matching:** Match rider with optimal driver (distance, rating, vehicle type)
-- **Trip State Management:** Track trip lifecycle: requested → matched → pickup → active → completed
-- **Driver Status:** Track driver availability: online, offline, on-trip, break
-- **Surge Pricing:** Dynamic pricing based on supply/demand in geohash cells
-- **Driver Routing:** Navigate driver to pickup location, then to destination
+| Requirement                 | Description                                                             | Priority     |
+|-----------------------------|-------------------------------------------------------------------------|--------------|
+| **Driver Location Updates** | Drivers report GPS coordinates every 4 seconds (heartbeat)              | Must Have    |
+| **Proximity Search**        | Find N nearest available drivers within radius for a rider              | Must Have    |
+| **Real-Time ETA**           | Calculate estimated time of arrival for matched drivers                 | Must Have    |
+| **Trip Matching**           | Match rider with optimal driver (distance, rating, vehicle type)        | Must Have    |
+| **Trip State Management**   | Track trip lifecycle: requested → matched → pickup → active → completed | Must Have    |
+| **Driver Status**           | Track driver availability: online, offline, on-trip, break              | Must Have    |
+| **Surge Pricing**           | Dynamic pricing based on supply/demand in geohash cells                 | Should Have  |
+| **Driver Routing**          | Navigate driver to pickup location, then to destination                 | Should Have  |
+| **Multi-Ride Types**        | Support UberX, UberXL, Uber Black (different vehicle types)             | Nice to Have |
 
-### Non-Functional Requirements
+### Non-Functional Requirements (NFRs)
 
-| Requirement | Target |
-|-------------|--------|
-| Latency (Search) | < 100 ms (p99) |
-| Availability | 99.99% |
-| Write Throughput | 750K updates/sec (peak) |
-| Read Throughput | 50K searches/sec |
-| Geo-Query Accuracy | 99.9% |
+| Requirement              | Target             | Rationale                                |
+|--------------------------|--------------------|------------------------------------------|
+| **Low Latency (Search)** | < 100 ms (p99)     | Fast matching prevents rider abandonment |
+| **High Availability**    | 99.99% uptime      | Service downtime = revenue loss          |
+| **Write Throughput**     | 1M updates/sec     | 1M drivers × 1 update/sec                |
+| **Read Throughput**      | 50K searches/sec   | Peak ride requests                       |
+| **Geo-Query Accuracy**   | 99.9%              | Missed drivers = poor UX                 |
+| **Scalability**          | Global, multi-city | Horizontal scaling required              |
 
 ### Scale Estimation
 
-| Metric | Value |
-|--------|-------|
-| Total Drivers | 1 Million active |
-| Location Updates | 250K writes/sec (avg), 750K peak |
-| Concurrent Riders | 50,000 searching |
-| Proximity Searches | 50K reads/sec |
-| Total Throughput | ~800K ops/sec (peak) |
-| Memory (Geo-Index) | ~40 MB (in-memory) |
+| Metric                             | Assumption                             | Calculation                              | Result                 |
+|------------------------------------|----------------------------------------|------------------------------------------|------------------------|
+| **Total Drivers (Global)**         | 1 Million active drivers               | -                                        | 1M drivers             |
+| **Driver Location Updates**        | 1 update per 4 seconds per driver      | $1\text{M} / 4 = 250\text{K}$ writes/sec | 250K writes/sec (avg)  |
+| **Peak Updates**                   | 3× average during rush hour            | $250\text{K} \times 3$                   | 750K writes/sec (peak) |
+| **Concurrent Riders**              | 50,000 active riders searching         | -                                        | 50K riders             |
+| **Proximity Searches**             | 1 search per rider request             | $50\text{K}$ searches/sec                | 50K reads/sec          |
+| **Total Throughput**               | Writes + Reads                         | $750\text{K} + 50\text{K}$               | ~800K ops/sec (peak)   |
+| **Driver Data per Record**         | lat, lng, status, timestamp, driver_id | $40$ bytes/record                        | 40 bytes               |
+| **Total Memory (In-Memory Index)** | 1M drivers × 40 bytes                  | $1\text{M} \times 40$                    | ~40 MB (fits in RAM)   |
 
-**Key Insight:** 40 MB index fits entirely in RAM → Redis perfect choice
+**Key Insights:**
+
+- **Write-heavy workload:** 750K writes/sec vs 50K reads/sec (15:1 ratio)
+- **In-memory feasible:** 40 MB index fits entirely in RAM (Redis)
+- **Low latency critical:** Rider abandonment increases exponentially after 3 seconds
+- **Global sharding needed:** Single datacenter can't serve all cities
 
 ---
 
-## High-Level Architecture
+## 3. High-Level Architecture
 
-> 📊 **See detailed architecture:** [HLD Diagrams](./hld-diagram.md)
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
 
 ### System Overview
 
 ```
-Driver App (GPS) → API Gateway → Location Service
-                                        ↓
-                                    Kafka Buffer (750K writes/sec)
-                                        ↓
-                            ┌───────────┴───────────┐
-                            ↓                       ↓
-                    Indexer Workers          Driver State Worker
-                            ↓                       ↓
-                    Redis Geo Index          Redis State Store
-                    (GEOADD/GEORADIUS)      (available/busy)
-                            ↓
-                    Matching Service
-                    (Find nearest drivers)
-                            ↓
-                    Trip Management
-                    (PostgreSQL ACID)
+                    ┌────────────────────────────────────┐
+                    │      Driver App (Mobile)           │
+                    │  GPS: lat=37.7749, lng=-122.4194   │
+                    └─────────────┬──────────────────────┘
+                                  │ HTTPS (every 4s)
+                    ┌─────────────▼──────────────────────┐
+                    │       API Gateway / Load Balancer  │
+                    │     (Geo-aware routing by city)    │
+                    └─────────────┬──────────────────────┘
+                                  │
+                    ┌─────────────▼──────────────────────┐
+                    │  Location Ingestion Service        │
+                    │  - Validate coordinates            │
+                    │  - Publish to Kafka                │
+                    └─────────────┬──────────────────────┘
+                                  │
+                    ┌─────────────▼──────────────────────┐
+                    │        Kafka Cluster               │
+                    │   (Buffer 750K updates/sec)        │
+                    └─────┬────────────────┬─────────────┘
+                          │                │
+           ┌──────────────▼──┐      ┌─────▼──────────────┐
+           │ Indexer Workers │      │ Driver State Worker│
+           │ (100 consumers) │      │ (status, rating)   │
+           └──────────┬──────┘      └─────┬──────────────┘
+                      │                    │
+           ┌──────────▼──────────────┐     │
+           │  Redis Cluster (Geo)    │     │
+           │  - Geohash Index        │     │
+           │  - 20 shards by city    │     │
+           │  - GEOADD commands      │     │
+           └──────────┬──────────────┘     │
+                      │                    │
+                      │         ┌──────────▼──────────────┐
+                      │         │  Redis (Driver State)   │
+                      │         │  - available/busy       │
+                      │         │  - rating, vehicle type │
+                      │         └─────────────────────────┘
+                      │
+        ┌─────────────▼─────────────┐
+        │   Rider App (Mobile)       │
+        │   "Find me a ride"         │
+        └─────────────┬───────────────┘
+                      │ HTTPS
+        ┌─────────────▼───────────────┐
+        │  Matching Service            │
+        │  - GEORADIUS query           │
+        │  - Filter by availability    │
+        │  - Calculate ETA             │
+        │  - Return top 5 drivers      │
+        └─────────────┬───────────────┘
+                      │
+        ┌─────────────▼───────────────┐
+        │  Trip Management Service     │
+        │  - PostgreSQL (ACID)         │
+        │  - State: request → match    │
+        │  - Payment processing        │
+        └──────────────────────────────┘
 ```
 
 ### Key Components
 
-| Component | Technology | Responsibility |
-|-----------|------------|----------------|
-| **API Gateway** | NGINX, Kong | Geo-aware routing by city |
-| **Location Ingestion** | Go, Java | Validate GPS, publish to Kafka |
-| **Kafka** | Apache Kafka | Buffer 750K writes/sec |
-| **Indexer Workers** | Go | Update Redis geo-index |
-| **Redis Geo** | Redis w/ Geo commands | In-memory geohash index |
-| **Matching Service** | Go, Rust | Find nearest drivers, ETA |
-| **Trip Management** | PostgreSQL | ACID transactions |
+| Component              | Responsibility                                       | Technology              | Scalability                  |
+|------------------------|------------------------------------------------------|-------------------------|------------------------------|
+| **API Gateway**        | Route requests to nearest datacenter                 | NGINX, Kong             | Horizontal + GeoDNS          |
+| **Location Ingestion** | Validate GPS, publish to Kafka                       | Go, Java                | Horizontal (stateless)       |
+| **Kafka Cluster**      | Buffer 750K writes/sec, decouple producers/consumers | Apache Kafka            | Horizontal (partitioned)     |
+| **Indexer Workers**    | Consume from Kafka, update Redis geo-index           | Go workers              | Horizontal (100+ consumers)  |
+| **Redis Geo Cluster**  | In-memory geohash index for proximity search         | Redis with Geo commands | Horizontal (sharded by city) |
+| **Driver State Store** | Store driver status, rating, vehicle type            | Redis                   | Horizontal (sharded)         |
+| **Matching Service**   | Find nearest drivers, calculate ETA                  | Go, Rust                | Horizontal (stateless)       |
+| **Trip Management**    | ACID transactions for trip lifecycle                 | PostgreSQL (sharded)    | Horizontal (sharded by city) |
+| **ETA Service**        | Calculate travel time using road network             | GraphHopper, OSRM       | Horizontal                   |
 
 ---
 
-## Key Design Decisions
+## 4. Detailed Component Design
 
-### Decision 1: Redis Geo vs PostGIS
+### 4.1 Geo-Spatial Indexing Strategy
 
-**Chosen:** Redis with GEOADD/GEORADIUS
+**Challenge:** Transform 2D space (latitude, longitude) into a searchable data structure.
 
-**Why:**
-- ✅ In-memory (sub-millisecond queries)
-- ✅ Handles 750K writes/sec easily
-- ✅ Native GEORADIUS command
-- ✅ Simple setup (vs complex SQL)
+**Solution: Geohash Encoding**
 
-**Alternatives:**
-- ❌ PostgreSQL PostGIS: Too slow (10-50ms queries), write bottleneck
-- ❌ MongoDB Geo: Moderate speed (5-20ms), worse than Redis
+Geohash converts a lat/lng pair into a short alphanumeric string. Nearby locations share common prefixes, enabling:
 
-*See [this-over-that.md](this-over-that.md) for detailed analysis*
+- Single-dimensional index lookups (fast)
+- Proximity search by prefix matching
+- Efficient range queries
 
-### Decision 2: Geohash Encoding
+**Geohash Example:**
 
-**Chosen:** Geohash (for MVP)
-
-**Why:**
-- ✅ Converts 2D space (lat/lng) → 1D string
-- ✅ Nearby locations share prefix
-- ✅ Redis native support
-- ✅ Fast range queries
-
-**How it Works:**
 ```
-San Francisco: lat=37.7749, lng=-122.4194
-→ geohash = "9q8yy"
+San Francisco: lat=37.7749, lng=-122.4194 → geohash = "9q8yy"
 
-Precision:
-- 3 chars (9q8): ~156 km × 156 km
-- 5 chars (9q8yy): ~4.9 km × 4.9 km
-- 7 chars (9q8yywe): ~153 m × 153 m
+Precision levels:
+- 3 chars: 9q8 → ~156 km × 156 km
+- 5 chars: 9q8yy → ~4.9 km × 4.9 km
+- 7 chars: 9q8yywe → ~153 m × 153 m
 ```
 
-**Alternative:** H3 Hexagonal Grid
-- ✅ Better boundaries (no edge artifacts)
-- ❌ Complex (custom implementation)
-- Used by Uber at production scale
+**Why Geohash over H3?**
 
-### Decision 3: Kafka Buffer
+| Factor              | Geohash                                | H3 (Uber's Hexagonal Grid)         |
+|---------------------|----------------------------------------|------------------------------------|
+| **Simplicity**      | String prefix matching ✅               | Complex hexagonal math ❌           |
+| **Redis Support**   | Native GEOADD, GEORADIUS ✅             | Custom implementation ❌            |
+| **Boundary Issues** | Yes (edge cases at cell boundaries) ⚠️ | Better (hexagons tile perfectly) ✅ |
+| **Adoption**        | Widely supported ✅                     | Uber-specific, less tooling ❌      |
 
-**Chosen:** Async location updates via Kafka
+**Decision:** Use **Geohash** for MVP, migrate to **H3** for production at Uber scale.
 
-**Why:**
-- ✅ Absorbs 750K writes/sec bursts
-- ✅ Drivers don't wait for DB writes (5ms response)
-- ✅ Fault tolerant (replication)
-- ✅ Replayable (audit trail)
-
-**Alternative:** Synchronous Redis writes
-- ❌ 50-100ms latency (driver waits)
-- ❌ Overload risk (single point of failure)
+*See [this-over-that.md: Geohash vs H3](this-over-that.md) for detailed comparison.*
 
 ---
 
-## Geo-Spatial Indexing
+### 4.2 Redis Geo Commands
 
-### Redis Geo Commands
+Redis provides native geospatial commands that internally use Geohash.
 
-**1. Add Driver Location:**
-```
-GEOADD drivers:sf -122.4194 37.7749 "driver:123"
-```
-- Time: O(log N)
-- Internally converts to geohash
+**Key Operations:**
 
-**2. Find Nearby Drivers:**
-```
-GEORADIUS drivers:sf -122.4194 37.7749 5 km WITHDIST COUNT 10
-```
-- Returns 10 nearest drivers within 5 km
-- Sorted by distance
-- Time: O(N log N) where N = drivers in area
+1. **Add Driver Location:**
+   ```
+   GEOADD drivers:sf -122.4194 37.7749 "driver:123"
+   ```
+    - Adds driver to index with coordinates
+    - Internally converts to geohash and stores in sorted set
+    - Time complexity: O(log N)
 
-**3. Update Location (Upsert):**
-```
-GEOADD drivers:sf -122.4200 37.7755 "driver:123"
-```
-- Overwrites previous location
+2. **Find Nearby Drivers:**
+   ```
+   GEORADIUS drivers:sf -122.4194 37.7749 5 km WITHDIST COUNT 10
+   ```
+    - Returns 10 nearest drivers within 5 km radius
+    - Sorted by distance
+    - Time complexity: O(N log N) where N = drivers in search area
+
+3. **Update Driver Location:**
+   ```
+   GEOADD drivers:sf -122.4200 37.7755 "driver:123"
+   ```
+    - Overwrites previous location (upsert behavior)
+    - No need to delete old entry
 
 **Data Structure:**
+
 ```
 Key: drivers:{city_code}
-Type: Sorted Set
+Type: Sorted Set (internally)
 Members: driver:{driver_id}
 Score: Geohash integer (52-bit)
 ```
 
-*See [pseudocode.md::update_driver_location()](pseudocode.md)*
+*See [pseudocode.md::update_driver_location()](pseudocode.md) for implementation.*
 
 ---
 
-## Location Ingestion Pipeline
+### 4.3 Location Ingestion Pipeline
 
-### Flow
+**Why Kafka?**
 
-1. **Driver App** sends GPS every 4 seconds
-2. **API Gateway** routes to nearest datacenter
-3. **Location Service** validates coordinates
-4. **Kafka** buffers 750K updates/sec
-5. **Indexer Workers** (100 consumers) pull from Kafka
-6. **Redis** updated via GEOADD
+**Problem:** 750K location updates/sec overwhelm any synchronous database write path.
 
-**Why Async?**
+**Solution:** Kafka acts as a buffer, absorbing bursts and decoupling producers (drivers) from consumers (indexers).
 
-| Approach | Latency | Database Load | Fault Tolerance |
-|----------|---------|---------------|-----------------|
-| **Sync** | 50-100ms ❌ | 750K direct writes ❌ | Single point ❌ |
-| **Async (Kafka)** | 5-10ms ✅ | Sustainable rate ✅ | Replicated ✅ |
+**Flow:**
 
-**Trade-off:** 200-500ms delay between driver movement and index update (acceptable for 4-second intervals)
+1. **Driver App:** POST /location → API Gateway
+2. **Location Service:** Validate coordinates, publish to Kafka topic "location-updates"
+3. **Kafka:** Persist message, replicate to 3 brokers
+4. **Indexer Workers:** 100 consumers pull from Kafka, update Redis
+5. **Redis:** GEOADD command updates driver position
+
+**Why This Over Synchronous Writes?**
+
+| Approach                       | Latency (Driver POV)       | Database Load                         | Fault Tolerance           |
+|--------------------------------|----------------------------|---------------------------------------|---------------------------|
+| **Synchronous (Direct Redis)** | 50-100ms (waits for DB)    | 750K writes/sec directly              | Single point of failure ❌ |
+| **Async (Kafka Buffer)**       | 5-10ms (fire-and-forget) ✅ | Workers consume at sustainable rate ✅ | Kafka replication ✅       |
+
+**Trade-off:** Slight delay (200-500ms) between driver movement and index update (acceptable for 4-second update
+intervals).
+
+*See [sequence-diagrams.md: Location Update Flow](sequence-diagrams.md) for detailed flow.*
 
 ---
 
-## Matching Service
+### 4.4 Matching Service
 
-### Algorithm
+**Challenge:** Find optimal driver for a rider request within 100ms.
 
-**1. Proximity Search:**
-```
-GEORADIUS drivers:sf {rider_lat} {rider_lng} 5km COUNT 20
-→ [driver:123 (0.5 km), driver:456 (1.2 km), ...]
-```
+**Algorithm:**
 
-**2. Filter by Availability:**
-```
-MGET driver:123:status driver:456:status
-→ ["available", "on_trip", "available", ...]
-Keep only "available"
-```
+1. **Proximity Search:**
+   ```
+   GEORADIUS drivers:sf {rider_lat} {rider_lng} 5km WITHDIST COUNT 20
+   ```
+    - Returns 20 nearest drivers within 5 km
+    - Sorted by distance
 
-**3. Calculate ETA:**
-- Call ETA Service (GraphHopper, OSRM)
-- Considers road network, traffic
-- Returns travel time (e.g., 7 minutes)
+2. **Filter by Availability:**
+    - Query Driver State Store (Redis): `MGET driver:123:status driver:456:status ...`
+    - Remove busy/offline drivers
 
-**4. Rank Drivers:**
-```
-score = 0.7 × distance + 0.2 × ETA + 0.1 × (5 - rating)
-Return top 5 drivers
-```
+3. **Calculate ETA:**
+    - For each available driver, call ETA Service
+    - ETA Service uses road network graph (GraphHopper, OSRM)
+    - Returns travel time considering traffic
 
-**5. Send Requests:**
-- Push notifications to top 5 drivers
-- First to accept gets trip
+4. **Rank Drivers:**
+    - Score = 0.7 × distance + 0.2 × ETA + 0.1 × driver_rating
+    - Return top 5 drivers to rider
+
+5. **Send Ride Requests:**
+    - Send push notifications to top 5 drivers simultaneously
+    - First to accept gets the trip
 
 **Optimization: Smart Radius Expansion**
-- < 5 drivers found in 5 km? → Expand to 10 km
-- Still < 5? → Expand to 20 km
-- Max radius: 50 km
 
-*See [pseudocode.md::find_nearest_drivers()](pseudocode.md)*
+If < 5 drivers found within 5 km:
+
+- Expand search to 10 km
+- If still < 5, expand to 20 km
+- Maximum radius: 50 km (prevent excessive searches)
+
+*See [pseudocode.md::find_nearest_drivers()](pseudocode.md) for implementation.*
 
 ---
 
-## Sharding Strategy
+### 4.5 Sharding Strategy
 
-**Problem:** 1M drivers can't fit in single Redis instance
+**Problem:** 1M drivers globally can't fit in single Redis instance.
 
 **Solution: Geographic Sharding**
 
-```
-Shard by city:
-- drivers:sf (San Francisco)
-- drivers:nyc (New York)
-- drivers:london (London)
+**Approach:**
 
-API Gateway routes based on rider location:
-Rider at lat=37.7749 → Reverse geocode → "sf" → Redis shard "drivers:sf"
+- Shard by city/region (e.g., `drivers:sf`, `drivers:nyc`, `drivers:london`)
+- API Gateway routes requests to correct shard based on rider location
+- Each city has dedicated Redis cluster (3-5 nodes)
+
+**Sharding Logic:**
+
+```
+1. Rider location: lat=37.7749, lng=-122.4194
+2. Reverse geocode to city: "san_francisco"
+3. Route to Redis shard: drivers:sf
 ```
 
 **Benefits:**
-- ✅ Isolation (SF traffic doesn't impact NYC)
-- ✅ Scalability (add new cities independently)
-- ✅ Low latency (data co-located)
 
-**Challenge: Cross-City Boundaries**
-- Solution: Query both adjacent shards, merge results
+- ✅ **Isolation:** SF traffic doesn't impact NYC
+- ✅ **Scalability:** Add new cities independently
+- ✅ **Latency:** Data co-located with users
 
-*See [this-over-that.md: Sharding Strategies](this-over-that.md)*
+**Challenge: Cross-City Trips**
+
+- Rider near city boundary might need drivers from adjacent city
+- Solution: Query both shards, merge results
+
+*See [this-over-that.md: Sharding Strategies](this-over-that.md) for alternatives.*
 
 ---
 
-## Driver State Management
+### 4.6 Driver State Management
 
-**Problem:** Geo-index only stores location, not status
+**Challenge:** Geo-index only stores location, not status (available/busy).
 
 **Solution: Separate State Store**
 
-**Data Model:**
+**Data Model (Redis):**
+
 ```
 Key: driver:{driver_id}:state
 Value: {
     "status": "available",  // available, on_trip, offline
     "vehicle_type": "sedan",
     "rating": 4.8,
-    "current_trip_id": null
+    "current_trip_id": null,
+    "last_update": timestamp
 }
-TTL: 300 seconds
+TTL: 300 seconds (5 minutes)
 ```
 
 **Operations:**
 
-```
-SET driver:123:state {...} EX 300
-HMGET driver:123:state driver:456:state
-```
+1. **Set Driver Available:**
+   ```
+   HSET driver:123:state status "available" vehicle_type "sedan" rating 4.8
+   EXPIRE driver:123:state 300
+   ```
 
-**Why Separate?**
+2. **Check Availability (Batch):**
+   ```
+   HMGET driver:123:state driver:456:state driver:789:state
+   ```
 
-| Aspect | Combined | Separated |
-|--------|----------|-----------|
-| **Update Frequency** | Mixed (bad) | Optimized per use case ✅ |
-| **Query Pattern** | Complex | Clean separation ✅ |
-| **TTL** | Difficult | Independent ✅ |
+3. **Update to Busy (on trip match):**
+   ```
+   HSET driver:123:state status "on_trip" current_trip_id "trip-abc-123"
+   ```
+
+**Why Separate from Geo-Index?**
+
+| Aspect               | Combined (Single Redis Key)                | Separated (Two Keys)     |
+|----------------------|--------------------------------------------|--------------------------|
+| **Update Frequency** | Location: every 4s, Status: on trip change | Optimized per use case ✅ |
+| **Query Pattern**    | Geo query + status filter mixed            | Clean separation ✅       |
+| **TTL Management**   | Complex (different lifetimes)              | Independent TTLs ✅       |
 
 ---
 
-## Trip State Machine
+### 4.7 Trip State Machine
 
 **States:**
+
+1. **REQUESTED:** Rider submitted request
+2. **SEARCHING:** Matching service finding drivers
+3. **MATCHED:** Driver accepted, navigating to pickup
+4. **ARRIVED:** Driver at pickup location
+5. **IN_PROGRESS:** Trip started
+6. **COMPLETED:** Trip finished
+7. **CANCELLED:** Trip cancelled by rider/driver
+
+**State Transitions:**
+
 ```
 REQUESTED → SEARCHING → MATCHED → ARRIVED → IN_PROGRESS → COMPLETED
      ↓          ↓          ↓          ↓           ↓
@@ -332,12 +416,16 @@ REQUESTED → SEARCHING → MATCHED → ARRIVED → IN_PROGRESS → COMPLETED
 
 **Database: PostgreSQL (ACID)**
 
-**Why PostgreSQL?**
-- Payment processing requires ACID
-- Refunds require transactions
-- Audit trail requires strong consistency
+**Why PostgreSQL over NoSQL?**
+
+Trip state involves:
+
+- Payment processing (requires ACID)
+- Refunds/cancellation fees (requires transactions)
+- Audit trail (requires strong consistency)
 
 **Schema:**
+
 ```sql
 CREATE TABLE trips (
     trip_id UUID PRIMARY KEY,
@@ -351,68 +439,170 @@ CREATE TABLE trips (
     estimated_fare DECIMAL(10, 2),
     actual_fare DECIMAL(10, 2),
     created_at TIMESTAMP DEFAULT NOW(),
-    completed_at TIMESTAMP
+    matched_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    cancelled_at TIMESTAMP,
+    cancellation_reason VARCHAR(255)
 );
+
+CREATE INDEX idx_rider_trips ON trips(rider_id, created_at DESC);
+CREATE INDEX idx_driver_trips ON trips(driver_id, created_at DESC);
 ```
 
-*See [pseudocode.md::trip_state_machine()](pseudocode.md)*
+*See [pseudocode.md::trip_state_machine()](pseudocode.md) for state transition logic.*
 
 ---
 
-## ETA Calculation
+### 4.8 ETA Calculation
 
-**Challenge:** Calculate accurate travel time (not straight-line)
+**Challenge:** Calculate accurate travel time considering:
+
+- Road network (not straight-line distance)
+- Traffic conditions
+- One-way streets, turn restrictions
 
 **Solution: GraphHopper / OSRM**
 
-- Open-source routing engine
-- Pre-processes OpenStreetMap road network
-- Considers traffic, one-way streets, turn restrictions
+**GraphHopper:**
 
-**API:**
+- Open-source routing engine
+- Pre-processes OpenStreetMap (OSM) data into road network graph
+- Dijkstra's algorithm with A* optimization
+- Considers traffic via real-time APIs (Google Traffic, TomTom)
+
+**API Call:**
+
 ```
-GET /route?point=37.7749,-122.4194&point=37.7849,-122.4094
+GET /route?point=37.7749,-122.4194&point=37.7849,-122.4094&vehicle=car
 → {
-    "distance": 2500 meters,
-    "time": 420 seconds (7 minutes)
+    "distance": 2500 (meters),
+    "time": 420 (seconds = 7 minutes),
+    "path": [...coordinates...]
 }
 ```
 
-**Caching:**
-```
-Key: eta:{start_geohash_5}:{end_geohash_5}:{time_bucket}
-TTL: 15 minutes
-Hit rate: ~60%
-```
+**Caching Strategy:**
 
-**Fallback:** Haversine distance × 1.3 (Manhattan factor)
+- Cache common routes (e.g., airport → downtown)
+- TTL: 15 minutes (traffic changes)
+- Key: `route:{start_geohash}:{end_geohash}:{time_bucket}`
 
-*See [pseudocode.md::calculate_eta()](pseudocode.md)*
+**Fallback (if GraphHopper fails):**
+
+- Haversine distance × average city speed
+- Example: 2 km / 30 km/h = 4 minutes
+
+*See [pseudocode.md::calculate_eta()](pseudocode.md) for implementation.*
 
 ---
 
-## Bottlenecks and Solutions
+## 5. Why This Over That?
 
-### Bottleneck 1: Redis Write Contention
+### Decision 1: Redis Geo vs PostgreSQL PostGIS
+
+**Chosen:** Redis with GEOADD/GEORADIUS
+
+**Why:**
+
+- ✅ **Speed:** In-memory (sub-millisecond queries)
+- ✅ **Throughput:** Handles 750K writes/sec easily
+- ✅ **Native Commands:** GEORADIUS built-in
+- ✅ **Simplicity:** No complex SQL spatial queries
+
+**Alternatives:**
+
+**PostgreSQL PostGIS:**
+
+- ❌ **Slower:** Disk-based, 10-50ms queries
+- ❌ **Write Bottleneck:** 10K writes/sec max (needs sharding)
+- ✅ **ACID:** Better for persistent trip data
+- **When to Use:** For historical trip data, not real-time indexing
+
+**MongoDB with Geo Indexes:**
+
+- ⚠️ **Moderate Speed:** 5-20ms queries
+- ⚠️ **Write Throughput:** 50K writes/sec (better than Postgres, worse than Redis)
+- ✅ **Document Model:** Good for complex driver profiles
+- **When to Use:** If driver profiles are complex documents
+
+*See [this-over-that.md: Redis vs PostGIS vs MongoDB](this-over-that.md)*
+
+---
+
+### Decision 2: Kafka vs Direct Database Writes
+
+**Chosen:** Kafka Buffer
+
+**Why:**
+
+- ✅ **Burst Handling:** Absorbs 750K writes/sec spikes
+- ✅ **Decoupling:** Drivers don't wait for database writes
+- ✅ **Fault Tolerance:** Kafka replication prevents data loss
+- ✅ **Replay:** Can reprocess location history
+
+**Alternative: Synchronous Redis Writes:**
+
+- ❌ **Latency:** Driver app waits 50-100ms for Redis ACK
+- ❌ **Overload Risk:** Single Redis failure blocks all writes
+- ✅ **Simpler:** No Kafka infrastructure
+- **When to Use:** MVP with <10K drivers
+
+---
+
+### Decision 3: Geohash vs H3 Hexagonal Grid
+
+**Chosen:** Geohash (for MVP)
+
+**Why:**
+
+- ✅ **Redis Native:** GEOADD supports Geohash internally
+- ✅ **Standard:** Widely adopted, more libraries
+- ✅ **Simple:** String prefix matching
+
+**Alternative: H3 (Uber's Choice):**
+
+- ✅ **Better Boundaries:** Hexagons tile perfectly (no edge artifacts)
+- ✅ **Uniform Distance:** All neighbors equidistant
+- ❌ **Custom Implementation:** Redis doesn't support H3 natively
+- ❌ **Complexity:** Requires custom indexing logic
+- **When to Use:** At Uber scale (millions of drivers)
+
+**Uber's Actual Architecture:**
+
+- Started with Geohash
+- Migrated to H3 at 1M+ drivers for better accuracy
+- Custom H3-optimized database (no Redis)
+
+*See [this-over-that.md: Geohash vs H3 Deep Dive](this-over-that.md)*
+
+---
+
+## 6. Bottlenecks and Future Scaling
+
+### Bottleneck 1: Write Contention on Redis
 
 **Problem:**
-- 750K writes/sec overwhelms single Redis
-- Need 8-10 instances
+
+- 750K writes/sec concentrated in peak hours
+- Single Redis instance: ~100K ops/sec max
+- Need 8-10 Redis instances just for writes
 
 **Solutions:**
 
 1. **Geographic Sharding:**
-   - Split by city: drivers:sf, drivers:nyc
-   - SF: 50K drivers × 0.25 writes/sec = 12.5K writes/sec ✅
+    - Split by city: `drivers:sf`, `drivers:nyc`, etc.
+    - Each city: 20K-50K drivers → manageable
+    - SF: 50K drivers × 0.25 writes/sec = 12.5K writes/sec ✅
 
 2. **Write Batching:**
-   - Batch 100 GEOADD commands
-   - Single pipeline reduces network roundtrips
+    - Indexer workers batch 100 GEOADD commands
+    - Single pipeline: `GEOADD drivers:sf {100 lat/lng pairs}`
+    - Reduces network roundtrips by 100×
 
 3. **Read Replicas:**
-   - Master: writes
-   - 3 replicas: reads
-   - Replication lag: <100ms
+    - Master: Handles writes
+    - 3 Read replicas: Handle GEORADIUS queries
+    - Replication lag: <100ms (acceptable)
 
 *See [pseudocode.md::batch_update_locations()](pseudocode.md)*
 
@@ -421,997 +611,657 @@ Hit rate: ~60%
 ### Bottleneck 2: Geohash Boundary Issues
 
 **Problem:**
-- Driver 10m away but in different geohash cell = missed
+
+- Geohash cells have sharp boundaries
+- Driver 10 meters away but in different cell = not found
 
 **Example:**
+
 ```
-Rider:    geohash = 9q8yy (SF downtown)
-Driver A: geohash = 9q8yy (same cell, 500m) ✅ Found
-Driver B: geohash = 9q8yw (adjacent, 50m) ❌ Missed!
+Rider at:    geohash = 9q8yy (SF downtown)
+Driver A at: geohash = 9q8yy (same cell, 500m away) ✅ Found
+Driver B at: geohash = 9q8yw (adjacent cell, 50m away) ❌ Missed!
 ```
 
 **Solutions:**
 
 1. **Check Adjacent Cells:**
-   - Query center + 8 neighbors (9 total)
-   - Merge results
-   - Cost: 10ms → 90ms
+    - Query 9 cells: center + 8 neighbors
+    - 9 GEORADIUS queries → merge results
+    - Increases latency: 10ms → 90ms ⚠️
 
 2. **Larger Search Radius:**
-   - 5 km → 7 km (covers boundaries)
+    - Instead of 5 km, search 7 km
+    - Covers boundary cases with margin
+    - More results to filter (trade-off)
 
 3. **H3 Hexagonal Grid:**
-   - No sharp corners
-   - Better neighbor coverage
-   - Uber's solution
+    - Hexagons have no sharp corners
+    - Better neighbor coverage
+    - Requires custom implementation
 
-*See [hld-diagram.md: Boundary Problem](hld-diagram.md)*
+**Uber's Solution:** H3 grid eliminates boundary issues.
+
+*See [hld-diagram.md: Boundary Problem Visualization](hld-diagram.md)*
 
 ---
 
 ### Bottleneck 3: ETA Service Overload
 
 **Problem:**
-- 50K searches/sec × 20 drivers = 1M ETA requests/sec
+
+- Matching service calls ETA service for 20 drivers per search
+- 50K searches/sec × 20 = 1M ETA requests/sec
 - GraphHopper can't handle 1M requests/sec
 
 **Solutions:**
 
 1. **Caching:**
-   - Key: eta:{start}:{end}:{time_bucket}
-   - Hit rate: 60%
-   - 1M → 400K cache misses
+    - Key: `eta:{start_geohash_5}:{end_geohash_5}:{time_bucket_15min}`
+    - Hit rate: ~60% (common routes cached)
+    - 1M requests → 400K cache misses (manageable)
 
 2. **Pre-Computation:**
-   - Pre-compute ETA grid for city
-   - Lookup: O(1)
+    - Pre-compute ETA grid for city at 15-minute intervals
+    - Store in Redis: `eta_grid:sf:{time_bucket}`
+    - Lookup: O(1) instead of routing calculation
 
 3. **Approximation:**
-   - Straight-line × 1.3
-   - Accurate within 20%
+    - Use straight-line distance × 1.3 (Manhattan distance factor)
+    - Accurate within 20% for most urban areas
+    - Fallback when ETA service overloaded
 
 *See [pseudocode.md::calculate_eta_with_cache()](pseudocode.md)*
 
 ---
 
-### Bottleneck 4: Cold Start
+### Bottleneck 4: Cold Start Problem
 
 **Problem:**
-- Driver logs in → not in index yet
-- First Kafka update → 200-500ms delay
-- Rider searches → driver not found
+
+- Driver logs in → location not in index yet
+- First update via Kafka → 200-500ms delay
+- Rider searches immediately → driver not found
 
 **Solutions:**
 
 1. **Synchronous Initial Update:**
-   - Login: Direct Redis write (bypass Kafka)
-   - Subsequent: Async via Kafka
+    - On login: Driver app → POST /location (synchronous)
+    - API directly writes to Redis (bypass Kafka)
+    - Subsequent updates → async via Kafka
 
 2. **Pre-Warm Index:**
-   - Use last known location
-   - Update with fresh GPS in 4 seconds
+    - When driver goes online, mark "status = available" in Driver State
+    - Use last known location from database
+    - Update with fresh GPS within 4 seconds
 
-3. **Hybrid:**
-   - Sync write (100ms response)
-   - Also publish to Kafka (audit)
+3. **Hybrid Approach:**
+    - Login: Sync write to Redis (100ms)
+    - Background: Also publish to Kafka (for audit trail)
+    - Best of both worlds
 
 ---
 
-## Common Anti-Patterns
+## 7. Common Anti-Patterns
 
-### ❌ Anti-Pattern 1: Polling for Drivers
+### ❌ Anti-Pattern 1: Polling for Nearby Drivers
 
-**Bad:**
+**Bad Approach:**
+
 ```
-while not matched:
-    search()
+while (not matched):
+    drivers = search_nearby_drivers(rider_location)
+    if drivers.length > 0:
+        send_ride_request(drivers[0])
     sleep(5 seconds)
 ```
 
 **Why Bad:**
-- Wastes resources
-- 5-second latency
-- Doesn't scale
 
-**✅ Better:** Event-driven (WebSocket push)
+- Wastes resources (repeated searches)
+- 5-second latency = poor UX
+- Doesn't scale (50K riders × 1 search/5s = 10K searches/sec wasted)
 
----
+**✅ Best Practice:**
 
-### ❌ Anti-Pattern 2: Full History in Redis
+- **Event-Driven:** Rider subscribes to WebSocket
+- Matching service pushes driver matches in real-time
+- Driver acceptance notification via push
 
-**Bad:** Store all location history in Redis
-
-**Why Bad:**
-- Memory expensive
-- 3B locations/day = 120 GB/day = $120/day
-
-**✅ Better:**
-- Redis: Current location only (40 MB)
-- Cassandra: Historical data
-- S3: Raw logs
+*See [sequence-diagrams.md: Event-Driven Matching](sequence-diagrams.md)*
 
 ---
 
-### ❌ Anti-Pattern 3: No TTL on Driver State
+### ❌ Anti-Pattern 2: Storing Full Trip History in Redis
 
-**Bad:**
+**Bad Approach:**
+
 ```
-SET driver:123:status "available"  # No TTL
+GEOADD driver_history:123 {lat} {lng} {timestamp} → Store all locations
 ```
 
 **Why Bad:**
-- Driver crashes → remains "available" forever
-- Ghost drivers in system
 
-**✅ Better:**
-```
-SET driver:123:status "available" EX 300
-Heartbeat every 60s refreshes
-```
+- Redis memory expensive ($1/GB/month)
+- 1M drivers × 15 trips/day × 200 locations/trip = 3B locations/day
+- 3B × 40 bytes = 120 GB/day = $120/day just for storage
+
+**✅ Best Practice:**
+
+- **Redis:** Only current location (40 MB total)
+- **Cassandra:** Historical trip data (cheap storage)
+- **S3:** Raw GPS logs for analytics (pennies per GB)
 
 ---
 
-### ❌ Anti-Pattern 4: Single Global Redis
+### ❌ Anti-Pattern 3: No Driver State TTL
 
-**Bad:** All drivers worldwide → one Redis
+**Bad Approach:**
+
+```
+SET driver:123:status "available"  // No TTL
+```
 
 **Why Bad:**
-- High latency (cross-region queries)
-- Bottleneck (750K writes/sec)
-- Single point of failure
 
-**✅ Better:** Geographic sharding (drivers:sf, drivers:nyc)
+- Driver goes offline (app crash, network drop)
+- Status remains "available" forever
+- Matching service sends ride requests to ghost drivers
+
+**✅ Best Practice:**
+
+```
+SET driver:123:status "available" EX 300  // 5-minute TTL
+Driver heartbeat every 60 seconds refreshes TTL
+```
+
+If no heartbeat → key expires → driver marked offline automatically
 
 ---
 
-## Alternative Approaches
+### ❌ Anti-Pattern 4: Single Global Redis Instance
 
-### Alternative 1: Elasticsearch
+**Bad Approach:**
+
+```
+All drivers worldwide → single Redis instance "drivers:global"
+```
+
+**Why Bad:**
+
+- Latency: US rider queries Redis in EU (150ms network)
+- Bottleneck: 750K writes/sec overwhelms single instance
+- Failure: Redis down = global outage
+
+**✅ Best Practice:**
+
+- **Geographic Sharding:** `drivers:sf`, `drivers:nyc`, `drivers:london`
+- **Regional Deployment:** Redis co-located with users
+- **Isolation:** SF outage doesn't affect NYC
+
+---
+
+## 8. Alternative Approaches
+
+### Alternative 1: Elasticsearch for Geo-Search
+
+**Architecture:**
+
+- Replace Redis with Elasticsearch
+- Use `geo_distance` query
+- Store driver documents with `geo_point` field
 
 **Pros:**
-- ✅ Rich queries (filter by rating + type + distance)
-- ✅ Full-text search
-- ✅ Built-in analytics
+
+- ✅ **Rich Queries:** Filter by rating, vehicle type, distance simultaneously
+- ✅ **Full-Text Search:** Search drivers by name, license plate
+- ✅ **Analytics:** Built-in aggregations (surge pricing zones)
 
 **Cons:**
-- ❌ Slower writes (10K/sec/node vs Redis 100K)
-- ❌ Higher latency (20-50ms vs <5ms)
 
-**When:** Need complex filtering
+- ❌ **Slower Writes:** 10K writes/sec/node (vs Redis 100K)
+- ❌ **Higher Latency:** 20-50ms queries (vs Redis <5ms)
+- ❌ **Complex:** Requires cluster management, replication
+
+**When to Use:** If you need rich filtering (e.g., "5-star drivers with SUV within 2 km").
 
 ---
 
-### Alternative 2: DynamoDB
+### Alternative 2: DynamoDB with Geohashing
+
+**Architecture:**
+
+- Store drivers in DynamoDB
+- Partition key: geohash (first 4 chars)
+- Sort key: geohash (full) + driver_id
 
 **Pros:**
-- ✅ Serverless (no management)
-- ✅ Auto-scales
-- ✅ Durable
+
+- ✅ **Serverless:** No infrastructure management
+- ✅ **Scalability:** Auto-scales to millions of writes/sec
+- ✅ **Durability:** Multi-AZ replication
 
 **Cons:**
-- ❌ No native geo (manual geohash)
-- ❌ Cost ($937/day for 750K writes/sec)
-- ❌ Latency (10-30ms)
 
-**When:** AWS ecosystem, willing to pay
+- ❌ **No Native Geo:** Manual geohash querying (query 9 cells)
+- ❌ **Cost:** $1.25 per million writes ($937/day for 750K writes/sec)
+- ❌ **Latency:** 10-30ms (vs Redis <5ms)
+
+**When to Use:** If using AWS ecosystem and willing to pay for serverless simplicity.
 
 ---
 
-### Alternative 3: QuadTree
+### Alternative 3: QuadTree In-Memory Structure
+
+**Architecture:**
+
+- Custom in-memory QuadTree
+- Each node: Bounding box with driver list
+- Recursively split when node exceeds 100 drivers
 
 **Pros:**
-- ✅ Fast (O(log N))
-- ✅ No external DB
-- ✅ Fine-tuned
+
+- ✅ **Fast:** O(log N) insertion, O(k + log N) query
+- ✅ **No External DB:** Pure in-memory
+- ✅ **Fine-Tuned:** Optimize for specific use case
 
 **Cons:**
-- ❌ Complex (implement tree rebalancing)
-- ❌ No persistence
-- ❌ Difficult to shard
 
-**When:** Embedded systems (not distributed)
+- ❌ **Complex:** Implement tree rebalancing, concurrency
+- ❌ **No Persistence:** Lost on server restart
+- ❌ **Scaling:** Difficult to shard across nodes
+
+**When to Use:** For embedded systems or specialized hardware (not distributed systems).
 
 ---
 
-## Monitoring
+## 9. Monitoring and Observability
 
 ### Critical Metrics
 
-| Metric | Target | Alert |
-|--------|--------|-------|
-| **Matching Latency P99** | < 100ms | > 200ms 🔴 |
-| **Location Update Rate** | 750K/sec | < 500K 🟡 |
-| **Redis Memory** | < 80% | > 90% 🔴 |
-| **Kafka Lag** | < 1000 | > 10K 🔴 |
-| **Match Success Rate** | > 95% | < 90% 🔴 |
+| Metric                          | Target        | Alert Threshold |
+|---------------------------------|---------------|-----------------|
+| **Matching Latency (P99)**      | < 100ms       | > 200ms 🔴      |
+| **Driver Location Update Rate** | 750K/sec peak | < 500K/sec 🟡   |
+| **Redis Memory Usage**          | < 80%         | > 90% 🔴        |
+| **Kafka Consumer Lag**          | < 1000 msgs   | > 10K msgs 🔴   |
+| **Match Success Rate**          | > 95%         | < 90% 🔴        |
+| **Driver Availability**         | 1M active     | < 800K 🟡       |
+| **ETA Accuracy**                | ±20%          | ±40% 🟡         |
 
 ### Dashboards
 
-1. **Real-Time Ops:**
-   - Active drivers by city (map)
-   - Location updates/sec
-   - Matching latency
+1. **Real-Time Operations:**
+    - Active drivers by city (map view)
+    - Location updates/sec (line chart)
+    - Matching requests/sec (line chart)
+    - Average matching latency (histogram)
 
 2. **Geo-Index Health:**
-   - Redis memory usage
-   - GEOADD ops/sec
-   - GEORADIUS latency
+    - Redis memory usage (gauge)
+    - GEOADD operations/sec (line chart)
+    - GEORADIUS query latency (histogram)
+    - Cache hit rate (gauge)
 
 3. **Trip Funnel:**
-   - Requests → Matches → Completions
-   - Conversion rates
+    - Requests → Searches → Matches → Completions
+    - Conversion rate at each stage
+    - Drop-off analysis
 
 ### Alerts
 
-**🔴 Critical:**
-- Matching service down
-- Redis cluster down
-- Kafka broker failure
-- Match rate < 90%
+**🔴 Critical (Page On-Call):**
 
-**🟡 Warning:**
-- ETA latency > 500ms
-- Redis memory > 90%
-- Kafka lag > 10K
+- Matching service down (no ride requests processed)
+- Redis cluster down (no geo-index)
+- Kafka broker failure (location updates lost)
+- Match success rate < 90% (insufficient drivers)
+
+**🟡 Warning (Investigate Next Day):**
+
+- ETA service latency > 500ms
+- Redis memory > 90% (scale up)
+- Kafka consumer lag > 10K (add consumers)
+
+*See [hld-diagram.md: Monitoring Dashboard](hld-diagram.md)*
 
 ---
 
-## Trade-offs
+## 10. Trade-offs Summary
 
 ### What We Gained ✅
 
-| Benefit | Explanation |
-|---------|-------------|
-| **Low Latency** | <100ms matching via Redis |
-| **High Throughput** | 750K writes/sec via Kafka |
-| **Scalability** | Geographic sharding |
-| **Availability** | 99.99% with replication |
-| **Accuracy** | Geohash proximity search |
+| Benefit             | Explanation                                    |
+|---------------------|------------------------------------------------|
+| **Low Latency**     | <100ms matching via in-memory Redis geo-index  |
+| **High Throughput** | 750K location updates/sec via Kafka buffering  |
+| **Scalability**     | Geographic sharding enables horizontal scaling |
+| **Availability**    | Redis replication + Kafka replication = 99.99% |
+| **Accuracy**        | Geohash enables precise proximity search       |
 
 ### What We Sacrificed ❌
 
-| Trade-off | Impact |
-|-----------|--------|
-| **Eventual Consistency** | 200-500ms index lag |
-| **Complexity** | Kafka + Redis + PostgreSQL |
-| **Cost** | Redis RAM expensive |
-| **Boundary Issues** | Geohash cell boundaries |
-| **No History** | Current location only |
+| Trade-off                 | Impact                                                      |
+|---------------------------|-------------------------------------------------------------|
+| **Eventual Consistency**  | 200-500ms delay between driver movement and index update    |
+| **Complexity**            | Kafka + Redis + PostgreSQL = 3 data stores                  |
+| **Cost**                  | Redis RAM expensive for large fleets ($1/GB/month)          |
+| **Boundary Issues**       | Geohash cells have sharp boundaries (missed nearby drivers) |
+| **No Historical Queries** | Redis only stores current location, not trip history        |
 
 ---
 
-## Real-World Implementations
+## 11. Real-World Implementations
 
 ### Uber
 
-- **Geo-Index:** H3 hexagonal grid (not Geohash)
-- **Database:** RocksDB (not Redis)
-- **Routing:** Custom "Otto" engine
-- **Scale:** 5M drivers, 100M riders, 15M trips/day
+**Architecture:**
 
-**Why Custom?**
-- Redis too expensive at 5M drivers
-- H3: 15% better accuracy than Geohash
-- RocksDB: 10× cheaper than Redis
+- **Geo-Index:** Custom H3 hexagonal grid (not Geohash)
+- **Database:** RocksDB (custom key-value store, not Redis)
+- **Routing:** Internal "Otto" routing engine (not GraphHopper)
+- **Scale:** 5M+ drivers, 100M+ riders, 15M trips/day
+
+**Key Insights:**
+
+- Migrated from Geohash to H3 for better boundary handling
+- Custom database (RocksDB) for cost efficiency (Redis too expensive at scale)
+- Multi-region deployment (20+ cities, 100+ datacenters)
+
+**Why Custom Tech Stack?**
+
+- Off-the-shelf Redis couldn't handle 5M drivers
+- H3 provides 15% better matching accuracy than Geohash
+- RocksDB: 10× cheaper than Redis for same storage
+
+---
 
 ### Lyft
 
-- **Geo-Index:** S2 geometry (Google's spherical indexing)
+**Architecture:**
+
+- **Geo-Index:** S2 geometry library (Google's spherical indexing)
 - **Database:** DynamoDB + Redis hybrid
 - **Routing:** Mapbox Directions API
-- **Scale:** 2M drivers, 20M riders
+- **Scale:** 2M drivers, 20M+ riders
+
+**Key Insights:**
+
+- Uses S2 cells (similar to H3, but spherical coordinates)
+- DynamoDB for durability, Redis for speed
+- Heavy use of AWS managed services (less custom infrastructure)
+
+---
 
 ### Grab (Southeast Asia)
 
+**Architecture:**
+
 - **Geo-Index:** Redis Geo (Geohash)
 - **Database:** MySQL (sharded by city)
-- **Routing:** OSRM (free)
-- **Scale:** 9M drivers, 187M users, 8 countries
+- **Routing:** Open-source OSRM
+- **Scale:** 9M drivers, 187M users (across 8 countries)
 
-**Why Different?**
-- Cost constraints (stuck with Geohash)
-- Team expertise (MySQL over Cassandra)
+**Key Insights:**
+
+- Stuck with Redis Geo (Geohash) due to cost constraints
+- MySQL instead of Cassandra (team expertise)
+- OSRM for routing (free, vs Google Maps $7/1000 requests)
 
 ---
 
-## Advanced Topics
+## 12. Deep Dive: Advanced Topics
 
-### Surge Pricing
+### 12.1 Surge Pricing
 
-**Algorithm:**
-```
-For each geohash cell:
-  available_drivers = COUNT(available in cell)
-  pending_requests = COUNT(unmatched riders)
-  ratio = available_drivers / pending_requests
-  
-  if ratio < 0.5:  surge = 2.0×
-  elif ratio < 1.0: surge = 1.5×
-  else: surge = 1.0×
-```
+**Problem:** Too many riders, not enough drivers.
 
-**Storage:**
+**Solution: Dynamic Pricing by Geohash Cell**
+
+1. **Calculate Supply/Demand Ratio:**
+   ```
+   For each geohash cell (1 km × 1 km):
+   available_drivers = COUNT(drivers with status=available in cell)
+   pending_requests = COUNT(unmatched riders in cell)
+   ratio = available_drivers / pending_requests
+   ```
+
+2. **Apply Surge Multiplier:**
+   ```
+   if ratio < 0.5:  surge = 2.0×  (high demand)
+   elif ratio < 1.0: surge = 1.5×
+   else: surge = 1.0× (no surge)
+   ```
+
+3. **Update Every 2 Minutes:**
+    - Background job recalculates surge for all cells
+    - Riders see surge pricing before requesting ride
+
+**Data Storage:**
+
 ```
 Key: surge:{city}:{geohash_5}
 Value: {"multiplier": 1.5, "updated_at": timestamp}
-TTL: 300 seconds
+TTL: 300 seconds (5 minutes)
 ```
 
-### Driver Repositioning
+---
 
-**Problem:** Drivers cluster downtown, demand in suburbs
+### 12.2 Driver Repositioning
 
-**Solutions:**
-- Heat map showing high-demand areas
-- Destination mode (heading home)
-- Bonuses: "Drive to Airport, get $5 for next trip"
+**Problem:** Drivers cluster in downtown, but demand is in suburbs.
+
+**Solution: Incentivize Movement**
+
+1. **Heat Map:** Show drivers where demand is high
+2. **Destination Mode:** Driver sets preferred direction (e.g., "heading home")
+3. **Bonuses:** "Drive to Airport, get $5 bonus for next trip"
 
 **ML Model:**
-- Predict demand by geohash for next 30 minutes
-- Input: historical trips, events, weather
-- Output: Probability of ride in cell X at time T
 
-### UberPool (Multi-Pickup)
+- Predict demand by geohash cell for next 30 minutes
+- Input: historical trip data, events (concerts, games), weather
+- Output: "Probability of ride request in cell X at time T"
 
-**Challenge:** Match riders with overlapping routes
+---
+
+### 12.3 Multi-Pickup (UberPool)
+
+**Problem:** Multiple riders, similar routes → share ride.
+
+**Challenge:** Find riders with overlapping routes in real-time.
 
 **Approach:**
-1. Rider A requests: pickup A → dropoff A
-2. Check compatible riders: pickup B near A's route
-3. Calculate detour: original 10 min → 13 min with B
-4. If detour < 30% → suggest pool
+
+1. **Rider A requests ride:** pickup A → dropoff A
+2. **Check for compatible riders:**
+    - Rider B: pickup B within 500m of A's route, dropoff B within 500m of A's dropoff
+3. **Calculate detour:**
+    - Original trip A: 10 minutes
+    - With pickup B: 13 minutes (30% detour)
+    - If detour < 30% → match
+
+**Data Structure:**
+
+```
+Active pool requests:
+[
+  {rider_id: A, pickup: {lat, lng}, dropoff: {lat, lng}, route: [...]},
+  {rider_id: B, pickup: {lat, lng}, dropoff: {lat, lng}, route: [...]},
+]
+
+For new rider C:
+  - Check all active requests
+  - Calculate route overlap
+  - If overlap > 70% → suggest pool
+```
 
 ---
 
-## Interview Discussion
+## 13. Interview Discussion Points
 
-### Q1: 10× Traffic Growth?
+### Q1: How Would You Handle 10× Traffic Growth?
 
 **Answer:**
-- Redis: 20 shards → 200 shards
-- Kafka: 100 partitions → 1000 partitions
-- Regional datacenters: 20 → 50 cities
-- Cost: $50K/month → $500K/month
 
-### Q2: Redis Goes Down?
+**From 1M → 10M drivers:**
+
+1. **Redis Sharding:**
+    - Current: 20 city shards (50K drivers each)
+    - New: 200 city shards (50K drivers each)
+    - Geographic + sub-city sharding (e.g., sf-north, sf-south)
+
+2. **Kafka Partitioning:**
+    - Current: 100 partitions
+    - New: 1000 partitions
+    - More consumers (1000 indexer workers)
+
+3. **Regional Datacenters:**
+    - Deploy Redis clusters in 50+ cities (vs current 20)
+    - Reduce cross-region latency
+
+4. **Cost:**
+    - Redis: 40 MB → 400 MB (still fits in RAM, $5/month/shard)
+    - Kafka: Add brokers (100 → 200 brokers)
+    - Total infrastructure: $50K/month → $500K/month
+
+---
+
+### Q2: What If Redis Goes Down?
 
 **Answer:**
-- Single node: Sentinel promotes replica (<5s)
-- Entire shard: Fallback to adjacent cities
-- Complete failure: Rebuild from Kafka (10 minutes)
-- Mitigation: Multi-AZ deployment
 
-### Q3: Prevent GPS Spoofing?
+**Failure Scenarios:**
+
+1. **Single Node Failure:**
+    - Redis Sentinel detects failure (heartbeat timeout)
+    - Promotes replica to master (<5 seconds)
+    - Impact: <5 seconds of degraded matching
+
+2. **Entire Shard Failure (e.g., sf shard):**
+    - Fallback: Query adjacent cities (oakland, san_jose)
+    - Wider search radius (20 km instead of 5 km)
+    - Temporary: "Finding drivers, please wait..."
+
+3. **Complete Redis Cluster Failure:**
+    - Rebuild index from Kafka replay (last 7 days retained)
+    - Time to rebuild: 10 minutes for 1M drivers
+    - Downtime: 10 minutes (worst case)
+
+**Mitigation:**
+
+- Multi-AZ Redis deployment (3 nodes across availability zones)
+- Cross-region replication (replicate sf shard to nyc as backup)
+
+---
+
+### Q3: How to Prevent Driver Spoofing (Fake GPS)?
 
 **Answer:**
-- Velocity check (impossible movements)
-- Accelerometer cross-check
-- Cell tower triangulation
-- ML anomaly detection
-- Response: warning → suspension → ban
 
-### Q4: Cross-Border Trips?
+**Attack:** Driver spoofs GPS to appear closer to rider.
 
-**Answer:**
-- Block by default (geofence)
-- Special mode: drivers with permits only
-- Higher fare (surcharge)
-- Alternative: hand-off at border
+**Detection:**
 
-### Q5: Optimize for EVs?
+1. **Velocity Check:**
+    - If driver moves 10 km in 1 second → physically impossible
+    - Flag: `driver_behavior:suspicious_velocity`
 
-**Answer:**
-- Track battery level
-- Don't assign long trips to low battery
-- Route to charging stations
-- Incentives: "Charge during off-peak, earn bonus"
+2. **Accelerometer Data:**
+    - Mobile app sends accelerometer readings
+    - If GPS shows movement but accelerometer shows stillness → spoofing
 
----
+3. **Cell Tower Triangulation:**
+    - Cross-check GPS with cell tower location
+    - If mismatch > 1 km → suspicious
 
-## Cost Analysis (AWS)
+4. **ML Model:**
+    - Train on historical trip patterns
+    - Detect anomalies (e.g., driver teleporting)
 
-| Component | Specification | Monthly |
-|-----------|---------------|---------|
-| **Redis** | 20 × r5.large | $23K |
-| **Kafka** | 50 × m5.2xlarge | $115K |
-| **Compute** | Location + Matching | $400K |
-| **PostgreSQL** | 10 × db.r5.4xlarge | $72K |
-| **Load Balancers** | 20 × NLB | $3K |
-| **Data Transfer** | 10 TB/month | $9K |
-| **Total** | | **$622K/month** |
+**Response:**
 
-**Annual:** ~$7.5M/year
-
-**Per Driver:** $7.50/year
-
-**Optimized (Reserved + Spot):** ~$350K/month (~$4.2M/year)
+- Warning: "We detected unusual location activity"
+- Suspension: Temporary account lock
+- Permanent ban: Repeat offenders
 
 ---
 
-## References
+### Q4: How to Handle Cross-Border Trips?
 
-- [Geohash Deep Dive](../../02-components/2.5-algorithms/2.5.5-geohash-indexing.md)
-- [Redis Geo Commands](../../02-components/2.1-databases/2.1.11-redis-deep-dive.md)
-- [Kafka Streaming](../../02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)
-- [PostgreSQL Sharding](../../02-components/2.1-databases/2.1.4-database-scaling.md)
+**Problem:** Rider in Detroit requests ride to Windsor, Canada.
 
----
+**Challenges:**
 
-For complete details, see the **[Full Design Document](3.3.2-design-uber-ride-matching.md)**.
+- Different currency (USD → CAD)
+- Different regulations (insurance, licensing)
+- Driver may not have cross-border permit
 
-## Deep Dive: System Flow
+**Solutions:**
 
-### Complete Ride Request Flow
+1. **Block Cross-Border by Default:**
+    - Geofence: Detect dropoff location in different country
+    - Show error: "Cross-border trips not supported"
 
-**1. Driver Goes Online:**
-```
-1. Driver opens app, location services enabled
-2. App requests GPS coordinates (lat, lng)
-3. POST /driver/online → Location Service
-4. Service validates coordinates, publishes to Kafka
-5. Indexer Worker consumes, calls GEOADD
-6. Redis updates: drivers:sf adds driver:123
-7. Driver State updated: status = "available"
-```
+2. **Special Cross-Border Mode:**
+    - Only drivers with permits can accept
+    - Filter: `driver:123:permits = ["US", "CA"]`
+    - Higher fare (cross-border surcharge)
 
-**2. Rider Requests Ride:**
-```
-1. Rider enters pickup location (or uses current GPS)
-2. POST /ride/request → Matching Service
-3. Service calls GEORADIUS (find 20 nearest drivers)
-4. Filters by status: MGET driver:*:status
-5. Calculates ETA for each available driver
-6. Ranks drivers by score
-7. Returns top 5 drivers to rider app
-```
-
-**3. Driver Acceptance:**
-```
-1. Push notifications sent to top 5 drivers
-2. First driver to accept gets the trip
-3. Trip State: REQUESTED → MATCHED
-4. Other drivers get "Trip no longer available"
-5. Driver State updated: status = "on_trip"
-6. Rider receives: "John is on the way (ETA 7 min)"
-```
-
-**4. Pickup Phase:**
-```
-1. Driver navigates to pickup using ETA Service
-2. Location updates continue (every 4 seconds)
-3. Rider sees real-time driver location on map
-4. Driver arrives: Trip State → ARRIVED
-5. Rider notified: "Your driver has arrived"
-```
-
-**5. In-Progress Phase:**
-```
-1. Driver starts trip: Trip State → IN_PROGRESS
-2. Navigation to dropoff location
-3. Location updates tracked
-4. Rider sees estimated arrival time
-5. Real-time updates if route changes
-```
-
-**6. Completion:**
-```
-1. Driver ends trip at dropoff
-2. Trip State → COMPLETED
-3. Fare calculation: distance × rate + time × rate + surge
-4. Payment processed (credit card charged)
-5. Driver State → "available"
-6. Both parties rate each other
-```
+3. **Hand-Off:**
+    - Driver A (US) drives to border
+    - Rider transfers to Driver B (CA) at border
+    - Two separate trips, two payments
 
 ---
 
-## Data Models in Detail
+### Q5: How to Optimize for Electric Vehicles (EVs)?
 
-### Driver Data Model
+**Problem:** EV range limited, need charging station routing.
 
-**Location Index (Redis Geo):**
-```
-GEOADD drivers:sf -122.4194 37.7749 "driver:123"
+**Solutions:**
 
-Stored as:
-  Key: drivers:sf
-  Type: Sorted Set
-  Member: "driver:123"
-  Score: geohash integer (e.g., 4060140471971840)
-```
+1. **Battery-Aware Matching:**
+    - Track driver battery level: `driver:123:battery = 40%`
+    - Don't assign long trips (>50 km) to drivers with <50% battery
 
-**Driver State (Redis Hash):**
-```
-HSET driver:123:state
-  status "available"
-  vehicle_type "sedan"
-  rating "4.8"
-  total_trips "1523"
-  acceptance_rate "95"
-  current_trip_id ""
-  battery_level "85"
-  
-EXPIRE driver:123:state 300
-```
+2. **Charging Station Routing:**
+    - If driver battery <20%, suggest route to nearby charging station
+    - ETA service considers charging time: "15 min drive + 30 min charge"
 
-**Driver Profile (PostgreSQL):**
-```sql
-CREATE TABLE drivers (
-    driver_id UUID PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    phone VARCHAR(20) NOT NULL,
-    email VARCHAR(255) UNIQUE,
-    license_plate VARCHAR(20),
-    vehicle_make VARCHAR(100),
-    vehicle_model VARCHAR(100),
-    vehicle_year INT,
-    vehicle_color VARCHAR(50),
-    joined_at TIMESTAMP DEFAULT NOW(),
-    background_check_status VARCHAR(20),
-    rating DECIMAL(3, 2) DEFAULT 5.00,
-    total_trips INT DEFAULT 0,
-    total_earnings DECIMAL(12, 2) DEFAULT 0
-);
-```
-
-### Trip Data Model
-
-**Active Trip (Redis):**
-```
-HSET trip:abc-123
-  trip_id "abc-123"
-  rider_id "rider:456"
-  driver_id "driver:123"
-  status "IN_PROGRESS"
-  pickup_lat "37.7749"
-  pickup_lng "-122.4194"
-  dropoff_lat "37.7849"
-  dropoff_lng "-122.4094"
-  estimated_fare "15.50"
-  started_at "2024-10-27T10:30:00Z"
-  
-EXPIRE trip:abc-123 86400  # 24 hours
-```
-
-**Historical Trip (PostgreSQL):**
-```sql
-CREATE TABLE trips (
-    trip_id UUID PRIMARY KEY,
-    rider_id UUID NOT NULL,
-    driver_id UUID NOT NULL,
-    status VARCHAR(20) NOT NULL,
-    pickup_lat DECIMAL(10, 8),
-    pickup_lng DECIMAL(11, 8),
-    pickup_address TEXT,
-    dropoff_lat DECIMAL(10, 8),
-    dropoff_lng DECIMAL(11, 8),
-    dropoff_address TEXT,
-    distance_meters INT,
-    duration_seconds INT,
-    estimated_fare DECIMAL(10, 2),
-    actual_fare DECIMAL(10, 2),
-    surge_multiplier DECIMAL(3, 2) DEFAULT 1.00,
-    payment_method VARCHAR(50),
-    created_at TIMESTAMP DEFAULT NOW(),
-    matched_at TIMESTAMP,
-    picked_up_at TIMESTAMP,
-    completed_at TIMESTAMP,
-    cancelled_at TIMESTAMP,
-    cancellation_reason VARCHAR(255),
-    rider_rating SMALLINT,
-    driver_rating SMALLINT,
-    tip_amount DECIMAL(10, 2)
-);
-
-CREATE INDEX idx_rider_trips ON trips(rider_id, created_at DESC);
-CREATE INDEX idx_driver_trips ON trips(driver_id, created_at DESC);
-CREATE INDEX idx_trip_status ON trips(status, created_at);
-```
+3. **Incentives:**
+    - "Drive to charging station during off-peak, earn $10 bonus"
+    - Prevents EV drivers from running out of charge mid-shift
 
 ---
 
-## Scaling Considerations
+## 14. References
 
-### Horizontal Scaling
+### Related System Design Components
 
-**Redis Sharding:**
-```
-Current: 1M drivers globally
-Shard by city: 100 cities × 10K drivers/city
+- **[2.1.11 Redis Deep Dive](../../02-components/2.1.11-redis-deep-dive.md)** - Redis Geo commands (GEOADD, GEORADIUS)
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md)** - Message streaming, buffering
+- **[2.1.4 Database Scaling](../../02-components/2.1.4-database-scaling.md)** - PostgreSQL sharding strategies
+- **[2.2.2 Consistent Hashing](../../02-components/2.2.2-consistent-hashing.md)** - Load distribution
+- **[2.0.3 Real-Time Communication](../../02-components/2.0.3-real-time-communication.md)** - WebSocket patterns for
+  real-time updates
 
-Per-city Redis cluster:
-  - Master: Handles writes (GEOADD)
-  - 2 Replicas: Handle reads (GEORADIUS)
-  - Memory per shard: 400 KB (10K drivers × 40 bytes)
-  - Cost per shard: $20/month (r5.large)
-  
-Total cost: 100 cities × $20 = $2K/month (Redis only)
-```
+### Related Design Challenges
 
-**Kafka Partitioning:**
-```
-Topic: location-updates
-Partitions: 1000 (partitioned by city + driver_id)
+- **[3.3.1 Live Chat System](../3.3.1-live-chat-system/)** - Real-time location updates, WebSocket patterns
+- **[3.2.2 Notification Service](../3.2.2-notification-service/)** - Push notifications to drivers
+- **[3.5.6 Yelp/Google Maps](../3.5.6-yelp-google-maps/)** - Geo-spatial search patterns
 
-Distribution:
-  - SF: 50K drivers → 50 partitions
-  - NYC: 80K drivers → 80 partitions
-  - London: 30K drivers → 30 partitions
-  
-Consumers: 100 workers × 10 partitions each
-Each worker: ~7.5K updates/sec
-```
+### External Resources
 
-**Database Sharding (PostgreSQL):**
-```
-Shard by city:
-  - trips_sf (San Francisco trips)
-  - trips_nyc (New York trips)
-  - trips_london (London trips)
-  
-Each shard: 100K trips/day
-Storage: 100K × 1KB = 100 MB/day
-Annual: 36 GB/year/city
-```
+- **Uber Engineering Blog:** [H3: Uber's Hexagonal Hierarchical Spatial Index](https://eng.uber.com/h3/) - H3 grid
+  system
+- **Redis Documentation:** [Geo Commands](https://redis.io/commands/geoadd/) - GEOADD, GEORADIUS
+- **GraphHopper:** [Open-source routing engine](https://www.graphhopper.com/) - ETA calculation
+- **H3 Library:** [H3 Documentation](https://h3geo.org/) - Hexagonal hierarchical spatial index
+- **OSRM:** [Open Source Routing Machine](http://project-osrm.org/) - Routing engine alternative
 
-### Vertical Scaling
+### Books
 
-**Redis Memory:**
-```
-Current: 1M drivers × 40 bytes = 40 MB
-Future: 10M drivers × 40 bytes = 400 MB
-
-Still fits in single r5.2xlarge (64 GB RAM)
-Cost: $3.20/hour × 720 hours = $2,304/month
-```
-
-**Kafka Broker Sizing:**
-```
-Ingestion: 750K writes/sec × 200 bytes = 150 MB/sec
-Retention: 7 days
-Storage: 150 MB/sec × 86,400 sec/day × 7 days = 90 TB
-
-Brokers: 50 × m5.2xlarge (8 vCPU, 32 GB)
-Storage: 50 × 2 TB SSD = 100 TB
-Cost: $3.20/hour × 50 × 720 = $115K/month
-```
-
----
-
-## Performance Optimization
-
-### Query Optimization
-
-**1. Geo-Query Optimization:**
-```
-Naive approach:
-  GEORADIUS for each rider (50K queries/sec)
-  Latency: 5-10ms per query
-  Total: 250-500K ms of query time
-
-Optimized:
-  - Read replicas (3 replicas)
-  - 50K queries distributed across 3 replicas
-  - Each replica: 16.7K queries/sec (manageable)
-  - Connection pooling (1000 connections per replica)
-```
-
-**2. ETA Caching Strategy:**
-```
-Cache key: eta:{start_geohash}:{end_geohash}:{time_bucket}
-
-Example:
-  start: 9q8yy (SF downtown)
-  end: 9q8yz (SF north)
-  time: 10:30 AM → bucket = 1030
-  
-  Key: eta:9q8yy:9q8yz:1030
-  Value: {"distance": 2500, "time": 420, "cached_at": timestamp}
-  TTL: 15 minutes
-  
-Hit rate: 60% (common routes cached)
-Cache misses: 40% × 1M = 400K (query ETA service)
-```
-
-**3. Driver State Batching:**
-```
-Naive: 20 drivers × 20 searches/sec = 400 HGET queries/sec
-
-Optimized: HMGET (batch query)
-  HMGET driver:123:state driver:456:state ... (20 drivers)
-  Single roundtrip: 1 query vs 20 queries
-  Latency: 2ms vs 40ms (20× faster)
-```
-
-### Write Optimization
-
-**1. Location Update Batching:**
-```
-Indexer worker batches updates:
-  
-  Single updates (slow):
-    GEOADD drivers:sf -122.41 37.77 "driver:1"
-    GEOADD drivers:sf -122.42 37.78 "driver:2"
-    ... (100 updates)
-    
-  Batched (fast):
-    GEOADD drivers:sf 
-      -122.41 37.77 "driver:1"
-      -122.42 37.78 "driver:2"
-      ... (100 pairs)
-    
-  Improvement: 100 roundtrips → 1 roundtrip
-  Latency: 100 × 2ms = 200ms → 2ms (100× faster)
-```
-
-**2. Kafka Producer Batching:**
-```
-Location Service batches messages:
-  
-  Linger: 10ms (wait up to 10ms before sending)
-  Batch size: 100 messages
-  
-  Result:
-    10 drivers update in 10ms window
-    → 1 Kafka batch (instead of 10 separate)
-    
-  Throughput: 10× improvement
-  Latency: +10ms acceptable (4-second update interval)
-```
-
----
-
-## Disaster Recovery
-
-### Failure Scenarios
-
-**1. Redis Shard Failure:**
-```
-Scenario: drivers:sf Redis master crashes
-
-Detection:
-  - Redis Sentinel monitors master (heartbeat)
-  - Timeout after 5 seconds
-  
-Recovery:
-  - Sentinel promotes replica to master
-  - Clients redirect to new master
-  - Total downtime: <5 seconds
-  
-Impact:
-  - SF riders experience 5-second matching delay
-  - Other cities unaffected (isolation)
-```
-
-**2. Kafka Broker Failure:**
-```
-Scenario: 1 of 50 brokers crashes
-
-Detection:
-  - ZooKeeper monitors broker liveness
-  - Timeout after 10 seconds
-  
-Recovery:
-  - Kafka rebalances partitions across remaining 49 brokers
-  - Consumers reconnect to new partition leaders
-  - Total disruption: 10-30 seconds
-  
-Impact:
-  - Some location updates delayed by 30 seconds
-  - No data loss (replication factor = 3)
-```
-
-**3. Complete Datacenter Failure:**
-```
-Scenario: SF datacenter goes offline
-
-Detection:
-  - Load balancer health checks fail
-  - GeoDNS detects datacenter down
-  
-Recovery:
-  - GeoDNS routes SF traffic to nearest datacenter (Oakland)
-  - Oakland datacenter has replicated data
-  - Cold index: Rebuild from Kafka replay
-  
-Impact:
-  - 2-5 minutes downtime for SF region
-  - Higher latency (cross-datacenter queries)
-  
-Mitigation:
-  - Multi-region deployment
-  - Cross-region Kafka replication
-  - Async data sync between datacenters
-```
-
----
-
-## Security Considerations
-
-### Authentication & Authorization
-
-**1. Driver Authentication:**
-```
-JWT Token Structure:
-{
-  "driver_id": "driver:123",
-  "session_id": "session-abc-456",
-  "issued_at": 1698412800,
-  "expires_at": 1698416400,  // 1 hour validity
-  "scopes": ["update_location", "accept_trip", "complete_trip"]
-}
-
-Validation:
-  - API Gateway validates JWT signature
-  - Check expiration (expires_at > now())
-  - Verify driver is active (not banned)
-```
-
-**2. Location Data Encryption:**
-```
-In-transit: TLS 1.3 (HTTPS)
-At-rest: 
-  - Redis: No native encryption (trust network security)
-  - PostgreSQL: Transparent Data Encryption (TDE)
-  - Kafka: Encryption at rest (AES-256)
-```
-
-**3. Rate Limiting:**
-```
-Per driver:
-  - Location updates: 1 per 4 seconds (max 15/minute)
-  - Exceed limit: 429 Too Many Requests
-  
-Per rider:
-  - Search requests: 10 per minute
-  - Trip requests: 5 per hour (prevent abuse)
-```
-
-### Privacy
-
-**1. Location Data Retention:**
-```
-Real-time index (Redis): Current location only, TTL = 5 minutes
-Trip history (PostgreSQL): 7 years (regulatory requirement)
-Raw GPS logs (S3): 90 days, then deleted
-```
-
-**2. Anonymization:**
-```
-For analytics:
-  - Hash driver_id: SHA256(driver_id + salt)
-  - Round coordinates: lat=37.774922 → 37.77
-  - Remove personally identifiable information (PII)
-```
-
----
-
-## Testing Strategy
-
-### Load Testing
-
-**Scenario: Rush Hour Traffic**
-```
-Simulate:
-  - 750K location updates/sec (peak)
-  - 50K ride requests/sec
-  - Duration: 2 hours
-  
-Tools:
-  - Locust (Python) for HTTP load
-  - Kafka performance tool for producer load
-  
-Metrics:
-  - Matching latency P99 < 100ms ✅
-  - Redis memory < 80% ✅
-  - Kafka lag < 1000 messages ✅
-  - Error rate < 0.1% ✅
-```
-
-### Chaos Engineering
-
-**Inject Failures:**
-```
-1. Kill random Redis node (test failover)
-2. Network partition (split brain scenario)
-3. Kafka broker crash (test rebalancing)
-4. ETA service timeout (test fallback)
-5. Database connection pool exhaustion
-```
-
-### Integration Testing
-
-**End-to-End Flows:**
-```
-Test 1: Complete trip flow
-  1. Driver goes online
-  2. Rider requests ride
-  3. Driver accepts
-  4. Driver navigates to pickup
-  5. Trip starts
-  6. Driver completes trip
-  7. Payment processed
-  
-  Assert: All state transitions correct, no data loss
-```
-
----
-
-## Migration Strategy
-
-### From Monolith to Microservices
-
-**Phase 1: Extract Location Service**
-```
-Before: Monolith handles everything
-After: 
-  - Monolith → Location Service (new)
-  - Monolith → Kafka → Location Service
-  - Gradual traffic migration (10% → 50% → 100%)
-```
-
-**Phase 2: Separate Matching**
-```
-Before: Monolith does matching
-After:
-  - Matching Service (new) with Redis Geo
-  - Monolith forwards ride requests
-  - A/B test: 50% monolith, 50% new service
-```
-
-**Phase 3: Extract Trip Management**
-```
-Before: Monolith handles trips
-After:
-  - Trip Service (new) with PostgreSQL
-  - Event-driven: Matching → Kafka → Trip Service
-  - Rollback plan: Feature flag to revert
-```
-
-### Data Migration
-
-**Migrate from PostgreSQL to Redis Geo:**
-```
-1. Export driver locations from PostgreSQL
-2. Bulk load into Redis:
-   GEOADD drivers:sf $(cat locations.txt)
-3. Run both systems in parallel (1 week)
-4. Compare results: Redis vs PostgreSQL
-5. Cut over: Point traffic to Redis
-6. Monitor for anomalies
-7. Rollback if errors > 0.1%
-```
-
----
-
-## Summary
-
-**Uber/Lyft Ride Matching** requires careful balance of:
-
-- **Performance:** <100ms matching via in-memory indexing
-- **Scale:** 750K writes/sec via async processing
-- **Accuracy:** Geohash proximity search
-- **Cost:** $4-7M/year infrastructure
-- **Complexity:** Multiple data stores, careful orchestration
-
-**Key Technologies:**
-- Redis Geo (geohash indexing)
-- Kafka (location update buffer)
-- PostgreSQL (ACID transactions)
-- GraphHopper/OSRM (ETA calculation)
-
-**Production Lessons from Uber:**
-- Start with Geohash, migrate to H3 at scale
-- Custom database (RocksDB) cheaper than Redis
-- Multi-region essential for global latency
-- Monitoring critical (match rate, latency, accuracy)
-
----
-
-For **complete technical details**, see the [Full Design Document](3.3.2-design-uber-ride-matching.md).
-
-For **visual architecture**, see [HLD Diagrams](hld-diagram.md) and [Sequence Diagrams](sequence-diagrams.md).
-
-For **implementation code**, see [Pseudocode](pseudocode.md).
-
-For **design rationale**, see [This Over That](this-over-that.md).
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Chapters on geo-spatial indexing and real-time systems
+- *Redis in Action* by Josiah Carlson - Redis Geo commands and patterns

@@ -1,6 +1,7 @@
 # Live Chat System - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Live Chat System. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Live Chat System. The main challenge document
+references these functions.
 
 ---
 
@@ -26,13 +27,16 @@ This document contains detailed algorithm implementations for the Live Chat Syst
 **Purpose:** Handle new WebSocket connection, authenticate, register, and maintain.
 
 **Parameters:**
+
 - websocket_connection: WebSocket - The incoming WebSocket connection
 - server_id: string - This server's unique identifier
 
 **Returns:**
+
 - boolean - True if connection established successfully
 
 **Algorithm:**
+
 ```
 function handle_connection(websocket_connection, server_id):
     // Step 1: Perform HTTP upgrade
@@ -99,6 +103,7 @@ function handle_connection(websocket_connection, server_id):
 **Space Complexity:** O(1) for connection state
 
 **Example Usage:**
+
 ```
 websocket_server.on_connection = function(ws):
     success = handle_connection(ws, "ws-server-42")
@@ -113,13 +118,16 @@ websocket_server.on_connection = function(ws):
 **Purpose:** Maintain connection health and presence status with periodic heartbeats.
 
 **Parameters:**
+
 - user_id: string - User identifier
 - websocket_connection: WebSocket - Active connection
 
 **Returns:**
+
 - void - Runs until connection closed
 
 **Algorithm:**
+
 ```
 function heartbeat_loop(user_id, websocket_connection):
     while websocket_connection.is_open():
@@ -161,6 +169,7 @@ function heartbeat_loop(user_id, websocket_connection):
 **Performance:** 1 byte every 30 seconds, minimal overhead
 
 **Example Usage:**
+
 ```
 // Spawned automatically in handle_connection()
 spawn_thread(heartbeat_loop, "12345", websocket)
@@ -173,12 +182,15 @@ spawn_thread(heartbeat_loop, "12345", websocket)
 **Purpose:** Clean up all resources when WebSocket connection closes.
 
 **Parameters:**
+
 - user_id: string - User identifier
 
 **Returns:**
+
 - void
 
 **Algorithm:**
+
 ```
 function cleanup_connection(user_id):
     // Step 1: Remove from local connection pool
@@ -209,6 +221,7 @@ function cleanup_connection(user_id):
 **Time Complexity:** O(n) where n is number of chat subscriptions
 
 **Example Usage:**
+
 ```
 // Called automatically when connection closes
 cleanup_connection("12345")
@@ -223,6 +236,7 @@ cleanup_connection("12345")
 **Purpose:** Handle message send from user, validate, sequence, and publish to Kafka.
 
 **Parameters:**
+
 - user_id: string - Sender's user ID
 - chat_id: string - Chat identifier
 - content: string - Message content
@@ -230,9 +244,11 @@ cleanup_connection("12345")
 - request_id: string - Client-generated unique ID for deduplication
 
 **Returns:**
+
 - object - {success: boolean, seq_id: number, error: string}
 
 **Algorithm:**
+
 ```
 function send_message(user_id, chat_id, content, message_type, request_id):
     // Step 1: Deduplication check
@@ -290,6 +306,7 @@ function send_message(user_id, chat_id, content, message_type, request_id):
 **Space Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 result = send_message(
     user_id="12345",
@@ -310,15 +327,18 @@ if result.success:
 **Purpose:** Validate message content and permissions.
 
 **Parameters:**
+
 - user_id: string - Sender's user ID
 - chat_id: string - Chat identifier
 - content: string - Message content
 - message_type: string - Type of message
 
 **Returns:**
+
 - object - {valid: boolean, error: string}
 
 **Algorithm:**
+
 ```
 function validate_message(user_id, chat_id, content, message_type):
     // Step 1: Check if user is member of chat
@@ -357,6 +377,7 @@ function validate_message(user_id, chat_id, content, message_type):
 **Time Complexity:** O(n) where n is content length (for spam/profanity check)
 
 **Example Usage:**
+
 ```
 validation = validate_message("12345", "abc-123", "Hello!", "text")
 if not validation.valid:
@@ -372,13 +393,16 @@ if not validation.valid:
 **Purpose:** Deliver message to recipient, handling both online and offline cases.
 
 **Parameters:**
+
 - message: object - Full message object from Kafka
 - recipient_id: string - Recipient's user ID
 
 **Returns:**
+
 - object - {delivered: boolean, method: string, latency_ms: number}
 
 **Algorithm:**
+
 ```
 function deliver_message(message, recipient_id):
     start_time = now()
@@ -427,6 +451,7 @@ function deliver_message(message, recipient_id):
 **Average Latency:** 50ms (online), 10ms (offline queue)
 
 **Example Usage:**
+
 ```
 // Delivery worker consumes from Kafka
 message = kafka.consume("messages")
@@ -442,13 +467,16 @@ for recipient_id in message.recipients:
 **Purpose:** Push message to online user's WebSocket connection.
 
 **Parameters:**
+
 - message: object - Full message object
 - recipient_id: string - Recipient's user ID
 
 **Returns:**
+
 - object - {success: boolean, error: string}
 
 **Algorithm:**
+
 ```
 function deliver_to_online_user(message, recipient_id):
     // Step 1: Find which WebSocket server has the connection
@@ -490,6 +518,7 @@ function deliver_to_online_user(message, recipient_id):
 **Latency:** <10ms local, ~20ms remote (gRPC)
 
 **Example Usage:**
+
 ```
 result = deliver_to_online_user(message, "67890")
 if result.success:
@@ -505,12 +534,15 @@ if result.success:
 **Purpose:** Generate globally unique, time-ordered 64-bit Snowflake ID.
 
 **Parameters:**
+
 - None (uses server state)
 
 **Returns:**
+
 - number - 64-bit sequence ID
 
 **Algorithm:**
+
 ```
 // Global state
 last_timestamp = 0
@@ -557,6 +589,7 @@ function generate_sequence_id():
 **Space Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 seq_id = generate_sequence_id()
 // seq_id = 879609302220800
@@ -573,12 +606,15 @@ seq_id = generate_sequence_id()
 **Purpose:** Decode Snowflake ID into components for debugging.
 
 **Parameters:**
+
 - seq_id: number - 64-bit sequence ID
 
 **Returns:**
+
 - object - {timestamp: number, node_id: number, sequence: number}
 
 **Algorithm:**
+
 ```
 function decode_sequence_id(seq_id):
     // Extract timestamp (41 bits, shifted left by 23)
@@ -601,6 +637,7 @@ function decode_sequence_id(seq_id):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 decoded = decode_sequence_id(879609302220800)
 // {
@@ -620,12 +657,15 @@ decoded = decode_sequence_id(879609302220800)
 **Purpose:** Mark user as online in Redis with TTL.
 
 **Parameters:**
+
 - user_id: string - User identifier
 
 **Returns:**
+
 - boolean - Success status
 
 **Algorithm:**
+
 ```
 function set_user_online(user_id):
     key = "user:" + user_id + ":presence"
@@ -651,6 +691,7 @@ function set_user_online(user_id):
 **TTL Strategy:** 60-second TTL with 30-second heartbeat refresh
 
 **Example Usage:**
+
 ```
 set_user_online("12345")
 // Key: "user:12345:presence" = "online" (expires in 60s)
@@ -663,12 +704,15 @@ set_user_online("12345")
 **Purpose:** Check if user is currently online.
 
 **Parameters:**
+
 - user_id: string - User identifier
 
 **Returns:**
+
 - boolean - True if online, false otherwise
 
 **Algorithm:**
+
 ```
 function is_user_online(user_id):
     key = "user:" + user_id + ":presence"
@@ -684,6 +728,7 @@ function is_user_online(user_id):
 **Latency:** <1ms (Redis GET operation)
 
 **Example Usage:**
+
 ```
 if is_user_online("67890"):
     deliver_via_websocket(message)
@@ -698,12 +743,15 @@ else:
 **Purpose:** Check presence of multiple users efficiently (for group chat).
 
 **Parameters:**
+
 - user_ids: array[string] - List of user IDs to check
 
 **Returns:**
+
 - map[string, boolean] - Map of user_id to online status
 
 **Algorithm:**
+
 ```
 function batch_check_presence(user_ids):
     if user_ids.length == 0:
@@ -732,6 +780,7 @@ function batch_check_presence(user_ids):
 **Latency:** ~1-2ms for 50 users (vs 50ms with individual queries)
 
 **Example Usage:**
+
 ```
 group_members = ["12345", "67890", "11111", "22222", ...]  // 50 members
 online_status = batch_check_presence(group_members)
@@ -752,13 +801,16 @@ for user_id in group_members:
 **Purpose:** Distribute message to all group members efficiently.
 
 **Parameters:**
+
 - message: object - Full message object
 - group_id: string - Group identifier
 
 **Returns:**
+
 - object - {online_delivered: number, offline_queued: number, total_latency_ms: number}
 
 **Algorithm:**
+
 ```
 function fanout_group_message(message, group_id):
     start_time = now()
@@ -803,6 +855,7 @@ function fanout_group_message(message, group_id):
 **Average Latency:** 100-200ms (small groups), 500ms-1s (large groups)
 
 **Example Usage:**
+
 ```
 result = fanout_group_message(message, "team-engineering")
 // {online_delivered: 32, offline_queued: 18, total_latency_ms: 150}
@@ -815,14 +868,17 @@ result = fanout_group_message(message, "team-engineering")
 **Purpose:** Immediately fan out to all members in parallel (for small groups).
 
 **Parameters:**
+
 - message: object - Message to deliver
 - online_members: array[string] - Online user IDs
 - offline_members: array[string] - Offline user IDs
 
 **Returns:**
+
 - object - {online_count: number, offline_count: number}
 
 **Algorithm:**
+
 ```
 function synchronous_fanout(message, online_members, offline_members):
     online_count = 0
@@ -859,6 +915,7 @@ function synchronous_fanout(message, online_members, offline_members):
 **Performance:** 10 members delivered in ~100ms (parallel), vs 1000ms (sequential)
 
 **Example Usage:**
+
 ```
 result = synchronous_fanout(message, online_members, offline_members)
 log("Delivered to " + result.online_count + " online users")
@@ -873,13 +930,16 @@ log("Delivered to " + result.online_count + " online users")
 **Purpose:** Add message to user's offline queue for later delivery.
 
 **Parameters:**
+
 - message: object - Full message object
 - user_id: string - Recipient user ID
 
 **Returns:**
+
 - number - Queue length after insertion
 
 **Algorithm:**
+
 ```
 function queue_offline_message(message, user_id):
     queue_key = "offline_messages:" + user_id
@@ -905,6 +965,7 @@ function queue_offline_message(message, user_id):
 **Storage:** ~1 KB per message, 10K max = 10 MB per user max
 
 **Example Usage:**
+
 ```
 queue_length = queue_offline_message(message, "67890")
 // Queue: "offline_messages:67890" length = 5
@@ -917,12 +978,15 @@ queue_length = queue_offline_message(message, "67890")
 **Purpose:** Retrieve all pending offline messages for user.
 
 **Parameters:**
+
 - user_id: string - User identifier
 
 **Returns:**
+
 - array[object] - List of message objects
 
 **Algorithm:**
+
 ```
 function fetch_offline_messages(user_id):
     queue_key = "offline_messages:" + user_id
@@ -950,6 +1014,7 @@ function fetch_offline_messages(user_id):
 **Average Case:** n < 100 messages, ~5-10ms
 
 **Example Usage:**
+
 ```
 messages = fetch_offline_messages("67890")
 for message in messages:
@@ -964,12 +1029,15 @@ clear_offline_queue("67890")
 **Purpose:** Delete offline message queue after successful delivery.
 
 **Parameters:**
+
 - user_id: string - User identifier
 
 **Returns:**
+
 - boolean - Success status
 
 **Algorithm:**
+
 ```
 function clear_offline_queue(user_id):
     queue_key = "offline_messages:" + user_id
@@ -983,6 +1051,7 @@ function clear_offline_queue(user_id):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 clear_offline_queue("67890")
 ```
@@ -996,14 +1065,17 @@ clear_offline_queue("67890")
 **Purpose:** Record that a message was read by the recipient.
 
 **Parameters:**
+
 - message_id: number - Sequence ID of message
 - reader_id: string - User who read the message
 - chat_id: string - Chat identifier
 
 **Returns:**
+
 - boolean - Success status
 
 **Algorithm:**
+
 ```
 function mark_message_read(message_id, reader_id, chat_id):
     // Step 1: Publish read event to Kafka
@@ -1029,6 +1101,7 @@ function mark_message_read(message_id, reader_id, chat_id):
 **Latency:** ~10ms (Kafka publish)
 
 **Example Usage:**
+
 ```
 // User views message
 mark_message_read(879609302220800, "67890", "abc-123")
@@ -1041,12 +1114,15 @@ mark_message_read(879609302220800, "67890", "abc-123")
 **Purpose:** Consumer worker processes read receipt event from Kafka.
 
 **Parameters:**
+
 - read_event: object - Read receipt event
 
 **Returns:**
+
 - void
 
 **Algorithm:**
+
 ```
 function process_read_receipt(read_event):
     message_id = read_event.message_id
@@ -1085,6 +1161,7 @@ function process_read_receipt(read_event):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 // Kafka consumer loop
 while true:
@@ -1101,14 +1178,17 @@ while true:
 **Purpose:** Edit previously sent message (within time window).
 
 **Parameters:**
+
 - message_id: number - ID of message to edit
 - editor_id: string - User requesting edit (must be sender)
 - new_content: string - Updated message content
 
 **Returns:**
+
 - object - {success: boolean, error: string}
 
 **Algorithm:**
+
 ```
 function edit_message(message_id, editor_id, new_content):
     // Step 1: Fetch original message
@@ -1154,6 +1234,7 @@ function edit_message(message_id, editor_id, new_content):
 **Edit Window:** 15 minutes (configurable)
 
 **Example Usage:**
+
 ```
 result = edit_message(879609302220800, "12345", "Updated message")
 if result.success:
@@ -1169,14 +1250,17 @@ if result.success:
 **Purpose:** Soft-delete message (mark as deleted, keep for compliance).
 
 **Parameters:**
+
 - message_id: number - ID of message to delete
 - deleter_id: string - User requesting deletion
 - delete_type: string - "me" or "everyone"
 
 **Returns:**
+
 - object - {success: boolean, error: string}
 
 **Algorithm:**
+
 ```
 function delete_message(message_id, deleter_id, delete_type):
     // Step 1: Fetch original message
@@ -1218,6 +1302,7 @@ function delete_message(message_id, deleter_id, delete_type):
 **Delete Window:** 1 hour for "delete for everyone"
 
 **Example Usage:**
+
 ```
 result = delete_message(879609302220800, "12345", "everyone")
 if result.success:
@@ -1242,16 +1327,16 @@ This pseudocode document provides complete implementations for all core operatio
 10. **Message Deletion:** Soft-delete with compliance retention
 
 All algorithms are optimized for:
+
 - **Low Latency:** <500ms end-to-end message delivery
 - **High Throughput:** 870K messages/sec peak
 - **Scalability:** 100M concurrent connections
 - **Reliability:** Zero message loss with Kafka durability
 
 **Performance Characteristics:**
+
 - Message send: O(1) - ~25ms
 - Message receive: O(1) - ~50ms
 - Group fanout: O(n) - ~100-500ms
 - Sequence ID generation: O(1) - <0.1ms
 - Presence check: O(1) - <1ms
-
-See [hld-diagram.md](hld-diagram.md) for architecture diagrams and [sequence-diagrams.md](sequence-diagrams.md) for detailed interaction flows.

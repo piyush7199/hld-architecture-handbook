@@ -1,4 +1,4 @@
-# E-commerce Flash Sale System (High-Contention Inventory)
+# 3.3.3 Design an E-commerce Flash Sale System (High-Contention Inventory)
 
 > 📚 **Note on Implementation Details:**
 > This document focuses on high-level design concepts and architectural decisions.
@@ -13,120 +13,179 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
-Design a flash sale system that handles extreme traffic spikes when selling limited-quantity products (e.g., 100 limited-edition iPhones). The system must prevent overselling, handle 100K+ concurrent purchase attempts per second, maintain strong consistency for inventory counts, and process payments atomically while ensuring fairness.
+Design a flash sale system for an e-commerce platform (like Amazon Prime Day, Alibaba Singles Day) that can handle
+extreme traffic spikes when selling limited-quantity, high-demand products. The system must prevent overselling (selling
+more than available stock), handle 100K+ concurrent purchase attempts per second, maintain strong consistency for
+inventory counts, and gracefully degrade under load while ensuring a fair purchasing experience.
 
-**Core Challenge:** Managing a single "hot key" (inventory counter) receiving 100,000 writes per second when only 100 items are available (0.1% success rate), while maintaining ACID properties and preventing double-charging.
+**Core Challenge:** Managing a single "hot key" (inventory counter) that receives 100,000 writes per second when only
+100 items are available (0.1% success rate), while maintaining ACID properties for successful purchases and preventing
+double-charging or overselling.
+
+**Example Scenario:** Apple releases 100 limited-edition iPhones at 12:00 PM. 1 million users are ready to click "Buy
+Now" at exactly 12:00:00. The system must correctly sell exactly 100 phones, reject 999,900 users fairly, process
+payments atomically, and handle refunds if payments fail.
 
 ---
 
-## Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements
+### Functional Requirements (FRs)
 
-| Requirement | Description | Priority |
-|-------------|-------------|----------|
-| **Inventory Protection** | Prevent overselling (exactly 100 items sold) | Must Have |
-| **Reservation System** | Temporary item reservation before payment | Must Have |
-| **Payment Processing** | Complete payment within 10-minute window | Must Have |
-| **Automatic Refund** | Cancel and refund if payment fails/times out | Must Have |
-| **Fair Queue** | First-come-first-served (FCFS) ordering | Should Have |
-| **Real-Time Stock Updates** | Show remaining inventory to users | Should Have |
+| Requirement                 | Description                                             | Priority     |
+|-----------------------------|---------------------------------------------------------|--------------|
+| **Inventory Protection**    | Prevent overselling (e.g., only 100 iPhones available)  | Must Have    |
+| **Reservation System**      | Allow users to temporarily reserve items before payment | Must Have    |
+| **Payment Processing**      | Complete payment within time window (10 minutes)        | Must Have    |
+| **Automatic Refund**        | Cancel order and refund if payment fails or times out   | Must Have    |
+| **Fair Queue**              | First-come-first-served (FCFS) order for reservations   | Should Have  |
+| **Real-Time Stock Updates** | Show remaining inventory count to users                 | Should Have  |
+| **Cancellation**            | Allow users to cancel reservations voluntarily          | Should Have  |
+| **Multi-Item Flash Sale**   | Support multiple products simultaneously                | Nice to Have |
 
-### Non-Functional Requirements
+### Non-Functional Requirements (NFRs)
 
-| Requirement | Target | Rationale |
-|-------------|--------|-----------|
-| **Strong Consistency** | 100% accurate inventory | Overselling causes legal issues |
-| **High Throughput** | 100K writes/sec | Peak load during flash sale start |
-| **Low Latency** | < 50ms (p99) | Users abandon if slow |
-| **Fault Tolerance** | Auto-rollback on failure | No partial transactions |
-| **Availability** | 99.9% uptime | Downtime = lost revenue |
+| Requirement                   | Target                              | Rationale                                     |
+|-------------------------------|-------------------------------------|-----------------------------------------------|
+| **Strong Consistency**        | 100% accurate inventory count       | Overselling causes brand damage, legal issues |
+| **High Throughput**           | 100K writes/sec (purchase attempts) | Peak load during flash sale start             |
+| **Low Latency (Reservation)** | < 50ms (p99)                        | Users abandon if slow                         |
+| **Fault Tolerance**           | Auto-rollback on failure            | Partial transactions unacceptable             |
+| **Availability**              | 99.9% uptime during sale            | Downtime = lost revenue                       |
+| **Fairness**                  | No bot advantage                    | Prevent scalpers, ensure fair access          |
 
 ### Scale Estimation
 
-| Metric | Assumption | Result |
-|--------|-----------|--------|
-| **Concurrent Users** | 1 Million users waiting | 1M users |
-| **Peak Purchase Attempts** | 100,000 clicks per second | 100K QPS |
-| **Available Inventory** | 100 limited-edition items | 100 items |
-| **Success Rate** | 100 / 100,000 | 0.1% |
-| **Rejection Rate** | 99,900 / 100,000 | 99.9% |
-| **Critical Section Ops** | Check + decrement atomic | 200K ops/sec on 1 key |
+| Metric                     | Assumption                            | Calculation                  | Result                |
+|----------------------------|---------------------------------------|------------------------------|-----------------------|
+| **Concurrent Users**       | 1 Million users waiting at start time | -                            | 1M users              |
+| **Peak Purchase Attempts** | 100,000 "Buy Now" clicks per second   | -                            | 100K QPS (writes)     |
+| **Available Inventory**    | 100 limited-edition items             | -                            | 100 items             |
+| **Success Rate**           | Items / Attempts                      | $100 / 100,000 = 0.001$      | 0.1% success rate     |
+| **Rejection Rate**         | Failed attempts                       | $99,900 / 100,000$           | 99.9% rejections      |
+| **Critical Section Ops**   | Atomic inventory check + decrement    | $100,000 \times 2 = 200,000$ | 200K ops/sec on 1 key |
+| **Payment Processing**     | Successful reservations               | $100$ payments               | 100 payments total    |
+| **Reservation Timeout**    | 10-minute window                      | -                            | 10 min TTL            |
+
+**Key Insights:**
+
+- **Hot key contention:** Single Redis key receives 100K writes/sec (severe contention)
+- **Extreme rejection rate:** 99.9% of users fail (need graceful error handling)
+- **Time-bound:** Flash sale lasts 1-2 seconds (all 100 items sold instantly)
+- **Payment decoupling critical:** Can't process payments synchronously at 100K QPS
 
 ---
 
-## High-Level Architecture
+## 3. High-Level Architecture
+
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
+
+### System Overview
 
 ```
-           ┌────────────────────────────────────┐
-           │      User (1M concurrent)          │
-           └─────────────┬──────────────────────┘
-                         │ 100K QPS spike
-           ┌─────────────▼──────────────────────┐
-           │     API Gateway + Rate Limiter     │
-           │   - Token Bucket (load shedding)   │
-           │   - Bot detection (CAPTCHA)        │
-           └─────────────┬──────────────────────┘
-                         │ 10K QPS (90% rejected)
-           ┌─────────────▼──────────────────────┐
-           │   Inventory Reservation Service    │
-           │  - Atomic Redis DECR               │
-           │  - Idempotency check               │
-           └─────┬────────────────┬──────────────┘
-                 │                │
-  ┌──────────────▼──┐      ┌──────▼──────────────┐
-  │ Redis Cluster   │      │ Reservation DB      │
-  │ Hot Key Counter │      │ (PostgreSQL)        │
-  │ iphone:stock    │      │ TTL: 10 minutes     │
-  └──────────────┬──┘      └──────┬──────────────┘
-                 │                │
-           ┌─────▼────────────────▼──────────────┐
-           │     Kafka Message Queue             │
-           │   Topic: inventory-reserved         │
-           └─────┬───────────────────────────────┘
-                 │ Async payment processing
-           ┌─────▼───────────────────────────────┐
-           │  Payment Saga Orchestrator          │
-           │  - Step 1: Charge (Stripe)          │
-           │  - Step 2: Create order             │
-           │  - Compensate: Refund + Release     │
-           └─────────────────────────────────────┘
+                    ┌────────────────────────────────────┐
+                    │      User (1M concurrent)          │
+                    │  Clicks "Buy Now" at 12:00:00      │
+                    └─────────────┬──────────────────────┘
+                                  │ HTTPS (100K QPS spike)
+                    ┌─────────────▼──────────────────────┐
+                    │       CDN / Load Balancer          │
+                    │     (Geographic distribution)      │
+                    └─────────────┬──────────────────────┘
+                                  │
+                    ┌─────────────▼──────────────────────┐
+                    │     API Gateway + Rate Limiter     │
+                    │   - Token Bucket (10K QPS/user)    │
+                    │   - Bot detection (CAPTCHA)        │
+                    │   - Load shedding (queue 90%)      │
+                    └─────────────┬──────────────────────┘
+                                  │ 10K QPS (90% rejected)
+                    ┌─────────────▼──────────────────────┐
+                    │   Inventory Reservation Service    │
+                    │  - Atomic Redis DECR               │
+                    │  - Idempotency check               │
+                    │  - Create reservation (TTL: 10min) │
+                    └─────┬────────────────┬─────────────┘
+                          │                │
+           ┌──────────────▼──┐      ┌─────▼──────────────┐
+           │ Redis Cluster   │      │ Reservation DB     │
+           │ Hot Key:        │      │ (PostgreSQL)       │
+           │ iphone:stock    │      │ reservation_id     │
+           │ Count: 100 → 0  │      │ user_id, TTL       │
+           └──────────────┬──┘      └─────┬──────────────┘
+                          │                │
+                          │ Publish event  │
+                    ┌─────▼────────────────▼─────────────┐
+                    │        Kafka Message Queue         │
+                    │   Topic: inventory-reserved        │
+                    │   Partitions: 10                   │
+                    └─────┬──────────────────────────────┘
+                          │ Async processing
+                    ┌─────▼──────────────────────────────┐
+                    │  Payment Saga Orchestrator         │
+                    │  - Step 1: Charge card (Stripe)    │
+                    │  - Step 2: Create order            │
+                    │  - Compensate: Refund + Release    │
+                    └─────┬──────────────────────────────┘
+                          │
+           ┌──────────────▼──────┐      ┌────────────────┐
+           │   Payment Service   │      │  Order Service │
+           │   (Stripe API)      │      │  (PostgreSQL)  │
+           │   Idempotency key   │      │  ACID txn      │
+           └─────────────────────┘      └────────────────┘
 ```
 
 **Components:**
-1. **API Gateway + Rate Limiter:** Multi-layer rate limiting (CDN edge → API Gateway → Service)
-2. **Inventory Reservation Service:** Core service managing atomic inventory operations
-3. **Redis Cluster:** In-memory hot key for inventory counter (atomic DECR)
-4. **Reservation DB:** Tracks temporary reservations with 10-minute TTL
-5. **Kafka:** Decouples reservation from slow payment processing
-6. **Payment Saga Orchestrator:** Manages distributed transaction with compensation
-7. **Payment Service:** Stripe API integration with idempotency keys
+
+1. **CDN / Load Balancer:** Distributes traffic geographically
+2. **API Gateway + Rate Limiter:** Token bucket rate limiting, bot detection, load shedding
+3. **Inventory Reservation Service:** Core service managing hot inventory counter
+4. **Redis Cluster:** In-memory hot key (iphone:stock), atomic DECR operations
+5. **Reservation DB:** Tracks temporary reservations with TTL
+6. **Kafka:** Decouples reservation from payment processing
+7. **Payment Saga Orchestrator:** Manages multi-step transaction with compensation
+8. **Payment Service:** Stripe API integration with idempotency
+9. **Order Service:** Final order persistence (ACID)
+
+**Key Flows:**
+
+- **Happy path:** User → Rate Limiter → Reservation (Redis DECR) → Kafka → Payment → Order (1-2 seconds)
+- **Failure path:** Payment fails → Compensation → Redis INCR (return stock) → Refund user
+- **Timeout path:** 10-minute TTL expires → Background worker → Redis INCR → Cancel reservation
 
 ---
 
-## Detailed Component Design
+## 4. Detailed Component Design
 
-### Inventory Management (Redis Atomic DECR)
+### 4.1 Inventory Management Strategy
 
-**Challenge:** 100K concurrent writes to single Redis key (iphone:stock).
+**Challenge:** 100K concurrent writes to a single Redis key (iphone:stock).
 
-**Solution:** Use Redis atomic DECR operation with Lua script.
+**Solution: Atomic Redis DECR with Lua Script**
 
-**Why Redis over Database Row Lock?**
+Redis provides atomic operations (DECR, INCR) that can handle millions of operations per second on a single key. We use
+a Lua script to make check-and-decrement atomic.
 
-| Factor | Redis DECR | PostgreSQL Row Lock |
-|--------|------------|---------------------|
-| **Throughput** | ✅ 100K ops/sec per key | ❌ 1K ops/sec (lock contention) |
-| **Latency** | ✅ <1ms (in-memory) | ❌ 10-50ms (disk I/O) |
-| **Atomicity** | ✅ Native atomic operations | ✅ ACID compliant |
-| **Durability** | ⚠️ RDB snapshots (1-5s risk) | ✅ WAL (zero data loss) |
+**Why Redis DECR over Database Row Lock?**
+
+| Factor         | Redis DECR                             | Database Row Lock (PostgreSQL)     |
+|----------------|----------------------------------------|------------------------------------|
+| **Throughput** | ✅ 100K ops/sec per key                 | ❌ 1K ops/sec (row lock contention) |
+| **Latency**    | ✅ <1ms (in-memory)                     | ❌ 10-50ms (disk I/O, lock wait)    |
+| **Atomicity**  | ✅ Native atomic operations             | ✅ ACID compliant                   |
+| **Durability** | ⚠️ RDB snapshots (1-5s data loss risk) | ✅ WAL (zero data loss)             |
+| **Complexity** | ✅ Simple (single command)              | ❌ Complex (transaction isolation)  |
+
+**Decision:** Use Redis for hot inventory counter, replicate final sales to PostgreSQL for durability.
+
+*See [this-over-that.md: Redis vs PostgreSQL for Inventory](this-over-that.md) for detailed comparison.*
 
 **Lua Script for Atomic Check-and-Decrement:**
 
 ```lua
--- Atomic check and decrement
+-- Check if stock available, decrement if yes
 local stock_key = KEYS[1]
 local current_stock = tonumber(redis.call('GET', stock_key))
 
@@ -138,30 +197,37 @@ else
 end
 ```
 
+*See [pseudocode.md::reserve_inventory()](pseudocode.md) for full implementation.*
+
 **Benefits:**
-- Atomic operation (no race condition)
-- Fast (<1ms latency)
-- Prevents overselling (strong consistency)
+
+- **Atomic:** Check and decrement execute as one operation (no race condition)
+- **Fast:** In-memory execution (<1ms latency)
+- **Accurate:** Prevents overselling (strong consistency)
 
 **Trade-offs:**
-- Single point of contention
-- Potential data loss on Redis crash (mitigated by replication)
+
+- **Single point of contention:** All writes hit one Redis master
+- **Data loss risk:** Redis crash loses 1-5 seconds of data (solved by replication)
 
 ---
 
-### Reservation System (Soft Lock with TTL)
+### 4.2 Reservation System (Soft Lock with TTL)
 
 **Why Soft Lock?**
 
-Users need 10 minutes to complete payment. Can't hold hard lock (blocks others) or immediately create final order (payment might fail).
+Users need time to complete payment (10 minutes). We can't hold a hard lock (blocks other users) or immediately create a
+final order (payment might fail).
 
-**Design:**
-1. User reserves → Redis DECR succeeds → Create reservation record (TTL: 10 min)
-2. Payment window → User has 10 minutes to pay
-3. Outcomes:
-   - **Success:** Payment succeeds → Delete reservation → Create order
-   - **Failure:** Payment fails → Delete reservation → Redis INCR (return stock)
-   - **Timeout:** TTL expires → Background worker → Redis INCR → Notify user
+**Soft Lock Design:**
+
+1. **User reserves:** Redis DECR succeeds, create reservation record
+2. **Reservation TTL:** 10-minute expiration (auto-release if not paid)
+3. **Payment window:** User has 10 minutes to pay
+4. **Outcomes:**
+    - **Success:** Payment succeeds → Delete reservation → Create order
+    - **Failure:** Payment fails → Delete reservation → Redis INCR (return stock)
+    - **Timeout:** TTL expires → Background worker → Redis INCR → Notify user
 
 **Data Model:**
 
@@ -170,114 +236,162 @@ CREATE TABLE reservations (
     reservation_id UUID PRIMARY KEY,
     user_id BIGINT NOT NULL,
     product_id BIGINT NOT NULL,
+    quantity INT NOT NULL,
     status VARCHAR(20),  -- PENDING, PAID, EXPIRED, CANCELLED
     created_at TIMESTAMP DEFAULT NOW(),
     expires_at TIMESTAMP,  -- created_at + 10 minutes
-    INDEX idx_expires (expires_at, status)
+    INDEX idx_expires (expires_at, status)  -- For cleanup worker
 );
 ```
 
+*See [pseudocode.md::create_reservation()](pseudocode.md) for implementation.*
+
 **Benefits:**
-- Fair FCFS reservation
-- Automatic cleanup via TTL
-- Payment decoupled from reservation
+
+- **Fair:** First-come-first-served (FCFS) reservation
+- **Automatic cleanup:** TTL expires → worker releases stock
+- **Payment decoupling:** Reservation instant, payment async
 
 **Trade-offs:**
-- Temporary overselling (stock reserved but not paid)
-- Background worker overhead
-- 10-minute eventual consistency window
+
+- **Temporary overselling:** Stock reserved but not paid (99% will timeout)
+- **Cleanup overhead:** Background workers scan for expired reservations
+- **Eventual consistency:** 10-minute delay between reserve and final order
 
 ---
 
-### Load Shedding and Rate Limiting
+### 4.3 Load Shedding and Rate Limiting
 
-**Challenge:** 1M users attempting to buy 100 items (999,900 will fail). Handling all wastes resources.
+**Challenge:** 1M users attempt to buy 100 items (999,900 will fail). Handling all 1M requests wastes resources.
 
 **Solution: Multi-Layer Rate Limiting**
 
 **Layer 1: CDN Edge Rate Limiting**
-- Token Bucket: 10 requests/sec per IP
-- Result: 90% traffic blocked at edge (100K → 10K requests)
+
+- **Token Bucket:** 10 requests/second per IP
+- **Purpose:** Block bot traffic at edge (before reaching backend)
+- **Result:** 90% traffic blocked (100K requests → 10K requests)
 
 **Layer 2: API Gateway Rate Limiting**
-- Leaky Bucket: 10K QPS total (all users)
-- Result: Queue excess traffic, serve 10K QPS
+
+- **Leaky Bucket:** 10K QPS total (all users combined)
+- **Purpose:** Protect backend services from overload
+- **Result:** Queue excess traffic, serve 10K QPS
 
 **Layer 3: CAPTCHA Challenge**
-- Trigger: Suspicious behavior (100+ requests/min)
-- Result: Slow down bots, ensure fair human access
+
+- **Trigger:** Suspicious behavior (100+ requests/minute from single IP)
+- **Purpose:** Prevent automated bots from scalpers
+- **Result:** Slow down bots, ensure fair human access
 
 **Why Token Bucket at Edge?**
 
-| Factor | Token Bucket | Fixed Window | Sliding Window Log |
-|--------|-------------|--------------|-------------------|
-| **Burst Handling** | ✅ Allows bursts | ❌ Abrupt cutoff | ✅ Smooth but expensive |
-| **Edge Deployment** | ✅ Runs at CDN | ✅ Simple | ❌ Too complex |
-| **Resource Cost** | ✅ O(1) memory | ✅ O(1) memory | ❌ O(N) memory |
+| Factor              | Token Bucket (Edge)             | Fixed Window Counter               | Sliding Window Log           |
+|---------------------|---------------------------------|------------------------------------|------------------------------|
+| **Burst Handling**  | ✅ Allows short bursts (good UX) | ❌ Abrupt cutoff at window boundary | ✅ Smooth but expensive       |
+| **Edge Deployment** | ✅ Runs at CDN (low latency)     | ✅ Simple to implement              | ❌ Too complex for edge       |
+| **Resource Cost**   | ✅ O(1) memory per IP            | ✅ O(1) memory                      | ❌ O(N) memory (N = requests) |
+
+*See [this-over-that.md: Token Bucket vs Leaky Bucket](this-over-that.md) for detailed comparison.*
+
+*See [pseudocode.md::token_bucket_rate_limit()](pseudocode.md) for implementation.*
 
 **Benefits:**
-- 90% traffic blocked at CDN (cheap)
-- Fair burst handling
-- Bot protection via CAPTCHA
+
+- **Cost savings:** 90% traffic blocked at CDN (cheap), 10% reaches backend (expensive)
+- **Fair access:** Token bucket allows short bursts (good for flash sale start)
+- **Bot protection:** CAPTCHA challenges prevent automated scalpers
 
 **Trade-offs:**
-- 90% users rejected immediately
-- Legitimate users may hit limits
-- CAPTCHA adds 2-5s delay
+
+- **User frustration:** 90% users rejected immediately
+- **False positives:** Legitimate users may hit rate limits
+- **CAPTCHA friction:** Adds 2-5 seconds delay (reduces conversion)
 
 ---
 
-### Payment Processing (Saga Pattern)
+### 4.4 Payment Processing (Saga Pattern)
 
-**Challenge:** Payment is slow (500ms-2s Stripe API) and can fail. Can't process 100K payments synchronously.
+**Challenge:** Payment is slow (500ms-2s Stripe API call) and can fail. Can't process 100K payments synchronously.
 
 **Solution: Saga Pattern with Compensation**
+
+The Saga pattern breaks a distributed transaction into multiple local transactions, each with a compensation transaction
+to undo it if needed.
 
 **Saga Steps:**
 
 1. **Reserve Inventory** (Local transaction)
-   - Redis DECR (inventory)
-   - Create reservation record
-   - Compensation: Redis INCR, delete reservation
+    - Redis DECR (inventory)
+    - Create reservation record
+    - **Compensation:** Redis INCR, delete reservation
 
 2. **Charge Customer** (Remote transaction)
-   - Call Stripe API with idempotency key
-   - Compensation: Stripe refund API
+    - Call Stripe API with idempotency key
+    - **Compensation:** Stripe refund API
 
 3. **Create Order** (Local transaction)
-   - Insert into orders table
-   - Compensation: Soft delete order
+    - Insert into orders table (PostgreSQL)
+    - **Compensation:** Soft delete order
 
-**Why Saga over 2PC?**
+**Why Saga over 2PC (Two-Phase Commit)?**
 
-| Factor | Saga Pattern | Two-Phase Commit (2PC) |
-|--------|-------------|------------------------|
-| **Performance** | ✅ Async, non-blocking | ❌ Synchronous, blocks all |
-| **Availability** | ✅ Continues if one down | ❌ Blocks if coordinator down |
-| **Scalability** | ✅ High throughput | ❌ Low throughput (global lock) |
-| **Consistency** | ⚠️ Eventual | ✅ Strong (ACID) |
+| Factor           | Saga Pattern                    | Two-Phase Commit (2PC)                 |
+|------------------|---------------------------------|----------------------------------------|
+| **Performance**  | ✅ Async, non-blocking           | ❌ Synchronous, blocks all participants |
+| **Availability** | ✅ Continues if one service down | ❌ Blocks if coordinator down           |
+| **Scalability**  | ✅ High throughput               | ❌ Low throughput (global lock)         |
+| **Consistency**  | ⚠️ Eventual consistency         | ✅ Strong consistency (ACID)            |
+| **Complexity**   | ❌ Complex (compensation logic)  | ✅ Simpler (atomic commit/rollback)     |
+
+**Decision:** Use Saga for flash sale (performance > consistency), use 2PC for financial ledger (consistency critical).
+
+*See [this-over-that.md: Saga vs 2PC](this-over-that.md) for detailed comparison.*
+
+**Saga Orchestration Flow:**
+
+```
+Step 1: Reserve Inventory
+├─ Success → Step 2
+└─ Failure → Reject user
+
+Step 2: Charge Customer (Stripe)
+├─ Success → Step 3
+└─ Failure → Compensate Step 1 (INCR inventory)
+
+Step 3: Create Order
+├─ Success → Complete
+└─ Failure → Compensate Step 2 (refund) + Step 1 (INCR)
+```
+
+*See [pseudocode.md::execute_payment_saga()](pseudocode.md) for implementation.*
+
+*See [sequence-diagrams.md: Payment Saga Flow](sequence-diagrams.md) for detailed flow.*
 
 **Benefits:**
-- Async (reservation instant, payment async)
-- Resilient (automatic compensation)
-- Scalable (no global locks)
+
+- **Async:** Reservation instant (<50ms), payment async (2-10s)
+- **Resilient:** Automatic compensation on failure
+- **Scalable:** No global locks, high throughput
 
 **Trade-offs:**
-- Eventual consistency
-- Complex rollback logic
-- Need idempotency keys
+
+- **Eventual consistency:** Brief period where stock reserved but not paid
+- **Complex rollback:** Must implement compensation for each step
+- **Duplicate handling:** Need idempotency keys to prevent double-charge
 
 ---
 
-### Idempotency (Preventing Double-Charge)
+### 4.5 Idempotency (Preventing Double-Charge)
 
-**Challenge:** Network failures cause retries. User might be charged twice.
+**Challenge:** Network failures cause retries. User might be charged twice if we don't handle retries properly.
 
 **Solution: Idempotency Key**
 
-Every payment request includes unique UUID. If duplicate request arrives (same key), return cached result instead of charging again.
+Every payment request includes a unique idempotency key (UUID). If a duplicate request arrives (same key), return the
+cached result instead of charging again.
 
-**Data Model:**
+**Implementation:**
 
 ```sql
 CREATE TABLE idempotency_store (
@@ -286,126 +400,220 @@ CREATE TABLE idempotency_store (
     response_payload JSONB,
     status VARCHAR(20),  -- PROCESSING, SUCCESS, FAILED
     created_at TIMESTAMP DEFAULT NOW(),
-    expires_at TIMESTAMP,  -- 24 hours
+    expires_at TIMESTAMP,  -- created_at + 24 hours
     INDEX idx_expires (expires_at)
 );
 ```
 
-**Flow:**
-1. Client generates UUID
-2. Server checks idempotency store
-3. If exists → Return cached response (no charge)
-4. If not exists → Process payment → Cache response
+**Idempotency Flow:**
+
+1. Client generates UUID: `idempotency_key = "550e8400-e29b-41d4-a716-446655440000"`
+2. Server checks: `SELECT * FROM idempotency_store WHERE idempotency_key = ?`
+3. **If exists:**
+    - Status = SUCCESS → Return cached response (no charge)
+    - Status = PROCESSING → Return 409 Conflict (wait for completion)
+    - Status = FAILED → Return cached error
+4. **If not exists:**
+    - Insert row (status = PROCESSING)
+    - Call Stripe API
+    - Update row (status = SUCCESS, cache response)
+    - Return response
+
+*See [pseudocode.md::idempotent_payment()](pseudocode.md) for implementation.*
 
 **Benefits:**
-- Exactly-once semantics
-- Network fault tolerance
-- Audit trail
+
+- **Exactly-once semantics:** User charged exactly once despite retries
+- **Network fault tolerance:** Handles connection drops gracefully
+- **Audit trail:** All payment attempts logged
 
 **Trade-offs:**
-- 24-hour cache per request
-- Storage overhead
-- Cleanup required
+
+- **Storage overhead:** 24-hour cache per request
+- **Key collision risk:** UUID collision (1 in 10^36, negligible)
+- **Cleanup required:** Background job to purge expired keys
 
 ---
 
-### Hot Key Optimization (Split Counter)
+### 4.6 Hot Key Optimization (Split Counter)
 
-**Challenge:** Even Redis, single key at 100K writes/sec becomes bottleneck.
+**Challenge:** Even with Redis, a single hot key receiving 100K writes/sec can become a bottleneck due to:
+
+- **Single-threaded execution:** Redis processes one command at a time per key
+- **Network saturation:** 100K requests/sec overwhelm single Redis master
+- **Replication lag:** Followers can't keep up with 100K writes/sec
 
 **Solution: Split Counter (Sharding the Hot Key)**
 
-Instead of one key (`iphone:stock = 100`), split into 10 keys:
+Instead of one key (`iphone:stock = 100`), split into multiple keys:
+
 - `iphone:stock:0 = 10`
 - `iphone:stock:1 = 10`
-- ... (10 keys, 10 items each)
+- `iphone:stock:2 = 10`
+- ... (10 keys total, 10 items each)
 
-**Algorithm:**
-1. Hash user_id → shard_id (0-9)
-2. Try Redis DECR on `iphone:stock:{shard_id}`
-3. If success → Reserved
-4. If failure → Try next shard (round-robin)
-5. If all fail → Sold out
+**Reservation Algorithm:**
+
+1. User clicks "Buy Now"
+2. Hash user_id → shard_id (0-9)
+3. Try Redis DECR on `iphone:stock:{shard_id}`
+4. If success → Reserved
+5. If failure (0 stock) → Try next shard (round-robin)
+6. If all shards fail → Sold out
+
+*See [pseudocode.md::reserve_with_split_counter()](pseudocode.md) for implementation.*
 
 **Benefits:**
-- 10× throughput (10K × 10 = 100K ops/sec)
-- Load distribution across 10 instances
-- Reduced contention per key
+
+- **10× throughput:** 10 keys × 10K ops/sec = 100K ops/sec total
+- **Load distribution:** Writes distributed across 10 Redis instances
+- **Reduced contention:** Each key receives 10K writes/sec (manageable)
 
 **Trade-offs:**
-- Complexity (track multiple keys)
-- Uneven distribution
-- Eventual consistency for total
+
+- **Complexity:** Must track multiple keys
+- **Uneven distribution:** Some shards may empty before others
+- **Eventual consistency:** Total stock count = sum of all shards (eventual)
+
+**Performance Comparison:**
+
+| Approach          | Single Key        | Split Counter (10 keys) |
+|-------------------|-------------------|-------------------------|
+| **Throughput**    | 10K ops/sec       | 100K ops/sec            |
+| **Latency (p99)** | 50ms (contention) | 5ms (less contention)   |
+| **Complexity**    | Simple            | Complex (multi-key)     |
+
+*See [this-over-that.md: Single Key vs Split Counter](this-over-that.md) for detailed analysis.*
 
 ---
 
-## Key Algorithms
+## 5. Key Algorithms
 
-### Atomic Inventory Reservation
+### 5.1 Atomic Inventory Reservation
 
-**Description:** Check-and-decrement with Lua script prevents race conditions.
+**Algorithm:** Check-and-decrement with Lua script.
+
+**Description:**
+
+The reservation service calls Redis with a Lua script that atomically checks if stock is available and decrements if
+yes. This prevents race conditions where two users check simultaneously, both see stock available, and both decrement (
+overselling).
 
 **Steps:**
-1. Client sends reservation request
-2. Server generates idempotency_key
-3. Check idempotency store
-4. Execute Lua script: check_and_decr
-5. If success: Create reservation, publish to Kafka
-6. If sold out: Return error
 
-**Time Complexity:** O(1)
+1. Client sends reservation request with product_id, user_id
+2. Server generates idempotency_key (UUID)
+3. Check idempotency store (prevent duplicate)
+4. Execute Lua script: `EVAL "check_and_decr" 1 iphone:stock`
+5. If script returns 1 (success):
+    - Create reservation record with TTL
+    - Publish event to Kafka
+    - Return reservation_id to user
+6. If script returns 0 (sold out):
+    - Return "SOLD_OUT" error
+
+*See [pseudocode.md::reserve_inventory()](pseudocode.md) for full implementation.*
+
+**Time Complexity:** O(1) for Redis operation
+
+**Concurrency:** Handles 100K concurrent requests (atomic)
 
 ---
 
-### Reservation Cleanup
+### 5.2 Reservation Expiration and Cleanup
 
-**Description:** Background worker scans for expired reservations and releases inventory.
+**Algorithm:** Background worker scans for expired reservations and releases inventory.
+
+**Description:**
+
+A cron job runs every 60 seconds, queries reservations with `expires_at < NOW() AND status = 'PENDING'`, and for each
+expired reservation, increments the Redis counter and marks reservation as EXPIRED.
 
 **Steps:**
-1. Worker wakes every 60 seconds
-2. Query expired reservations: `expires_at < NOW() AND status = 'PENDING'`
-3. For each: Redis INCR, UPDATE status = 'EXPIRED'
-4. Send notification to user
+
+1. Worker wakes up (every 60 seconds)
+2. Query: `SELECT * FROM reservations WHERE expires_at < NOW() AND status = 'PENDING' LIMIT 1000`
+3. For each reservation:
+    - Redis INCR `product:stock` (return inventory)
+    - UPDATE reservation SET status = 'EXPIRED'
+    - Send notification to user (reservation expired)
+4. Sleep 60 seconds, repeat
+
+*See [pseudocode.md::cleanup_expired_reservations()](pseudocode.md) for implementation.*
 
 **Time Complexity:** O(N) where N = expired reservations
 
+**Edge Case Handling:**
+
+- **Race condition:** User pays while worker expires reservation → Use DB transaction + lock
+- **Redis failure:** Worker retries Redis INCR (idempotent operation)
+
 ---
 
-### Payment Saga
+### 5.3 Payment Saga Orchestration
 
-**Description:** Multi-step transaction with compensation.
+**Algorithm:** Multi-step transaction with compensation.
+
+**Description:**
+
+The saga orchestrator executes three steps sequentially: reserve inventory, charge customer, create order. If any step
+fails, execute compensation transactions in reverse order.
 
 **Steps:**
-1. Reserve inventory (Redis DECR)
-2. Charge customer (Stripe API)
-3. Create order (PostgreSQL INSERT)
-4. If any step fails: Execute compensation in reverse
 
-**Time Complexity:** O(1) per step
+1. **Step 1:** Reserve inventory (Redis DECR)
+    - Success → Continue
+    - Failure → Reject
+2. **Step 2:** Charge customer (Stripe API with idempotency key)
+    - Success → Continue
+    - Failure → Compensate Step 1 (Redis INCR)
+3. **Step 3:** Create order (PostgreSQL INSERT)
+    - Success → Complete
+    - Failure → Compensate Step 2 (Stripe refund) + Step 1 (Redis INCR)
+
+*See [pseudocode.md::execute_payment_saga()](pseudocode.md) for full implementation.*
+
+*See [sequence-diagrams.md: Saga Compensation Flow](sequence-diagrams.md) for detailed flow.*
+
+**Time Complexity:** O(1) for each step, O(N) total where N = number of steps (3)
+
+**Failure Handling:** Automatic compensation ensures system never in inconsistent state
 
 ---
 
-## Data Models
+## 6. Data Models
 
-### Reservations Table
+### 6.1 Reservations Table
 
 ```sql
 CREATE TABLE reservations (
     reservation_id UUID PRIMARY KEY,
     user_id BIGINT NOT NULL,
     product_id BIGINT NOT NULL,
-    quantity INT DEFAULT 1,
-    status VARCHAR(20),
+    quantity INT NOT NULL DEFAULT 1,
+    status VARCHAR(20) NOT NULL,  -- PENDING, PAID, EXPIRED, CANCELLED
     idempotency_key UUID UNIQUE,
     created_at TIMESTAMP DEFAULT NOW(),
-    expires_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NOT NULL,  -- created_at + 10 minutes
+    paid_at TIMESTAMP,
     amount DECIMAL(10, 2),
+    INDEX idx_user_status (user_id, status),
     INDEX idx_expires (expires_at, status),
     INDEX idx_idempotency (idempotency_key)
 );
 ```
 
-### Orders Table
+**Sharding Key:** `user_id` (distribute load across database shards)
+
+**Indexes:**
+
+- `idx_expires`: Cleanup worker queries by expiration
+- `idx_user_status`: User dashboard queries
+- `idx_idempotency`: Idempotency check
+
+---
+
+### 6.2 Orders Table
 
 ```sql
 CREATE TABLE orders (
@@ -413,273 +621,670 @@ CREATE TABLE orders (
     user_id BIGINT NOT NULL,
     reservation_id UUID NOT NULL,
     product_id BIGINT NOT NULL,
+    quantity INT NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     payment_id VARCHAR(255),  -- Stripe charge_id
-    status VARCHAR(20),
+    status VARCHAR(20) NOT NULL,  -- PENDING, PAID, SHIPPED, CANCELLED
     created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
     INDEX idx_user (user_id),
-    INDEX idx_reservation (reservation_id)
+    INDEX idx_reservation (reservation_id),
+    INDEX idx_status (status, created_at)
 );
 ```
 
-### Redis Data Structures
+**Sharding Key:** `user_id`
 
-**Inventory Counter:**
+---
+
+### 6.3 Redis Data Structures
+
+**Inventory Counter (Single Key):**
+
 ```
 KEY: product:{product_id}:stock
 TYPE: STRING (integer)
-VALUE: 100 → 0
+VALUE: 100 (initial) → 0 (sold out)
+TTL: None (persistent until flash sale ends)
 ```
 
-**Split Counter:**
+**Inventory Counter (Split Keys):**
+
 ```
 KEY: product:{product_id}:stock:0
+TYPE: STRING (integer)
 VALUE: 10
 
 KEY: product:{product_id}:stock:1
+TYPE: STRING (integer)
 VALUE: 10
 
-... (10 keys)
+... (10 keys total)
 ```
 
 **Idempotency Cache:**
+
 ```
-KEY: idempotency:{key}
+KEY: idempotency:{idempotency_key}
 TYPE: HASH
-FIELDS: status, response, timestamp
+FIELDS:
+  - status: "SUCCESS" | "PROCESSING" | "FAILED"
+  - response: {JSON response}
+  - timestamp: 1640000000
 TTL: 86400 (24 hours)
 ```
 
 ---
 
-## Bottlenecks and Optimizations
+## 7. Bottlenecks and Optimizations
 
-### Redis Hot Key Contention
+### 7.1 Redis Hot Key Contention
 
-**Problem:** Single Redis key receives 100K writes/sec, causing high latency.
+**Problem:** Single Redis key receives 100K writes/sec, causing high latency and potential timeouts.
 
 **Solution:**
-1. Split Counter: 10 keys (10K writes/sec each)
-2. Redis Cluster: Shard across multiple nodes
-3. Read Replicas: Route reads to replicas
 
-**Gain:** 10× throughput
+1. **Split Counter:** Divide inventory across 10 keys (10K writes/sec per key)
+2. **Redis Cluster:** Shard keys across multiple Redis nodes
+3. **Read Replicas:** Route read queries (stock count display) to replicas
+
+**Performance Gain:** 10× throughput (10K → 100K ops/sec)
 
 ---
 
-### Database Write Overload
+### 7.2 Database Write Overload
 
-**Problem:** 100 concurrent DB writes overwhelm PostgreSQL.
+**Problem:** 100 successful orders create 100 DB writes. If payment takes 2 seconds, 100 concurrent DB transactions
+overwhelm PostgreSQL.
 
 **Solution:**
-1. Async Order Creation: Kafka queue buffers events
-2. Batch Inserts: 10 orders per INSERT
-3. Connection Pooling: Reuse connections
 
-**Gain:** 10× throughput via batching
+1. **Async Order Creation:** Kafka queue buffers order creation events
+2. **Batch Inserts:** Workers batch 10 orders into single INSERT
+3. **Connection Pooling:** Reuse DB connections (reduce overhead)
+
+**Performance Gain:** 10× throughput via batching
 
 ---
 
-### Payment Gateway Rate Limiting
+### 7.3 Payment Gateway Rate Limiting
 
-**Problem:** Stripe limits 100 req/sec. Need to process 100 payments.
+**Problem:** Stripe API has rate limits (100 requests/sec per account). 100 payments in 1 second exceed limit.
 
 **Solution:**
-1. Async Processing: Spread over 10-20 seconds
-2. Multiple Accounts: 5 Stripe accounts (500 req/sec)
-3. Retry with Backoff: Handle 429 errors
 
-**Gain:** 5× throughput via sharding
+1. **Client-Side Retry:** Exponential backoff on 429 errors
+2. **Payment Queue:** Kafka queue spreads payments over 10-20 seconds
+3. **Multiple Stripe Accounts:** Shard users across 5 Stripe accounts (500 req/sec total)
+
+**Performance Gain:** 5× throughput via account sharding
 
 ---
 
-## Monitoring and Observability
+### 7.4 Reservation Cleanup Lag
+
+**Problem:** Background worker runs every 60 seconds. Expired reservations sit for up to 60 seconds before cleanup.
+
+**Solution:**
+
+1. **TTL-Based Expiration:** Redis key with TTL expires automatically (instant)
+2. **Event-Driven Cleanup:** Publish "reservation_expired" event at expiration time
+3. **Increase Worker Frequency:** Run every 10 seconds (trade-off: higher CPU)
+
+**Performance Gain:** 6× faster cleanup (60s → 10s)
+
+---
+
+## 8. Monitoring and Observability
 
 ### Key Metrics
 
-**Business:**
-- Sold items (total)
-- Success rate (0.1% expected)
-- Revenue (total payment amount)
-- Abandoned cart rate
+**Business Metrics:**
 
-**System:**
-- Redis throughput (ops/sec on hot key)
-- Redis latency (p50, p99, p999)
-- API Gateway QPS (capped at 10K)
-- Rejection rate (99.9% expected)
-- Kafka consumer lag
-- Payment success rate
+- **Sold items:** Total items sold
+- **Success rate:** Sold / Attempts (should be ~0.1%)
+- **Revenue:** Total payment amount
+- **Abandoned cart rate:** Reservations expired / Total reservations
+
+**System Metrics:**
+
+- **Redis throughput:** Ops/sec on hot key
+- **Redis latency:** p50, p99, p999 for DECR operations
+- **API Gateway QPS:** Requests/sec (should be capped at 10K)
+- **Rejection rate:** Requests rejected / Total requests
+- **Kafka consumer lag:** Lag in processing payment events
+- **Payment success rate:** Successful payments / Total attempts
+- **Reservation expiration rate:** Expired / Total reservations
 
 **Alerts:**
-- P0: Redis cluster down, overselling detected
-- P1: Redis latency >100ms, payment rate <80%
-- P2: Kafka lag >1000 messages
+
+- **P0 (Critical):** Redis cluster down, overselling detected
+- **P1 (High):** Redis latency >100ms, payment success rate <80%
+- **P2 (Medium):** Kafka lag >1000 messages, reservation expiration >50%
+
+*See [hld-diagram.md: Monitoring Dashboard](hld-diagram.md) for visualization.*
 
 ---
 
-## Common Anti-Patterns
+## 9. Common Anti-Patterns
 
-### ❌ Anti-Pattern 1: Synchronous Payment
+### ❌ Anti-Pattern 1: Synchronous Payment Processing
 
-**Problem:** User waits 2 seconds for payment → High abandonment
+**Problem:**
 
-**Solution:** ✅ Async payment via Kafka → Instant response (<50ms)
+```
+User clicks "Buy Now" → Reserve inventory → Charge Stripe (2s) → Return response (2s total)
+```
+
+With 100 concurrent users, payment processing becomes bottleneck. Users wait 2+ seconds, abandonment increases.
+
+**Solution:**
+✅ **Async Payment:** Reserve inventory (<50ms) → Return immediately → Process payment async via Kafka
+
+**Why Better:**
+
+- User experience: 50ms vs 2 seconds
+- Throughput: 100K QPS vs 500 QPS (limited by Stripe)
 
 ---
 
-### ❌ Anti-Pattern 2: No Idempotency
+### ❌ Anti-Pattern 2: No Idempotency Key
 
-**Problem:** Network retry → Double charge
+**Problem:**
 
-**Solution:** ✅ Idempotency key → Exactly-once semantics
+```
+User clicks "Buy Now" → Network timeout → Retry → Charged twice
+```
+
+Without idempotency, retries cause double-charging, leading to customer complaints and refund overhead.
+
+**Solution:**
+✅ **Idempotency Key:** Client generates UUID, server caches response for 24 hours
+
+**Why Better:**
+
+- Exactly-once semantics (no double-charge)
+- Network fault tolerance
 
 ---
 
 ### ❌ Anti-Pattern 3: No Load Shedding
 
-**Problem:** All 1M requests → Backend overload → System crash
+**Problem:**
 
-**Solution:** ✅ Multi-layer rate limiting → 90% rejected at edge
+```
+1M users → All reach backend → Backend overloaded → Entire system crashes
+```
+
+Accepting all traffic when only 100 will succeed wastes resources and risks total failure.
+
+**Solution:**
+✅ **Rate Limiting:** Reject 90% at CDN edge, queue 10%, process 10K QPS
+
+**Why Better:**
+
+- System stability (no crash)
+- Cost savings (90% blocked at cheap CDN, not expensive backend)
 
 ---
 
 ### ❌ Anti-Pattern 4: No Reservation Expiration
 
-**Problem:** Abandoned cart → Stock locked forever
+**Problem:**
 
-**Solution:** ✅ 10-minute TTL → Auto-release via worker
+```
+User reserves item → Never pays → Stock locked forever → Other users can't buy
+```
 
----
+Without expiration, abandoned carts lock inventory indefinitely.
 
-### ❌ Anti-Pattern 5: Database Row Lock
+**Solution:**
+✅ **TTL Expiration:** 10-minute reservation window, auto-release via background worker
 
-**Problem:** 100K concurrent locks → Deadlocks, timeouts
+**Why Better:**
 
-**Solution:** ✅ Redis atomic DECR → No locks, 100K ops/sec
-
----
-
-## Alternative Approaches
-
-### Queue-Based Fair Assignment
-
-**Approach:** All users join FIFO queue. Server processes sequentially.
-
-**Pros:** Perfectly fair, predictable
-**Cons:** Slow, complex, poor UX
-
-**When:** Fairness > speed (concert tickets)
+- Fair access (inventory returned for next user)
+- Revenue maximization (stock not locked)
 
 ---
 
-### Lottery System
+### ❌ Anti-Pattern 5: Database Row Lock for Inventory
 
-**Approach:** Users enter lottery. Random selection after registration.
+**Problem:**
 
-**Pros:** Fair, no hot key
-**Cons:** Poor UX (no instant gratification)
+```
+SELECT * FROM inventory WHERE product_id = 123 FOR UPDATE;
+UPDATE inventory SET stock = stock - 1 WHERE product_id = 123;
+```
 
-**When:** Demand >>> supply (1M users, 10 items)
+Database row lock thrashes under high concurrency (100K concurrent locks), causing deadlocks and timeouts.
 
----
+**Solution:**
+✅ **Redis Atomic DECR:** In-memory atomic operation, no locks, 100K ops/sec
 
-### Pre-Reservation (Waitlist)
+**Why Better:**
 
-**Approach:** Users join waitlist before sale. Process in order.
-
-**Pros:** Smoother traffic, fair
-**Cons:** Advance planning required
-
-**When:** Want to spread load over hours/days
-
----
-
-## Trade-offs Summary
-
-| What We Gain | What We Sacrifice |
-|--------------|-------------------|
-| ✅ High throughput (100K QPS) | ❌ Complex architecture |
-| ✅ Strong consistency | ❌ Eventual consistency (10-min window) |
-| ✅ Fast UX (<50ms) | ❌ High infrastructure cost |
-| ✅ Fault tolerance | ❌ Complex error handling |
-| ✅ Scalable | ❌ Operational overhead |
+- 100× throughput (100K vs 1K ops/sec)
+- No deadlocks (atomic operation)
 
 ---
 
-## Real-World Examples
+## 10. Alternative Approaches
+
+### Alternative 1: Queue-Based Fair Assignment
+
+**Approach:** All users join a queue (FIFO). Server processes queue sequentially, assigns inventory in order.
+
+**Pros:**
+
+- Perfectly fair (first in queue gets item)
+- Predictable (users know queue position)
+
+**Cons:**
+
+- Slow (sequential processing)
+- Complex (maintain distributed queue state)
+- Poor UX (users wait in queue for minutes)
+
+**When to Use:** When fairness is more important than speed (e.g., concert tickets)
+
+---
+
+### Alternative 2: Lottery System
+
+**Approach:** All users enter lottery. Server randomly selects 100 winners after registration closes.
+
+**Pros:**
+
+- Fair (random selection)
+- No hot key contention (process after registration)
+
+**Cons:**
+
+- Poor UX (users wait, no instant gratification)
+- Complex (lottery logic, winner notification)
+
+**When to Use:** When demand far exceeds supply (e.g., 1M users, 10 items)
+
+---
+
+### Alternative 3: Pre-Reservation (Waitlist)
+
+**Approach:** Users join waitlist before sale. When sale starts, process waitlist in order.
+
+**Pros:**
+
+- Smoother traffic (spread over time)
+- Fair (waitlist order)
+
+**Cons:**
+
+- Requires advance planning (waitlist setup)
+- Bots can join waitlist early
+
+**When to Use:** When you want to spread load over hours/days instead of seconds
+
+---
+
+## 11. Trade-offs Summary
+
+| What We Gain                          | What We Sacrifice                                  |
+|---------------------------------------|----------------------------------------------------|
+| ✅ High throughput (100K QPS)          | ❌ Complex architecture (many components)           |
+| ✅ Strong consistency (no overselling) | ❌ Eventual consistency (10-min reservation window) |
+| ✅ Fast user experience (<50ms)        | ❌ High infrastructure cost (Redis cluster, Kafka)  |
+| ✅ Fault tolerance (auto-compensation) | ❌ Complex error handling (saga pattern)            |
+| ✅ Scalable (split counter, sharding)  | ❌ Operational overhead (monitoring, tuning)        |
+
+---
+
+## 12. Real-World Examples
 
 ### Alibaba Singles Day (11.11)
 
-**Scale:** 583M users, $74B GMV, 583K orders/sec peak
+**Scale:**
+
+- 583 million users
+- $74 billion GMV in 24 hours
+- 583,000 orders per second (peak)
 
 **Architecture:**
-- Redis cluster with 1000 shards per product
-- Custom payment processor (100K TPS)
-- Multi-layer rate limiting
+
+- **Inventory:** Redis cluster with split counters (1000 shards per product)
+- **Payments:** Alipay (custom payment processor, 100K TPS)
+- **Load Shedding:** Multi-layer rate limiting (CDN, API Gateway, service mesh)
+
+**Key Innovation:** "Pre-order" system where users add to cart before sale, reducing hot key contention.
 
 ---
 
 ### Amazon Prime Day
 
-**Scale:** 250M items sold, 100M Prime members
+**Scale:**
+
+- 250 million items sold
+- 100 million Prime members
 
 **Architecture:**
-- DynamoDB with optimistic locking
-- SQS for async processing
-- Lightning Deals with 4-hour windows
+
+- **Inventory:** DynamoDB with optimistic locking (version field)
+- **Payments:** AWS-hosted payment gateway
+- **Queue:** SQS for async order processing
+
+**Key Innovation:** "Lightning Deals" with countdown timer, spreading demand over 4-hour windows.
 
 ---
 
 ### Supreme Streetwear Drops
 
-**Scale:** 100-500 items, 10K concurrent users (90% bots)
+**Scale:**
+
+- 100-500 items
+- 10,000 concurrent users (bots)
 
 **Architecture:**
-- Aggressive bot detection
-- Virtual waiting room (10-min queue)
-- Redis atomic DECR
+
+- **Bot Protection:** CAPTCHA, browser fingerprinting, IP rate limiting
+- **Inventory:** Redis atomic DECR
+- **Queue:** Virtual waiting room (10-minute queue)
+
+**Key Challenge:** 90% traffic is bots. Aggressive bot detection and CAPTCHA challenges required.
 
 ---
 
-## Conclusion
+## 13. References
 
-Flash sale systems require careful balancing of throughput, latency, consistency, and cost. Key challenges:
+### Related System Design Components
 
-1. **Hot Key Contention:** 100K writes/sec on single Redis key
-2. **Strong Consistency:** Zero tolerance for overselling
-3. **Graceful Degradation:** Reject 99.9% without crashing
-4. **Payment Decoupling:** Async via Saga pattern
-5. **Fault Tolerance:** Automatic compensation
+- **[2.5.1 Rate Limiting Algorithms](../../02-components/2.5.1-rate-limiting-algorithms.md)** - Token bucket, leaky
+  bucket
+- *
+  *[2.3.4 Distributed Transactions & Idempotency](../../02-components/2.3.4-distributed-transactions-and-idempotency.md)
+  ** - Saga pattern, 2PC
+- **[2.1.11 Redis Deep Dive](../../02-components/2.1.11-redis-deep-dive.md)** - Atomic operations, Lua scripts
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md)** - Message queues
+- **[2.5.3 Distributed Locking](../../02-components/2.5.3-distributed-locking.md)** - Redis locks
+- **[2.2.1 Caching Deep Dive](../../02-components/2.2.1-caching-deep-dive.md)** - Redis caching strategies
 
-**Critical Decisions:**
-- Redis atomic operations for inventory
-- Saga pattern for distributed transactions
-- Multi-layer rate limiting for load shedding
-- Idempotency keys for exactly-once payment
-- Split counter for 10× throughput
+### Related Design Challenges
+
+- **[3.2.4 Global Rate Limiter](../3.2.4-global-rate-limiter/)** - Rate limiting strategies for high traffic
+- **[3.3.1 Live Chat System](../3.3.1-live-chat-system/)** - High-throughput real-time systems
+- **[3.5.1 Payment Gateway](../3.5.1-payment-gateway/)** - Payment processing patterns
+
+### External Resources
+
+- **Redis Documentation:** [Redis Transactions](https://redis.io/topics/transactions) - Atomic operations
+- **Stripe Documentation:** [Stripe Idempotency](https://stripe.com/docs/api/idempotent_requests) - Payment idempotency
+- **Alibaba Engineering:** [Singles Day Architecture](https://www.alibabacloud.com/blog/596631) - 11.11 flash sale
+- **AWS Blog:** [Amazon Prime Day 2021](https://aws.amazon.com/blogs/aws/prime-day-2021-two-chart-topping-days/) - AWS
+  infrastructure
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Chapters on distributed transactions, consistency, and
+  high-contention systems
+- *Building Microservices* by Sam Newman - Saga pattern and distributed transaction patterns
+
+---
+
+## 14. Deep Dive: Edge Cases and Failure Scenarios
+
+### 14.1 Concurrent Reservation Race Condition
+
+**Scenario:** Two users click "Buy Now" at exactly the same microsecond for the last item.
+
+**Without Atomicity:**
+
+```
+Time  User A                    User B                    Stock
+0ms   GET stock (returns 1)     GET stock (returns 1)     1
+1ms   Check: 1 > 0 ✓            Check: 1 > 0 ✓            1
+2ms   DECR stock                DECR stock                -1 (OVERSOLD!)
+```
+
+**With Lua Script (Atomic):**
+
+```
+Time  User A                              User B                  Stock
+0ms   EVAL check_and_decr (locked)       Wait...                 1
+1ms   - GET: 1                                                    1
+      - Check: 1 > 0 ✓                                            1
+      - DECR: 0                                                   0
+      - Return SUCCESS                                            0
+2ms   (unlocked)                          EVAL check_and_decr    0
+3ms                                       - GET: 0                0
+                                           - Check: 0 > 0 ✗        0
+                                           - Return SOLD_OUT       0
+```
+
+**Key:** Lua script executes atomically (no interleaving), preventing race condition.
+
+---
+
+### 14.2 Payment Failure After Reservation
+
+**Scenario:** User reserves last item, but Stripe payment fails (card declined).
+
+**Flow:**
+
+1. User reserves → Redis DECR (stock: 100 → 99) → Success
+2. Create reservation (status: PENDING)
+3. Publish to Kafka → Payment service
+4. Stripe API call → **CARD_DECLINED** error
+5. **Compensation:**
+    - Redis INCR (stock: 99 → 100)
+    - UPDATE reservation SET status = 'FAILED'
+    - Notify user: "Payment failed, stock returned"
+
+**Key:** Stock immediately returned (other users can buy), no manual intervention needed.
+
+---
+
+### 14.3 Redis Master Failure Mid-Sale
+
+**Scenario:** Redis master crashes after 50 items sold (50 items remaining).
+
+**Without Failover:**
+
+- All reservation requests fail
+- Flash sale halted
+- Manual recovery required
+
+**With Redis Sentinel (Automatic Failover):**
+
+1. **Detection** (3s): Sentinel detects master down
+2. **Promotion** (2s): Sentinel promotes replica to master
+3. **Reconnect** (1s): Clients reconnect to new master
+4. **Resume** (6s total): Sale resumes
+
+**Data Loss:**
+
+- Redis uses RDB snapshots (every 60s)
+- If crash at T=30s after last snapshot, lose 30s of reservations
+- **Mitigation:** Use AOF (append-only file) with fsync every 1s (max 1s data loss)
+
+**Key:** Automatic failover critical (manual = minutes of downtime, auto = 6 seconds).
+
+---
+
+### 14.4 Kafka Consumer Lag
+
+**Scenario:** Payment service crashes. Kafka messages pile up (lag increases).
+
+**Impact:**
+
+- Reservations succeed (Redis DECR)
+- Payments not processed
+- Users wait 10+ minutes for confirmation
+- Reservations start expiring
+
+**Recovery:**
+
+1. **Restart consumers** (auto-restart via Kubernetes)
+2. **Scale up consumers** (10 → 50 pods)
+3. **Process backlog** (catch up lag)
+4. **Extend TTL** (if lag > 5 minutes, extend reservation TTL to prevent expiration)
+
+**Monitoring Alert:** Kafka lag > 1,000 messages → PagerDuty alert
+
+---
+
+### 14.5 Clock Skew Between Servers
+
+**Scenario:** Server A clock is 2 minutes ahead of Server B.
+
+**Problem:**
+
+- User reserves on Server A → expires_at = 12:10
+- Worker runs on Server B → current_time = 12:08 (2 min behind)
+- Worker thinks reservation not expired yet (12:08 < 12:10)
+- Actual time is 12:10 (should expire)
+
+**Solution:**
+
+- **NTP synchronization:** All servers sync with NTP (time drift <1 second)
+- **Timestamp source:** Use database timestamp (single source of truth)
+- **Grace period:** Add 60-second buffer to TTL (expires_at + 60s)
+
+**Key:** Clock skew causes race conditions. Use NTP + centralized timestamp.
+
+---
+
+### 14.6 Split Brain (Network Partition)
+
+**Scenario:** Network partition splits Redis cluster into two islands. Both think they are master.
+
+**Problem:**
+
+- Island A: Stock = 50, accepts 50 reservations
+- Island B: Stock = 50, accepts 50 reservations
+- Total = 100 reservations (but only 50 items available!)
+
+**Solution:**
+
+- **Redis Cluster Quorum:** Require majority (3/5 nodes) to elect master
+- **Only one master survives:** Minority island goes read-only
+- **Prevent split brain:** Network partition prevents overselling
+
+**Key:** Consensus algorithms (Raft, Paxos) prevent split brain.
+
+---
+
+## 15. Interview Discussion Points
+
+### Why Not Use Database Row Lock?
+
+**Interviewer:** "Why Redis? Can't we just use PostgreSQL with row-level locking?"
+
+**Answer:**
+
+1. **Throughput:** PostgreSQL row lock supports ~1K concurrent locks. Flash sale needs 100K QPS.
+2. **Latency:** Row lock requires disk I/O (10-50ms). Redis in-memory (<1ms).
+3. **Deadlocks:** High concurrency causes deadlocks. Redis atomic operations don't deadlock.
+4. **Scalability:** PostgreSQL vertical scaling (bigger server). Redis horizontal scaling (more nodes).
+
+**When to Use PostgreSQL:** When durability is critical (financial transactions, orders table).
+
+**When to Use Redis:** When speed is critical (hot inventory counter during flash sale).
+
+---
+
+### How to Handle 1 Million Simultaneous Users?
+
+**Interviewer:** "1 million users click at exactly 12:00:00. How does system handle this?"
+
+**Answer:**
+
+1. **CDN Layer:** 90% rejected at edge (token bucket rate limit). 100K reach backend.
+2. **API Gateway:** Queue 100K requests, process 10K QPS (limit concurrency).
+3. **Load Balancer:** Distribute 10K QPS across 50 reservation service pods (200 QPS each).
+4. **Redis Cluster:** Split counter (10 keys) handles 10K QPS (1K QPS per key).
+5. **Result:** 100 succeed, 999,900 rejected gracefully.
+
+**Key:** Multi-layer defense (CDN → Gateway → Service → Redis).
+
+---
+
+### How to Prevent Bots?
+
+**Interviewer:** "Bots can click faster than humans. How do you ensure fairness?"
+
+**Answer:**
+
+1. **CAPTCHA:** Challenge suspicious behavior (100+ requests/min from single IP).
+2. **Browser Fingerprinting:** Detect headless browsers (Puppeteer, Selenium).
+3. **Rate Limiting:** 10 requests/sec per IP (bots often from single IP).
+4. **Account Age:** Require account created >30 days before sale (bots create fresh accounts).
+5. **Behavioral Analysis:** ML model detects bot patterns (instant clicks, no mouse movement).
+
+**Trade-off:** False positives hurt legitimate users. Balance security vs UX.
+
+---
+
+### How to Scale Payment Processing?
+
+**Interviewer:** "Stripe has rate limits (100 req/sec). How do you process 100 payments?"
+
+**Answer:**
+
+1. **Async Processing:** Decouple reservation from payment (Kafka queue).
+2. **Spread Over Time:** 100 payments spread over 10-20 seconds (5-10 req/sec).
+3. **Multiple Accounts:** Shard users across 5 Stripe accounts (500 req/sec total).
+4. **Retry with Backoff:** 429 errors retry with exponential backoff.
+5. **Payment Provider Diversity:** Use Stripe + PayPal + Apple Pay (distribute load).
+
+**Key:** Payment is not time-critical (10-minute window). Spread load over time.
+
+---
+
+### How to Test This System?
+
+**Interviewer:** "How do you test flash sale under 100K QPS load?"
+
+**Answer:**
+
+1. **Load Testing:** Use Gatling/JMeter to simulate 100K concurrent users.
+2. **Chaos Engineering:** Randomly kill Redis nodes, test failover.
+3. **Synthetic Monitoring:** Continuously send test transactions, measure success rate.
+4. **Canary Deployment:** Route 1% traffic to new version, monitor errors.
+5. **Dry Run:** Run flash sale test on staging (no real money) before production.
+
+**Key Metrics:**
+
+- Success rate: 0.1% ✓
+- Overselling: 0 ✓
+- Response time: <50ms ✓
+- Redis availability: 99.99% ✓
+
+---
+
+## 16. Conclusion
+
+Designing a flash sale system requires careful balancing of throughput, latency, consistency, and cost. The key
+challenges are:
+
+1. **Hot Key Contention:** Single Redis key receives 100K writes/sec
+2. **Strong Consistency:** Prevent overselling (0 tolerance for error)
+3. **Graceful Degradation:** Reject 99.9% users without crashing
+4. **Payment Decoupling:** Async payment processing via Saga pattern
+5. **Fault Tolerance:** Automatic compensation on failure
+
+**Critical Design Decisions:**
+
+- **Redis atomic operations** for hot inventory counter
+- **Saga pattern** for distributed transactions
+- **Multi-layer rate limiting** for load shedding
+- **Idempotency keys** for exactly-once payment
+- **Split counter optimization** for 10× throughput
 
 **Real-World Validation:**
-- Alibaba: 583K orders/sec
-- Amazon: 250M items sold
-- Supreme: 90% bot traffic blocked
 
-The architecture scales from 100 to 10,000+ items by sharding Redis keys and increasing capacity. Patterns apply to any high-contention system: concert tickets, sneakers, vaccine appointments, etc.
+- Alibaba Singles Day: 583K orders/sec
+- Amazon Prime Day: 250M items sold
+- Supreme Drops: 90% bot traffic blocked
 
----
+The architecture scales from 100 items to 10,000+ items by sharding Redis keys and increasing infrastructure capacity.
+The patterns learned here apply to any high-contention, limited-resource system: concert tickets, limited edition
+sneakers, vaccine appointments, etc.
 
-## References
-
-- **Related Chapters:**
-  - [2.5.1 Rate Limiting Algorithms](../../02-components/2.5-algorithms/2.5.1-rate-limiting-algorithms.md)
-  - [2.3.4 Distributed Transactions & Idempotency](../../02-components/2.3-messaging-streaming/2.3.4-distributed-transactions-and-idempotency.md)
-  - [2.1.11 Redis Deep Dive](../../02-components/2.1-databases/2.1.11-redis-deep-dive.md)
-  - [2.5.3 Distributed Locking](../../02-components/2.5-algorithms/2.5.3-distributed-locking.md)
-
-- **Official Documentation:**
-  - [Redis Transactions](https://redis.io/topics/transactions)
-  - [Stripe Idempotency](https://stripe.com/docs/api/idempotent_requests)
-
-- **Industry Articles:**
-  - [Alibaba Singles Day Architecture](https://www.alibabacloud.com/blog/596631)
-  - [Amazon Prime Day 2021](https://aws.amazon.com/blogs/aws/prime-day-2021-two-chart-topping-days/)
