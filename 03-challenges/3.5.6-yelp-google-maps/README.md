@@ -13,26 +13,27 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
 Design a **geo-spatial search system** like Yelp or Google Maps that enables users to find businesses, restaurants, and
 points of interest (POIs) within a specified radius of their location. The system must handle millions of POIs globally,
 support complex filtering (category, rating, hours), and deliver results in under 100ms.
 
-**Core Challenges:**
+**Key Challenges:**
 
-- Geo-spatial indexing (convert 2D coordinates to 1D searchable index)
-- Low latency (sub-100ms search results)
-- Complex filtering (location + category + rating + hours)
-- Hotspot management (densely populated areas without overloading shards)
-- Cross-boundary queries (searches at edge of geographic boundaries)
-- Data volume (billions of reviews and millions of POIs)
+- **Geo-Spatial Indexing**: Convert 2D geographic coordinates (lat/lng) into a searchable 1D index for fast proximity
+  queries
+- **Low Latency**: Sub-100ms search results despite querying millions of POIs
+- **Complex Filtering**: Support multi-dimensional queries (location + category + rating + hours)
+- **Hotspot Management**: Handle densely populated areas (NYC, Tokyo) without overloading specific shards
+- **Cross-Boundary Queries**: Handle searches at the edge of geographic boundaries
+- **Data Volume**: Store and query billions of reviews and millions of POIs efficiently
 
 ---
 
-## Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements
+### Functional Requirements (FRs)
 
 1. **Proximity Search**: Find all POIs within N miles/km of a given location (lat/lng)
 2. **Point Lookup**: Retrieve detailed information for a specific POI by ID
@@ -43,7 +44,7 @@ support complex filtering (category, rating, hours), and deliver results in unde
 7. **Auto-complete**: Suggest POI names as users type search queries
 8. **Map Rendering**: Serve map tiles and POI markers for visualization
 
-### Non-Functional Requirements
+### Non-Functional Requirements (NFRs)
 
 1. **Low Latency**: Search queries must return in < 100ms (p95)
 2. **High Availability**: 99.9% uptime (map services are critical for navigation)
@@ -54,14 +55,14 @@ support complex filtering (category, rating, hours), and deliver results in unde
 
 ### Scale Estimation
 
-| Metric                | Assumption                   | Result                                                 |
-|-----------------------|------------------------------|--------------------------------------------------------|
-| **Total POIs**        | 50 Million global businesses | 50M POIs                                               |
-| **Daily Searches**    | 1 Billion searches per day   | $\sim 11,574$ $\text{QPS}$ $\text{read}$ $\text{peak}$ |
-| **Review Storage**    | 1B reviews × 2KB × 5 years   | $\sim 10$ $\text{TB}$ $\text{storage}$                 |
-| **POI Storage**       | 50M POIs × 5KB metadata      | $\sim 250$ $\text{GB}$ $\text{POI}$ $\text{data}$      |
-| **Write Load**        | POI updates, new reviews     | $1000$ $\text{writes/sec}$ $\text{peak}$               |
-| **Geohash Precision** | 7 characters (153m × 153m)   | 7-char Geohash                                         |
+| Metric                | Assumption                   | Calculation                                 | Result                                                 |
+|-----------------------|------------------------------|---------------------------------------------|--------------------------------------------------------|
+| **Total POIs**        | 50 Million global businesses | -                                           | 50M POIs                                               |
+| **Daily Searches**    | 1 Billion searches per day   | $1 \text{B} / 86400 \times 2$ (peak factor) | $\sim 11,574$ $\text{QPS}$ $\text{read}$ $\text{peak}$ |
+| **Review Storage**    | 1B reviews × 2KB × 5 years   | $1 \text{B} \times 2 \text{KB} \times 5$    | $\sim 10$ $\text{TB}$ $\text{storage}$                 |
+| **POI Storage**       | 50M POIs × 5KB metadata      | $50 \text{M} \times 5 \text{KB}$            | $\sim 250$ $\text{GB}$ $\text{POI}$ $\text{data}$      |
+| **Write Load**        | POI updates, new reviews     | $1000$ $\text{writes/sec}$ $\text{peak}$    | Manageable                                             |
+| **Geohash Precision** | 7 characters (153m × 153m)   | Standard for POI search                     | 7-char Geohash                                         |
 
 **Geographic Distribution:**
 
@@ -71,7 +72,9 @@ support complex filtering (category, rating, hours), and deliver results in unde
 
 ---
 
-## High-Level Architecture
+## 3. High-Level Architecture
+
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
 
 The architecture centers around a **Geo-Spatial Index** (Geohash/H3) that converts 2D coordinates into searchable 1D
 keys, combined with a **Search Engine** (Elasticsearch) for complex filtering and ranking.
@@ -79,21 +82,46 @@ keys, combined with a **Search Engine** (Elasticsearch) for complex filtering an
 ### Core Components
 
 ```
-Mobile/Web Client
-      ↓
-API Gateway (TLS, Rate Limiting)
-      ↓
-┌─────┼─────┐
-↓     ↓     ↓
-Geo-Search  POI Lookup  Review Service
-Service     Service
-(Elasticsearch) (PostgreSQL) (MongoDB)
-      ↓
-  Geohash Indexer
-      ↓
-  Cache Layer (Redis)
-      ↓
-Object Storage (S3)
+┌──────────────────────────────────────────────────────────────────┐
+│                         Mobile/Web Client                         │
+└──────────────────────┬───────────────────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                       API Gateway (TLS)                           │
+│         Rate Limiting • Authentication • Load Balancing           │
+└──────────────────────┬───────────────────────────────────────────┘
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+        ▼              ▼              ▼
+┌──────────────┐ ┌────────────┐ ┌────────────────┐
+│  Geo-Search  │ │  POI Lookup│ │  Review Service│
+│   Service    │ │   Service  │ │                │
+│ (Elasticsearch)│ │ (PostgreSQL)│ │  (MongoDB)    │
+└──────┬───────┘ └─────┬──────┘ └────────┬───────┘
+       │               │                  │
+       │               ▼                  │
+       │        ┌──────────────┐          │
+       │        │   Geohash    │          │
+       │        │   Indexer    │          │
+       │        └──────┬───────┘          │
+       │               │                  │
+       │               ▼                  ▼
+       │        ┌──────────────────────────────┐
+       │        │   Cache Layer (Redis)         │
+       │        │   - Popular queries          │
+       │        │   - Ranked results           │
+       │        └──────┬───────────────────────┘
+       │               │
+       └───────────────┼───────────────────────┘
+                       │
+                       ▼
+            ┌──────────────────────┐
+            │  Object Storage (S3) │
+            │  - POI photos        │
+            │  - Map tiles         │
+            └──────────────────────┘
 ```
 
 ### Data Flow
@@ -106,9 +134,9 @@ Object Storage (S3)
 
 ---
 
-## Detailed Component Design
+## 4. Detailed Component Design
 
-### Geo-Spatial Indexing Strategy
+### 4.1 Geo-Spatial Indexing Strategy
 
 **Challenge**: Transform 2D space (latitude, longitude) into a searchable data structure.
 
@@ -146,7 +174,7 @@ Precision levels:
 
 *See [this-over-that.md: Geohash vs H3](this-over-that.md) for detailed comparison.*
 
-### Elasticsearch Geo-Search Architecture
+### 4.2 Elasticsearch Geo-Search Architecture
 
 **Why Elasticsearch for Geo-Search?**
 
@@ -236,7 +264,8 @@ Precision levels:
           "lat": 37.7749,
           "lon": -122.4194
         },
-        "order": "asc"
+        "order": "asc",
+        "unit": "km"
       }
     },
     {
@@ -250,7 +279,7 @@ Precision levels:
 
 *See pseudocode.md::search_pois() for implementation*
 
-### POI Database (PostgreSQL)
+### 4.3 POI Database (PostgreSQL)
 
 **Why PostgreSQL for POI Metadata?**
 
@@ -281,6 +310,14 @@ CREATE TABLE poi_categories (
     PRIMARY KEY (poi_id, category)
 );
 
+CREATE TABLE poi_hours (
+    poi_id BIGINT REFERENCES pois(poi_id),
+    day_of_week INTEGER CHECK (day_of_week BETWEEN 0 AND 6),
+    open_time TIME,
+    close_time TIME,
+    PRIMARY KEY (poi_id, day_of_week)
+);
+
 CREATE INDEX idx_pois_geohash ON pois(geohash);
 CREATE INDEX idx_pois_location ON pois USING GIST (
     ll_to_earth(latitude, longitude)
@@ -295,7 +332,7 @@ CREATE INDEX idx_pois_location ON pois USING GIST (
 
 *See pseudocode.md::get_poi_details() for implementation*
 
-### Review Storage (MongoDB)
+### 4.4 Review Storage (MongoDB)
 
 **Why MongoDB for Reviews?**
 
@@ -328,9 +365,23 @@ CREATE INDEX idx_pois_location ON pois USING GIST (
 - **Shards**: 32 shards
 - **Replication**: 3 replicas per shard for high availability
 
+**Aggregation Pipeline (Calculate Average Rating):**
+
+```javascript
+db.reviews.aggregate([
+  { $match: { poi_id: "poi_789" } },
+  { $group: {
+      _id: "$poi_id",
+      avg_rating: { $avg: "$rating" },
+      review_count: { $sum: 1 }
+    }
+  }
+])
+```
+
 *See pseudocode.md::get_reviews() for implementation*
 
-### Caching Strategy
+### 4.5 Caching Strategy
 
 **Why Cache?**
 
@@ -365,9 +416,9 @@ CREATE INDEX idx_pois_location ON pois USING GIST (
 
 ---
 
-## Geo-Spatial Query Processing
+## 5. Geo-Spatial Query Processing
 
-### Proximity Search Algorithm
+### 5.1 Proximity Search Algorithm
 
 **Challenge**: Find all POIs within radius R of point (lat, lng).
 
@@ -391,9 +442,20 @@ CREATE INDEX idx_pois_location ON pois USING GIST (
 
 *See pseudocode.md::proximity_search() for implementation*
 
-### Cross-Boundary Query Handling
+### 5.2 Cross-Boundary Query Handling
 
 **Problem**: A search at the edge of two Geohash cells may miss POIs.
+
+**Example:**
+
+```
+Search center: lat=37.7749, lng=-122.4194 (San Francisco)
+Geohash: "9q8yy9m"
+Adjacent cells: "9q8yy9j", "9q8yy9k", "9q8yy9h", etc.
+
+If POI is in cell "9q8yy9k" but search only queries "9q8yy9m",
+we miss the POI even though it's within radius.
+```
 
 **Solution**: Query center cell + 8 adjacent cells (3×3 grid).
 
@@ -408,7 +470,7 @@ CREATE INDEX idx_pois_location ON pois USING GIST (
 
 *See pseudocode.md::get_adjacent_geohashes() for implementation*
 
-### Filtering and Ranking
+### 5.3 Filtering and Ranking
 
 **Filtering Dimensions:**
 
@@ -432,13 +494,19 @@ where:
 - weights: w1=0.4, w2=0.4, w3=0.2
 ```
 
+**Why This Ranking?**
+
+- **Distance**: Users prefer nearby POIs
+- **Rating**: Quality matters
+- **Popularity**: Social proof (review count)
+
 *See pseudocode.md::rank_pois() for implementation*
 
 ---
 
-## Data Models
+## 6. Data Models
 
-### POI Document (Elasticsearch)
+### 6.1 POI Document (Elasticsearch)
 
 ```json
 {
@@ -465,6 +533,26 @@ where:
     "tuesday": {
       "open": "11:00",
       "close": "22:00"
+    },
+    "wednesday": {
+      "open": "11:00",
+      "close": "22:00"
+    },
+    "thursday": {
+      "open": "11:00",
+      "close": "22:00"
+    },
+    "friday": {
+      "open": "11:00",
+      "close": "23:00"
+    },
+    "saturday": {
+      "open": "11:00",
+      "close": "23:00"
+    },
+    "sunday": {
+      "open": "12:00",
+      "close": "21:00"
     }
   },
   "address": {
@@ -477,12 +565,15 @@ where:
   "website": "https://goldengatepizza.com",
   "attributes": {
     "wheelchair_accessible": true,
-    "parking": true
-  }
+    "parking": true,
+    "outdoor_seating": false
+  },
+  "created_at": "2020-01-15T10:00:00Z",
+  "updated_at": "2024-01-15T14:30:00Z"
 }
 ```
 
-### Review Document (MongoDB)
+### 6.2 Review Document (MongoDB)
 
 ```json
 {
@@ -494,28 +585,39 @@ where:
   "text": "Best pizza in SF! The margherita is amazing.",
   "photos": [
     {
-      "url": "https://s3.amazonaws.com/reviews/photo1.jpg"
+      "url": "https://s3.amazonaws.com/reviews/photo1.jpg",
+      "thumbnail": "https://s3.amazonaws.com/reviews/thumb1.jpg"
     }
   ],
   "helpful_count": 23,
-  "created_at": "2024-01-10T18:30:00Z"
+  "funny_count": 2,
+  "cool_count": 15,
+  "created_at": "2024-01-10T18:30:00Z",
+  "updated_at": "2024-01-10T18:30:00Z"
 }
 ```
 
-### Cache Keys
+### 6.3 Cache Keys
 
 ```
-Query Cache: search:37.7749:-122.4194:5km:restaurant:4.0
-POI Detail Cache: poi:poi_123456
-Ranked Results Cache: ranked:9q8yy:restaurant
-Geohash Cell Cache: geohash:9q8yy9m:pois
+Query Cache:
+  search:37.7749:-122.4194:5km:restaurant:4.0
+
+POI Detail Cache:
+  poi:poi_123456
+
+Ranked Results Cache:
+  ranked:9q8yy:restaurant
+
+Geohash Cell Cache:
+  geohash:9q8yy9m:pois
 ```
 
 ---
 
-## Sharding Strategy
+## 7. Sharding Strategy
 
-### Geographic Sharding by Geohash
+### 7.1 Geographic Sharding by Geohash
 
 **Shard Key**: First 3 characters of Geohash
 
@@ -543,7 +645,7 @@ For high-traffic prefixes (e.g., `9q8` for SF):
 - **Sub-shard by Category**: `9q8:restaurant`, `9q8:hotel`
 - **Sub-shard by Rating**: `9q8:high_rating`, `9q8:low_rating`
 
-### Cross-Shard Query Handling
+### 7.2 Cross-Shard Query Handling
 
 **Problem**: Search near shard boundary requires querying multiple shards.
 
@@ -566,9 +668,9 @@ For high-traffic prefixes (e.g., `9q8` for SF):
 
 ---
 
-## Bottlenecks and Optimizations
+## 8. Bottlenecks and Optimizations
 
-### Hotspotting in Densely Populated Areas
+### 8.1 Hotspotting in Densely Populated Areas
 
 **Problem**: NYC and Tokyo have 10x more POIs than rural areas, overloading specific Geohash shards.
 
@@ -599,7 +701,7 @@ After:
 - Reduces query latency (smaller index per shard)
 - Maintains locality (same category POIs together)
 
-### Cross-Boundary Query Latency
+### 8.2 Cross-Boundary Query Latency
 
 **Problem**: Search at edge of two Geohash cells requires querying both cells, doubling query time.
 
@@ -613,7 +715,7 @@ After:
 
 3. **Cache Adjacent Cells**: Pre-fetch adjacent cell data for popular regions
 
-### Multi-DB Join Latency
+### 8.3 Multi-DB Join Latency
 
 **Problem**: Final result requires joining Elasticsearch (POI metadata) with MongoDB (reviews).
 
@@ -637,6 +739,10 @@ Store essential review data directly in Elasticsearch document:
     {
       "text": "Nice place",
       "rating": 4
+    },
+    {
+      "text": "Good service",
+      "rating": 4
     }
   ]
 }
@@ -649,7 +755,7 @@ Store essential review data directly in Elasticsearch document:
 
 **Trade-off**: Storage duplication (acceptable for 10-20% increase in size)
 
-### Ranking Calculation Cost
+### 8.4 Ranking Calculation Cost
 
 **Problem**: CPU-heavy ranking calculations slow down search queries.
 
@@ -668,9 +774,9 @@ Store essential review data directly in Elasticsearch document:
 
 ---
 
-## Availability and Fault Tolerance
+## 9. Availability and Fault Tolerance
 
-### Multi-Region Deployment
+### 9.1 Multi-Region Deployment
 
 **Architecture:**
 
@@ -690,7 +796,7 @@ Store essential review data directly in Elasticsearch document:
 - **Local Queries**: <100ms (same region)
 - **Cross-Region Queries**: <200ms (acceptable for global users)
 
-### Elasticsearch Cluster Resilience
+### 9.2 Elasticsearch Cluster Resilience
 
 **Configuration:**
 
@@ -712,7 +818,7 @@ Store essential review data directly in Elasticsearch document:
     - Prevention: Minimum master nodes = (total_nodes / 2) + 1
     - Recovery: Manual intervention (rare)
 
-### Database Failover
+### 9.3 Database Failover
 
 **PostgreSQL:**
 
@@ -725,7 +831,7 @@ Store essential review data directly in Elasticsearch document:
 - **Replica Set**: 3 nodes (1 primary, 2 secondaries)
 - **Failover**: Automatic election of new primary (<30 seconds)
 
-### Cache Failure Handling
+### 9.4 Cache Failure Handling
 
 **Graceful Degradation:**
 
@@ -740,7 +846,7 @@ Store essential review data directly in Elasticsearch document:
 
 ---
 
-## Common Anti-Patterns
+## 10. Common Anti-Patterns
 
 ### ❌ **1. Scanning Entire Database**
 
@@ -845,7 +951,7 @@ geohash = encode_geohash(lat, lng, 7)  # Queries 100+ cells for 20km radius
 
 ---
 
-## Alternative Approaches
+## 11. Alternative Approaches
 
 ### Alternative 1: PostgreSQL PostGIS
 
@@ -903,9 +1009,9 @@ geohash = encode_geohash(lat, lng, 7)  # Queries 100+ cells for 20km radius
 
 ---
 
-## Monitoring and Observability
+## 12. Monitoring and Observability
 
-### Key Metrics
+### 12.1 Key Metrics
 
 **Latency Metrics:**
 
@@ -926,7 +1032,7 @@ geohash = encode_geohash(lat, lng, 7)  # Queries 100+ cells for 20km radius
 - **Hotspot Detection**: Shards with >1000 QPS
 - **Cross-Boundary Queries**: % of queries hitting multiple shards
 
-### Alerts
+### 12.2 Alerts
 
 1. **High Latency**: P95 > 150ms (5-minute window)
 2. **Cache Hit Rate Drop**: <70% (indicates cache issue)
@@ -934,7 +1040,7 @@ geohash = encode_geohash(lat, lng, 7)  # Queries 100+ cells for 20km radius
 4. **Database Connection Pool Exhaustion**: >90% pool usage
 5. **Shard Hotspot**: Single shard handling >30% of queries
 
-### Logging
+### 12.3 Logging
 
 **Structured Logs:**
 
@@ -957,9 +1063,15 @@ geohash = encode_geohash(lat, lng, 7)  # Queries 100+ cells for 20km radius
 }
 ```
 
+**Use Cases:**
+
+- Debug slow queries
+- Analyze search patterns
+- Detect anomalies
+
 ---
 
-## Trade-offs Summary
+## 13. Trade-offs Summary
 
 | What You Gain                                      | What You Sacrifice                                       |
 |----------------------------------------------------|----------------------------------------------------------|
@@ -972,7 +1084,7 @@ geohash = encode_geohash(lat, lng, 7)  # Queries 100+ cells for 20km radius
 
 ---
 
-## Real-World Examples
+## 14. Real-World Examples
 
 ### Google Maps
 
@@ -1034,27 +1146,41 @@ geohash = encode_geohash(lat, lng, 7)  # Queries 100+ cells for 20km radius
 
 ---
 
-## References
+## 15. References
 
-- **[Official Docs]:**
-    - [Elasticsearch Geo Queries](https://www.elastic.co/guide/en/elasticsearch/reference/current/geo-queries.html)
-    - [Geohash Algorithm](https://en.wikipedia.org/wiki/Geohash)
-    - [PostgreSQL PostGIS](https://postgis.net/)
+### Related System Design Components
 
-- **Related Chapters:**
-    - [Uber Ride Matching (3.3.2)](../3.3.2-uber-ride-matching/3.3.2-design-uber-ride-matching.md) - Geohash indexing
-      for driver matching
-    - [Elasticsearch Deep Dive (2.1.13)](../../02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md) - Search
-      engine architecture
-    - [Caching Deep Dive (2.2.1)](../../02-components/2.2-caching/2.2.1-caching-deep-dive.md) - Caching strategies
-    - [MongoDB Deep Dive (2.1.10)](../../02-components/2.1-databases/2.1.10-mongodb-deep-dive.md) - Document store for
-      reviews
+- **[2.1.13 Elasticsearch Deep Dive](../../02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)** - Search engine architecture, geo queries
+- **[2.1.7 PostgreSQL Deep Dive](../../02-components/2.1-databases/2.1.7-postgresql-deep-dive.md)** - PostGIS for geo-spatial queries
+- **[2.1.10 MongoDB Deep Dive](../../02-components/2.1-databases/2.1.10-mongodb-deep-dive.md)** - Document store for reviews
+- **[2.1.11 Redis Deep Dive](../../02-components/2.1-databases/2.1.11-redis-deep-dive.md)** - Redis Geo commands for proximity search
+- **[2.2.1 Caching Deep Dive](../../02-components/2.2-caching/2.2.1-caching-deep-dive.md)** - Caching strategies for popular queries
+- **[2.1.4 Database Scaling](../../02-components/2.1.4-database-scaling.md)** - Database sharding strategies
+
+### Related Design Challenges
+
+- **[3.3.2 Uber Ride Matching](../3.3.2-uber-ride-matching/)** - Geohash indexing for driver matching, proximity search
+- **[3.4.2 News Feed](../3.4.2-news-feed/)** - Search and ranking patterns
+- **[3.5.4 Instagram/Pinterest Feed](../3.5.4-instagram-pinterest-feed/)** - Visual search patterns
+
+### External Resources
+
+- **Elasticsearch Geo Queries:** [Elasticsearch Docs](https://www.elastic.co/guide/en/elasticsearch/reference/current/geo-queries.html) - Geo-spatial query documentation
+- **Geohash Algorithm:** [Wikipedia](https://en.wikipedia.org/wiki/Geohash) - Geohash algorithm explanation
+- **PostgreSQL PostGIS:** [PostGIS](https://postgis.net/) - PostGIS extension for PostgreSQL
+- **H3 Indexing:** [Uber H3](https://eng.uber.com/h3/) - Hexagonal hierarchical spatial index
+- **Google Maps Platform:** [Google Maps API](https://developers.google.com/maps) - Maps and Places API
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Geo-spatial indexing, search patterns
+- *High Performance Browser Networking* by Ilya Grigorik - CDN strategies for map tiles
 
 ---
 
-## Deployment and Infrastructure
+## 16. Deployment and Infrastructure
 
-### Infrastructure as Code
+### 16.1 Infrastructure as Code
 
 **Terraform Configuration:**
 
@@ -1079,7 +1205,7 @@ resource "aws_rds_instance" "poi_db" {
 }
 ```
 
-### Container Orchestration
+### 16.2 Container Orchestration
 
 **Kubernetes Deployment:**
 
@@ -1104,7 +1230,7 @@ spec:
               memory: 4Gi
 ```
 
-### CI/CD Pipeline
+### 16.3 CI/CD Pipeline
 
 **Stages:**
 
@@ -1116,9 +1242,9 @@ spec:
 
 ---
 
-## Advanced Features
+## 17. Advanced Features
 
-### Auto-Complete Search
+### 17.1 Auto-Complete Search
 
 **Requirement**: Suggest POI names as user types.
 
@@ -1138,7 +1264,7 @@ Suggestions:
   - "Pizza Express"
 ```
 
-### Personalized Recommendations
+### 17.2 Personalized Recommendations
 
 **Requirement**: Show POIs based on user's past behavior.
 
@@ -1156,7 +1282,7 @@ User A (likes Italian food) searches "restaurants":
   - Lower ranking for fast food
 ```
 
-### Real-Time Updates
+### 17.3 Real-Time Updates
 
 **Requirement**: Show POI status changes (hours, temporary closures).
 
@@ -1166,11 +1292,21 @@ User A (likes Italian food) searches "restaurants":
 - **Elasticsearch**: Near real-time index updates (<1 second)
 - **Cache Invalidation**: Invalidate affected cache keys
 
+**Example:**
+
+```
+POI updates hours: "Closed on Sundays"
+  → Kafka event published
+  → Elasticsearch index updated
+  → Cache invalidated
+  → Users see updated hours within 1 second
+```
+
 ---
 
-## Performance Optimization
+## 18. Performance Optimization
 
-### Connection Pooling
+### 18.1 Connection Pooling
 
 **PostgreSQL:**
 
@@ -1188,7 +1324,7 @@ User A (likes Italian food) searches "restaurants":
 - **HTTP Client**: Connection pool of 50
 - **Keep-Alive**: Reuse connections
 
-### Query Optimization
+### 18.2 Query Optimization
 
 **Elasticsearch:**
 
@@ -1202,7 +1338,7 @@ User A (likes Italian food) searches "restaurants":
 - **Query Plan**: Use EXPLAIN ANALYZE to optimize slow queries
 - **Vacuum**: Regular VACUUM to prevent bloat
 
-### Compression
+### 18.3 Compression
 
 **Elasticsearch:**
 
@@ -1216,7 +1352,7 @@ User A (likes Italian food) searches "restaurants":
 
 ---
 
-## Interview Discussion Points
+## 19. Interview Discussion Points
 
 ### Question 1: How do you handle searches at Geohash cell boundaries?
 
@@ -1301,7 +1437,7 @@ Sub-shards:
 
 ---
 
-## Final Architecture Summary
+## 20. Final Architecture Summary
 
 ### Component Count
 
@@ -1336,7 +1472,7 @@ Search Request:
 
 ---
 
-## Conclusion
+## 21. Conclusion
 
 The Yelp/Google Maps geo-spatial search system leverages **Geohash indexing** and **Elasticsearch** to deliver sub-100ms
 search results for millions of POIs. Key architectural decisions include:

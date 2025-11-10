@@ -13,901 +13,1190 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
 Design a highly scalable, low-latency ad click aggregation system that can ingest billions of click events per day,
 provide real-time analytics for campaign dashboards, filter fraudulent clicks, and generate accurate billing reports.
 The system must handle massive write throughput (500k events/sec), maintain sub-second dashboard latency, ensure no data
 loss for billing, and operate cost-efficiently at petabyte scale.
 
+**Core Challenges:**
+
+- Handle 500k writes/sec with no data loss
+- Provide real-time aggregations (< 5 second lag)
+- Filter fraud before counting
+- Generate accurate billing from historical data
+- Store 15 PB of raw logs cost-effectively
+
 ---
 
-## 1. Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements
+### Functional Requirements (FRs)
 
-| Requirement                  | Description                                     | Priority  |
-|------------------------------|-------------------------------------------------|-----------|
-| **Click Ingestion**          | Ingest billions of ad click events per day      | Must Have |
-| **Real-Time Counting**       | Provide near real-time (seconds lag) counts     | Must Have |
-| **Fraud Filtering**          | Filter bot traffic and fraudulent clicks        | Must Have |
-| **Final Reporting**          | Accurate counts for billing and analysis        | Must Have |
-| **Time-Window Aggregations** | Support queries like "clicks in last 5 minutes" | Must Have |
+| Requirement                  | Description                                                          | Priority    |
+|------------------------------|----------------------------------------------------------------------|-------------|
+| **Click Ingestion**          | Ingest billions of ad click events per day with minimal latency      | Must Have   |
+| **Real-Time Counting**       | Provide near real-time (seconds lag) counts for active campaigns     | Must Have   |
+| **Fraud Filtering**          | Filter out bot traffic and fraudulent clicks before counting         | Must Have   |
+| **Final Reporting**          | Provide accurate, eventual counts for billing and long-term analysis | Must Have   |
+| **Time-Window Aggregations** | Support queries like "clicks in last 5 minutes"                      | Must Have   |
+| **Campaign Analytics**       | Breakdown by campaign, ad group, creative, geo, device               | Must Have   |
+| **Late Arrival Handling**    | Handle events that arrive late due to network delays                 | Should Have |
 
-### Non-Functional Requirements
+### Non-Functional Requirements (NFRs)
 
-| Requirement               | Target                | Rationale                      |
-|---------------------------|-----------------------|--------------------------------|
-| **High Write Throughput** | 500k events/sec peak  | Extremely write-heavy workload |
-| **Durability**            | 99.999%               | Critical for billing           |
-| **Cost Efficiency**       | < $0.01 per 1M events | Massive volume                 |
-| **Low Latency**           | < 5 seconds lag       | Real-time dashboards           |
+| Requirement                 | Target                                    | Rationale                                        |
+|-----------------------------|-------------------------------------------|--------------------------------------------------|
+| **High Write Throughput**   | 500k events/sec peak                      | Ad clicks are extremely write-heavy              |
+| **Durability**              | 99.999% (no data loss)                    | Critical for billing reconciliation              |
+| **Cost Efficiency**         | < $0.01 per 1M events                     | Massive volume requires cheap storage/processing |
+| **Low Latency (Real-Time)** | < 5 seconds lag                           | Dashboard must feel real-time                    |
+| **Query Latency**           | < 100ms (real-time), < 5 sec (historical) | Fast dashboard and reporting                     |
+| **Availability**            | 99.99% uptime                             | Downtime = lost revenue data                     |
 
 ### Scale Estimation
 
-- **Peak Writes:** 500,000 events/sec
-- **Daily Events:** 43.2 billion events/day
-- **Annual Storage:** ~15 PB of raw logs
-- **Active Campaigns:** ~100,000 concurrent campaigns
-- **Aggregation State:** 10 million counters in memory
+| Metric                   | Assumption                                       | Calculation               | Result                                      |
+|--------------------------|--------------------------------------------------|---------------------------|---------------------------------------------|
+| **Peak Clicks (Writes)** | 500,000 events/sec                               | -                         | $500 \text{k}$ $\text{QPS}$ streaming input |
+| **Total Daily Events**   | $500 \text{k}$ $\text{QPS}$ $\times 86400$ s/day | -                         | $43.2$ Billion events/day                   |
+| **Average Throughput**   | Assume 20% peak                                  | $500 \text{k} \times 0.2$ | $100 \text{k}$ $\text{QPS}$ average         |
+| **Event Size**           | Typical ad click event                           | JSON payload              | $\sim 1$ KB per event                       |
+| **Daily Ingestion**      | $43.2 \text{B} \times 1$ KB                      | -                         | $43.2$ TB/day raw                           |
+| **Storage (1 Year)**     | $43.2 \text{TB} \times 365$ days                 | -                         | $\sim 15$ PB/year (raw logs)                |
+| **Kafka Throughput**     | Compressed events ($3:1$)                        | $43.2 \text{TB} / 3$      | $14.4$ TB/day ingested                      |
+| **Active Campaigns**     | Typical ad network                               | -                         | $\sim 100,000$ active campaigns             |
+| **Aggregation State**    | 100k campaigns $\times$ 100 dimensions           | -                         | $10$ million counters in memory             |
+
+**Back-of-Envelope Calculations:**
+
+```
+Write Bandwidth:
+500k events/sec × 1 KB = 500 MB/sec = 4 Gbps
+
+Kafka Cluster Size:
+- Replication factor: 3
+- Retention: 7 days
+- Raw: 43.2 TB/day × 7 × 3 = 907 TB
+- With compression: 302 TB storage
+
+Stream Processing:
+- Flink workers: 50 instances (10k events/sec each)
+- Memory per worker: 16 GB (state + heap)
+- Total: 800 GB for stateful processing
+
+Real-Time Storage (Redis):
+- 10M counters × 100 bytes = 1 GB
+- With metadata: ~5 GB total
+```
 
 ---
 
-## 2. High-Level Architecture
+## 3. High-Level Architecture
 
-**Kappa Architecture** (stream-only processing) with **two-speed pipeline**:
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
 
-- **Fast Path:** Real-time dashboard (< 5 sec lag) via Redis
-- **Slow Path:** Accurate billing (24-hour lag) via Spark batch
+The system uses a **Kappa Architecture** (stream-only processing) with a **two-speed pipeline**: fast path for real-time
+dashboards and slow path for accurate billing.
 
-### Key Components
+### 3.1 Architecture Diagram (ASCII)
 
-1. **Ingestion Layer:** NGINX + API Gateway (stateless)
-2. **Streaming Backbone:** Kafka (100 partitions, 7-day retention)
-3. **Stream Processing:** Apache Flink (50 workers)
-4. **Real-Time Storage:** Redis Cluster (sub-millisecond queries)
-5. **Cold Storage:** S3 Data Lake (Parquet, compressed)
-6. **Batch Processing:** Apache Spark (nightly reconciliation)
-7. **Billing Database:** PostgreSQL (ACID-compliant)
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                         CLIENT LAYER                                 │
+│  Ad Networks, Publishers, Advertisers (500k clicks/sec)             │
+└─────────────────────┬────────────────────────────────────────────────┘
+                      │
+                      │ HTTP POST
+                      ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                      INGESTION LAYER                                 │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │
+│  │   NGINX     │───▶│   API GW    │───▶│  Validation │             │
+│  │ (L4 Proxy)  │    │  (Stateless)│    │   Service   │             │
+│  └─────────────┘    └─────────────┘    └──────┬──────┘             │
+└────────────────────────────────────────────────┼──────────────────────┘
+                                                  │
+                                                  │ Kafka Producer
+                                                  ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                    STREAMING BACKBONE                                │
+│            ┌──────────────────────────────────┐                      │
+│            │      Kafka Cluster               │                      │
+│            │  Topic: raw_clicks               │                      │
+│            │  Partitions: 100                 │                      │
+│            │  Replication: 3                  │                      │
+│            │  Retention: 7 days               │                      │
+│            └────┬──────────────────┬──────────┘                      │
+└─────────────────┼──────────────────┼──────────────────────────────────┘
+                  │                  │
+       ┌──────────┘                  └──────────┐
+       │ FAST PATH                   SLOW PATH  │
+       ▼                                        ▼
+┌─────────────────────────┐      ┌─────────────────────────────┐
+│  REAL-TIME PROCESSING   │      │   BATCH PROCESSING          │
+│                         │      │                             │
+│  ┌────────────────┐     │      │  ┌────────────────┐         │
+│  │ Flink Cluster  │     │      │  │ Spark Batch    │         │
+│  │ (50 workers)   │     │      │  │ (Nightly runs) │         │
+│  │                │     │      │  │                │         │
+│  │ - Fraud Filter │     │      │  │ - Full scan    │         │
+│  │ - Aggregation  │     │      │  │ - Deduplication│         │
+│  │ - Windowing    │     │      │  │ - Joins        │         │
+│  └───────┬────────┘     │      │  └────────┬───────┘         │
+│          │              │      │           │                 │
+│          ▼              │      │           ▼                 │
+│  ┌────────────────┐     │      │  ┌────────────────┐         │
+│  │ Redis Cluster  │     │      │  │  PostgreSQL    │         │
+│  │ (Real-time     │     │      │  │  (Billing DB)  │         │
+│  │  counters)     │     │      │  │                │         │
+│  └────────────────┘     │      │  └────────────────┘         │
+└─────────────────────────┘      └─────────────────────────────┘
+         │                                    │
+         │                                    │
+         ▼                                    ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                        STORAGE LAYER                                 │
+│                                                                      │
+│  ┌───────────────────────────────────────────────────────────┐     │
+│  │   S3 / Data Lake (Cold Storage)                           │     │
+│  │   - Raw events (Parquet, compressed)                      │     │
+│  │   - Retention: 3 years                                    │     │
+│  │   - 15 PB total                                           │     │
+│  └───────────────────────────────────────────────────────────┘     │
+└──────────────────────────────────────────────────────────────────────┘
+         │
+         │ Query
+         ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                       QUERY LAYER                                    │
+│  ┌─────────────────┐    ┌─────────────────┐                         │
+│  │  Presto/Athena  │    │   Dashboard API │                         │
+│  │  (Ad-hoc query) │    │   (Real-time)   │                         │
+│  └─────────────────┘    └─────────────────┘                         │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.2 Data Flow
+
+**Write Path (Real-Time):**
+
+1. Client → NGINX → API Gateway → Validation Service
+2. Validation → Kafka Producer → raw_clicks topic
+3. Flink consumes → Fraud filter → Aggregate → Redis
+4. Dashboard queries Redis for real-time counts
+
+**Write Path (Batch):**
+
+1. Kafka → S3 sink (hourly dumps)
+2. Spark batch job (nightly) reads S3
+3. Full deduplication + fraud removal + joins
+4. Write to PostgreSQL (billing DB)
 
 ---
 
-## 3. Detailed Component Design
+## 4. Detailed Component Design
 
-### Ingestion Layer
+### 4.1 Ingestion Layer
 
-**API Gateway:**
+**NGINX (L4 Load Balancer):**
+
+- Handles 500k connections/sec
+- Round-robin to API Gateway instances
+- Connection pooling: 100k concurrent connections
+- TCP keep-alive: 60 seconds
+
+**API Gateway (Stateless):**
 
 - Lightweight HTTP server (Go/Rust)
-- Returns 202 Accepted immediately (async)
+- Validates event schema (JSON)
 - Rate limiting: 1000 events/sec per IP
-- Schema validation and enrichment
+- Adds server timestamp
+- Returns 202 Accepted immediately (async)
+
+**Validation Service:**
+
+- Schema validation (required fields present)
+- Range checks (timestamp within 5 minutes)
+- Duplicate detection (bloom filter for last 1 hour)
+- Enrichment: Add IP geolocation, user-agent parsing
 
 **Event Schema:**
 
 ```json
 {
   "event_id": "uuid",
-  "timestamp": "ISO 8601",
+  "timestamp": "2025-10-31T12:34:56.789Z",
   "campaign_id": "campaign_123",
   "ad_id": "ad_456",
+  "publisher_id": "pub_789",
   "user_id": "user_hash",
   "ip_address": "1.2.3.4",
+  "user_agent": "Mozilla/5.0...",
+  "referer": "https://example.com",
   "device_type": "mobile",
+  "os": "iOS",
   "country": "US",
+  "city": "San Francisco",
   "cost_per_click": 0.50
 }
 ```
 
-### Streaming Backbone (Kafka)
+### 4.2 Streaming Backbone (Kafka)
 
 **Configuration:**
 
 - Topic: `raw_clicks`
-- Partitions: 100 (by campaign_id hash)
-- Replication: 3
-- Retention: 7 days
+- Partitions: 100 (partitioned by `campaign_id` hash)
+- Replication factor: 3
+- Retention: 7 days (168 hours)
 - Compression: LZ4 (3:1 ratio)
+- Acks: all (ensure durability)
+- Min in-sync replicas: 2
+
+**Producer Settings:**
+
+- Batch size: 16 KB
+- Linger time: 10 ms (trade latency for throughput)
+- Compression: LZ4
+- Retries: 3
+- Idempotence: enabled
 
 **Why Partition by Campaign ID:**
 
+- All events for one campaign go to same partition
+- Enables sequential processing per campaign
+- Simplifies state management in Flink
 - Maintains event ordering per campaign
-- Simplifies state management
-- Enables efficient aggregation
 
-### Stream Processing (Flink)
+*See this-over-that.md for Kafka vs Kinesis vs Pulsar comparison*
+
+### 4.3 Stream Processing (Flink)
+
+**Flink Cluster:**
+
+- 50 task managers (workers)
+- 4 vCPU, 16 GB RAM each
+- RocksDB state backend
+- Checkpointing: every 60 seconds
+- Parallelism: 100 (matches Kafka partitions)
 
 **Processing Pipeline:**
 
-1. Fraud Detection Filter
-2. Windowed Aggregation (5-min tumbling windows)
-3. Redis Sink (real-time counters)
-4. S3 Sink (archival)
+```
+Kafka Source
+  ↓
+Fraud Detection Filter
+  ↓
+Windowed Aggregation (5-minute tumbling windows)
+  ↓
+Redis Sink (real-time counters)
+  ↓
+S3 Sink (archival)
+```
 
 **Fraud Detection:**
 
-- Bloom filter for known bad actors
-- Click pattern analysis (> 100 clicks/min = suspicious)
-- ML model scoring (risk 0-1)
+1. **Bloom Filter Check:** Known bot IPs/user-agents
+2. **Click Pattern Analysis:** Same IP > 100 clicks/min = suspicious
+3. **Honeypot Detection:** Clicks on hidden ads
+4. **Machine Learning Model:** Real-time scoring (risk 0-1)
+
+*See pseudocode.md::fraud_detection_filter() for implementation*
+
+**Aggregation Logic:**
+
+- Tumbling windows: 5 minutes, 1 hour, 1 day
+- Sliding windows: Last 5 minutes (updated every 10 seconds)
+- Group by: campaign_id, ad_id, country, device_type
+- Metrics: click_count, unique_users, total_cost
 
 **State Management:**
 
-- RocksDB for large state (10M counters)
-- Checkpointing every 60 seconds
-- State TTL: 7 days
+- Use RocksDB for large state (10M counters)
+- Incremental checkpoints to S3
+- State TTL: 7 days (cleanup old campaigns)
 
-### Real-Time Storage (Redis)
+*See pseudocode.md::windowed_aggregation() for implementation*
+
+### 4.4 Real-Time Storage (Redis)
+
+**Redis Cluster:**
+
+- 6 nodes (3 masters + 3 replicas)
+- Sharding: by campaign_id hash
+- Memory: 64 GB per node = 384 GB total
+- Eviction: allkeys-lru (least recently used)
+- Persistence: RDB snapshots every 5 minutes
 
 **Data Structures:**
 
 ```
-Key: counter:{campaign_id}:{window}:{dimension}
-Value: {"clicks": 15234, "unique_users": 8901, "cost": 7617.00}
-TTL: 24 hours
+Key Pattern: counter:{campaign_id}:{time_window}:{dimension}
+Example: counter:campaign_123:5min:US:mobile
+
+Value: Redis Hash
+{
+  "clicks": 15234,
+  "unique_users": 8901,
+  "cost": 7617.00,
+  "last_updated": 1730383200
+}
+
+TTL: 24 hours (old windows expire)
 ```
 
-**Performance:**
+**Query Pattern:**
 
-- 100k writes/sec per node
-- < 1ms per write
+```
+GET counter:campaign_123:5min:US:mobile
+→ Returns: {"clicks": 15234, "unique_users": 8901, ...}
+
+MGET counter:campaign_123:1hour:* (scan pattern)
+→ Returns: All hourly breakdowns for campaign_123
+```
+
+**Write Performance:**
+
 - Pipeline writes: 100 commands per batch
+- Throughput: 100k writes/sec per node
+- Latency: < 1ms per write
 
-### Cold Storage (S3)
+### 4.5 Cold Storage (S3 Data Lake)
 
-**Structure:**
+**S3 Structure:**
 
 ```
-s3://ad-clicks/raw/year=2025/month=10/day=31/hour=12/
+s3://ad-clicks-data-lake/
+├── raw/
+│   ├── year=2025/
+│   │   ├── month=10/
+│   │   │   ├── day=31/
+│   │   │   │   ├── hour=12/
+│   │   │   │   │   └── clicks-12-00.parquet.snappy
 ```
 
-**Format:**
+**File Format:**
 
-- Parquet columnar (10x compression)
+- Parquet columnar format (10x compression vs JSON)
+- Snappy compression (fast read/write)
 - File size: 128 MB (optimal for Spark)
-- Lifecycle: Standard → IA → Glacier
+- Schema evolution supported
 
-### Batch Processing (Spark)
+**Partitioning:**
 
-**Nightly Pipeline:**
+- Partition by: year, month, day, hour
+- Enables efficient time-based queries
+- S3 Select for column pruning
 
-1. Read S3 Parquet files
-2. Deduplication (by event_id)
-3. Fraud removal (ML model)
-4. Join with campaign metadata
-5. Aggregate by campaign/day
-6. Write to PostgreSQL
+**Lifecycle Policy:**
+
+- Hot (last 30 days): S3 Standard
+- Warm (30-180 days): S3 Infrequent Access
+- Cold (180+ days): S3 Glacier
+- Delete after 3 years
+
+**Cost:**
+
+- S3 Standard: $0.023/GB/month
+- 15 PB × $0.023 = $345k/month (without lifecycle)
+- With lifecycle: ~$100k/month
+
+### 4.6 Batch Processing (Spark)
+
+**Spark Cluster:**
+
+- 100 executors
+- 8 vCPU, 32 GB RAM each
+- Runs nightly (off-peak hours)
+- EMR Spot Instances (80% cost savings)
+
+**Batch Pipeline:**
+
+```
+S3 (Parquet files)
+  ↓
+Spark Read (distributed)
+  ↓
+Deduplication (by event_id)
+  ↓
+Fraud Removal (ML model inference)
+  ↓
+Join with Advertiser Data (campaign metadata)
+  ↓
+Aggregate by Campaign/Day
+  ↓
+Write to PostgreSQL (billing DB)
+```
+
+**Deduplication:**
+
+- Group by event_id
+- Keep first occurrence (by timestamp)
+- Handle late arrivals (events up to 7 days late)
+
+**Accuracy Priority:**
+
+- Batch = source of truth for billing
+- Real-time = approximate, fast
+- Reconciliation: Compare batch vs real-time, flag discrepancies > 5%
+
+*See pseudocode.md::batch_deduplication() for implementation*
+
+### 4.7 Billing Database (PostgreSQL)
+
+**Schema:**
+
+```sql
+CREATE TABLE campaign_daily_stats (
+    campaign_id BIGINT,
+    date DATE,
+    clicks BIGINT,
+    unique_users BIGINT,
+    total_cost DECIMAL(12,2),
+    fraudulent_clicks BIGINT,
+    country VARCHAR(2),
+    device_type VARCHAR(20),
+    PRIMARY KEY (campaign_id, date, country, device_type)
+);
+
+CREATE INDEX idx_campaign_date ON campaign_daily_stats(campaign_id, date);
+```
+
+**Partitioning:**
+
+- Range partition by date (monthly partitions)
+- Keeps query fast for recent data
+- Archive old partitions to cold storage
+
+**Replication:**
+
+- 1 primary + 2 replicas
+- Async replication (billing queries can be slightly stale)
+- Read replicas for reporting queries
 
 ---
 
-## 4. Fraud Detection and Prevention
+## 5. Fraud Detection and Prevention
 
-### Real-Time Detection
+### 5.1 Real-Time Fraud Detection (Stream Processing)
 
-**Bloom Filter:**
+**Bloom Filter (Known Bad Actors):**
 
-- 100 million entries
-- 0.1% false positive rate
+- Size: 100 million entries
+- False positive rate: 0.1%
 - Memory: ~150 MB
+- Updated hourly from fraud DB
 
-**Click Patterns:**
+**Click Pattern Analysis:**
 
-- High frequency: > 100 clicks/min
-- Sequential clicks: > 10 clicks/sec
-- Impossible geo: IP mismatch
+| Pattern                | Threshold                       | Action             |
+|------------------------|---------------------------------|--------------------|
+| **High Frequency**     | > 100 clicks/min from same IP   | Flag as bot        |
+| **Sequential Clicks**  | > 10 clicks in < 1 second       | Flag as automated  |
+| **Impossible Geo**     | IP location != claimed location | Flag as suspicious |
+| **User-Agent Anomaly** | Known bot user-agent            | Drop immediately   |
 
-**ML Model:**
+**Machine Learning Model:**
 
-- Random Forest classifier
-- Inference: < 5ms
-- Risk score: 0.0-1.0
+- Random Forest classifier (trained offline)
+- Features: IP, user-agent, click_rate, time_of_day, referer
+- Inference latency: < 5ms
+- Model updated weekly
 
----
+**Risk Score:**
 
-## 5. Availability and Fault Tolerance
+- 0.0-0.3: Clean (count normally)
+- 0.3-0.7: Suspicious (count but flag for review)
+- 0.7-1.0: Fraud (drop immediately)
 
-| Component | Impact if Failed | Mitigation                        |
-|-----------|------------------|-----------------------------------|
-| **Kafka** | No ingestion     | 3-broker replication, cross-AZ    |
-| **Flink** | Real-time lag    | Checkpointing, auto-restart       |
-| **Redis** | Dashboard down   | Master-replica, Sentinel failover |
+*See pseudocode.md::ml_fraud_scoring() for implementation*
 
-**Disaster Recovery:**
+### 5.2 Batch Fraud Detection (Offline)
 
-- Kafka: Mirror Maker 2 for cross-region replication
-- Flink: Checkpoints to S3 every 60 seconds
-- Redis: RDB snapshots + AOF every second
+**Advanced Analysis:**
 
----
+- Click farms: Clusters of IPs with similar patterns
+- Click injection: Clicks without corresponding impressions
+- Attribution fraud: Clicks from unrelated referrers
+- Time-based analysis: Unusual traffic spikes
 
-## 6. Bottlenecks and Optimizations
+**Post-Processing:**
 
-**Ingestion Bottleneck:**
-
-- Problem: 500k connections/sec
-- Solution: L4 load balancer, HTTP/2 multiplexing
-
-**Kafka Throughput:**
-
-- Problem: Broker saturation
-- Solution: Add brokers, increase partitions, NVMe SSDs
-
-**Flink State Size:**
-
-- Problem: 1 GB state per worker
-- Solution: RocksDB disk-backed state, incremental checkpoints
+- Retrospective fraud removal
+- Chargeback fraudulent clicks
+- Update advertiser invoices
+- Refine ML model with new fraud patterns
 
 ---
 
-## 7. Common Anti-Patterns
+## 6. Availability and Fault Tolerance
 
-### ❌ Synchronous API Response
+### 6.1 Single Points of Failure
 
-**Bad:** Wait for Kafka confirmation (50ms latency)
-**Good:** Return 202 Accepted immediately, async flush
+| Component         | Impact if Failed        | Mitigation                                      |
+|-------------------|-------------------------|-------------------------------------------------|
+| **Kafka Cluster** | No event ingestion      | 3-broker replication, cross-AZ deployment       |
+| **Flink Cluster** | Real-time lag increases | Checkpointing, auto-restart, horizontal scaling |
+| **Redis Cluster** | Dashboard unavailable   | Master-replica, Redis Sentinel failover         |
+| **API Gateway**   | No event acceptance     | Stateless, auto-scaling, load balanced          |
 
-### ❌ Real-Time Billing
-
-**Bad:** Use real-time counts for invoices
-**Good:** Use batch processing for billing accuracy
-
-### ❌ No Fraud Filtering
-
-**Bad:** Count all clicks blindly
-**Good:** Multi-stage fraud detection
-
----
-
-## 8. Alternative Approaches
-
-**Lambda Architecture:**
-
-- Separate batch and stream layers
-- Pros: Easy reprocessing
-- Cons: Code duplication
-- Decision: Kappa chosen for unified codebase
-
-**Kinesis vs Kafka:**
-
-- Kinesis: Managed, auto-scaling
-- Kafka: Lower cost, higher throughput
-- Decision: Kafka chosen for cost and scale
-
----
-
-## 9. Monitoring and Observability
-
-| Metric                 | Target     | Alert Threshold |
-|------------------------|------------|-----------------|
-| **Ingestion Rate**     | 500k/sec   | < 400k/sec      |
-| **Kafka Lag**          | < 1 minute | > 5 minutes     |
-| **Flink Backpressure** | 0%         | > 50%           |
-| **Fraud Rate**         | 10-20%     | > 30% or < 5%   |
-
----
-
-## 10. Trade-offs Summary
-
-| Decision               | What We Gain       | What We Sacrifice           |
-|------------------------|--------------------|-----------------------------|
-| **Kappa Architecture** | ✅ Unified codebase | ❌ Harder batch reprocessing |
-| **Redis Real-Time**    | ✅ Sub-ms latency   | ❌ Eventual consistency      |
-| **Batch for Billing**  | ✅ 100% accuracy    | ❌ 24-hour lag               |
-| **Bloom Filter**       | ✅ Fast lookup      | ❌ 0.1% false positives      |
-
----
-
-## 11. Real-World Examples
-
-**Google Ads:**
-
-- 100+ billion clicks/day
-- Dremel for queries, Bigtable for counters
-
-**Facebook Ads:**
-
-- Scribe for ingestion, Puma for aggregation
-- Custom ML for fraud detection
-
----
-
-## 12. References
-
-- **[2.3.2 Apache Kafka](../../02-components/2.3-messaging-streaming/2.3.2-apache-kafka-deep-dive.md)**
-- **[2.3.8 Apache Flink](../../02-components/2.3-messaging-streaming/2.3.8-apache-flink-deep-dive.md)**
-- **[2.2.1 Redis](../../02-components/2.2-caching/2.2.1-redis-deep-dive.md)**
-- **[2.3.7 Apache Spark](../../02-components/2.3-messaging-streaming/2.3.7-apache-spark-deep-dive.md)**
-- **[2.5.4 Bloom Filters](../../02-components/2.5-algorithms/2.5.4-bloom-filters.md)**
-
----
-
-## 13. Deployment and Infrastructure
-
-### Kubernetes Architecture
-
-**Cluster Configuration:**
-
-- 3 Kubernetes clusters (US-East, EU-West, AP-Southeast)
-- Each cluster: 100-200 nodes (c5.4xlarge instances)
-- Auto-scaling: HPA for API Gateway, Flink, Spark
-
-**Namespaces:**
-
-- `ingestion`: API Gateway, NGINX
-- `streaming`: Kafka, Flink workers
-- `storage`: Redis, PostgreSQL
-- `batch`: Spark executors
-- `monitoring`: Prometheus, Grafana
-
-### Infrastructure as Code
-
-**Terraform Modules:**
-
-```
-terraform/
-├── vpc/              # Network configuration
-├── eks/              # Kubernetes clusters
-├── msk/              # Managed Kafka
-├── rds/              # PostgreSQL RDS
-├── elasticache/      # Redis clusters
-└── s3/               # Data lake buckets
-```
-
-**Key Resources:**
-
-- VPC with 3 AZs per region
-- Private subnets for data processing
-- Public subnets for API Gateway
-- NAT gateways for outbound traffic
-
-### Multi-Region Strategy
-
-**Regional Deployment:**
-
-| Region       | Role      | Components                 | Latency |
-|--------------|-----------|----------------------------|---------|
-| US-East-1    | Primary   | Full stack + batch         | < 20ms  |
-| EU-West-1    | Secondary | Ingestion + real-time only | < 50ms  |
-| AP-Southeast | Secondary | Ingestion + real-time only | < 50ms  |
-
-**Failover Process:**
-
-1. Health check detects primary region failure
-2. Route 53 switches DNS to secondary region
-3. Kafka MirrorMaker continues replication
-4. Batch processing paused until primary recovered
-
-### CI/CD Pipeline
-
-**Build Pipeline:**
-
-```
-Code Push → GitHub Actions → Docker Build → ECR Push → ArgoCD Deploy
-```
-
-**Deployment Strategy:**
-
-- Canary releases (10% → 50% → 100%)
-- Blue-green deployment for critical services
-- Automated rollback on error rate > 1%
-
----
-
-## 14. Advanced Features
-
-### Anomaly Detection
-
-**Real-Time Anomaly Detection:**
-
-- Detects sudden spikes in click volume
-- Z-score analysis (> 3 standard deviations)
-- Auto-alerts on campaign anomalies
-- ML-based seasonality adjustment
-
-**Implementation:**
-
-- Flink CEP (Complex Event Processing)
-- Rolling window statistics (last 24 hours)
-- Per-campaign baselines
-- Alert thresholds: 5x normal volume
-
-### Cost Attribution
-
-**Multi-Touch Attribution:**
-
-- First-click attribution
-- Last-click attribution
-- Linear attribution
-- Time-decay attribution
-- Data-driven attribution (ML)
-
-**Implementation:**
-
-- User journey tracking (cookie-based)
-- Attribution window: 30 days
-- Stored in separate Cassandra cluster
-- Batch processing for attribution modeling
-
-### Click Fraud Prediction
-
-**Advanced ML Models:**
-
-- XGBoost for click fraud prediction
-- Feature engineering (200+ features)
-- Model retraining: Weekly
-- A/B testing for model improvements
-
-**Features:**
-
-- Click velocity patterns
-- IP reputation scores
-- Device fingerprinting
-- Behavioral biometrics
-- Historical fraud rate per advertiser
-
-### Real-Time Bidding Integration
-
-**RTB Integration:**
-
-- Expose real-time click data to DSPs
-- Sub-100ms API response for bid decisions
-- Rate limiting per DSP (10k QPS)
-- Caching of popular campaign data
-
----
-
-## 15. Performance Optimization
-
-### Kafka Optimization
-
-**Producer Tuning:**
-
-```
-linger.ms=10                    # Batch writes
-batch.size=16384                # 16 KB batches
-compression.type=lz4            # Fast compression
-acks=1                          # Async replication
-buffer.memory=134217728         # 128 MB buffer
-max.in.flight.requests=5        # Pipeline requests
-```
-
-**Broker Tuning:**
-
-```
-num.network.threads=8           # Network I/O threads
-num.io.threads=16               # Disk I/O threads
-socket.send.buffer.bytes=102400 # 100 KB send buffer
-socket.receive.buffer.bytes=102400
-log.segment.bytes=134217728     # 128 MB segments
-```
-
-**Consumer Tuning:**
-
-```
-fetch.min.bytes=1024            # Minimum fetch size
-fetch.max.wait.ms=100           # Max wait time
-max.poll.records=1000           # Batch size
-```
-
-### Flink Optimization
-
-**Memory Configuration:**
-
-```
-taskmanager.memory.process.size=16g
-taskmanager.memory.flink.size=12g
-taskmanager.memory.managed.size=8g
-taskmanager.memory.network.min=1g
-```
-
-**Checkpointing Tuning:**
-
-```
-execution.checkpointing.interval=60s
-execution.checkpointing.mode=EXACTLY_ONCE
-state.backend=rocksdb
-state.backend.incremental=true
-state.backend.async=true
-```
-
-**Parallelism:**
-
-```
-parallelism.default=100
-taskmanager.numberOfTaskSlots=4
-```
-
-### Redis Optimization
-
-**Memory Configuration:**
-
-```
-maxmemory 64gb
-maxmemory-policy allkeys-lru
-maxmemory-samples 5
-```
-
-**Persistence:**
-
-```
-save ""                         # Disable RDB (fast writes)
-appendonly yes                  # Enable AOF
-appendfsync everysec           # AOF sync frequency
-```
-
-**Networking:**
-
-```
-tcp-backlog 511
-tcp-keepalive 300
-timeout 0
-```
-
-### S3 Optimization
-
-**Upload Strategy:**
-
-- Multipart uploads (10 MB parts)
-- S3 Transfer Acceleration (cross-region)
-- Parallel uploads (10 concurrent)
-
-**Lifecycle Policies:**
-
-```
-0-30 days:   S3 Standard
-31-90 days:  S3 Intelligent-Tiering
-91-365 days: S3 Glacier
-366+ days:   S3 Deep Archive
-```
-
-### Spark Optimization
-
-**Executor Configuration:**
-
-```
-spark.executor.instances=100
-spark.executor.cores=4
-spark.executor.memory=16g
-spark.executor.memoryOverhead=2g
-spark.driver.memory=8g
-```
-
-**Shuffle Optimization:**
-
-```
-spark.sql.shuffle.partitions=400
-spark.shuffle.service.enabled=true
-spark.shuffle.compress=true
-spark.io.compression.codec=lz4
-```
-
-**Caching:**
-
-```
-spark.sql.autoBroadcastJoinThreshold=10485760  # 10 MB
-spark.sql.adaptive.enabled=true
-spark.sql.adaptive.coalescePartitions.enabled=true
-```
-
----
-
-## 16. Data Quality and Validation
-
-### Input Validation
-
-**Schema Validation:**
-
-- JSON schema validation at API Gateway
-- Required fields: event_id, timestamp, campaign_id
-- Data type validation (integers, floats, strings)
-- Range validation (timestamps within ±5 minutes)
-
-**Duplicate Detection:**
-
-- Event ID uniqueness check
-- Bloom filter for recent events (last 1 hour)
-- Exact deduplication in batch processing
-
-### Data Quality Metrics
-
-**Quality Dimensions:**
-
-| Dimension        | Metric                      | Target | Alert Threshold |
-|------------------|-----------------------------|--------|-----------------|
-| **Completeness** | % events with all fields    | 99.9%  | < 99%           |
-| **Accuracy**     | % events passing validation | 99.5%  | < 98%           |
-| **Timeliness**   | % events within 5 min       | 99%    | < 95%           |
-| **Uniqueness**   | Duplicate rate              | < 0.1% | > 1%            |
-
-### Data Lineage
-
-**Tracking:**
-
-- Event ingestion timestamp
-- Processing timestamps (Flink, Spark)
-- Data transformation steps
-- Final storage location
-
-**Auditing:**
-
-- Full event history in S3
-- Replay capability from Kafka
-- Immutable append-only logs
-
----
-
-## 17. Security and Compliance
-
-### Encryption
-
-**Data at Rest:**
-
-- S3: AES-256 encryption (SSE-S3)
-- Kafka: Volume encryption (AWS EBS)
-- PostgreSQL: Transparent Data Encryption (TDE)
-- Redis: Volume encryption
-
-**Data in Transit:**
-
-- TLS 1.3 for all API endpoints
-- Kafka inter-broker TLS
-- Redis TLS connections
-- PostgreSQL SSL connections
-
-### Access Control
-
-**Authentication:**
-
-- API Gateway: JWT tokens
-- Kafka: SASL/SCRAM
-- PostgreSQL: IAM authentication
-- Redis: AUTH password
-
-**Authorization:**
-
-- Role-Based Access Control (RBAC)
-- Least privilege principle
-- Service accounts per component
-- Regular credential rotation
-
-### Privacy Compliance
-
-**GDPR Compliance:**
-
-- User consent tracking
-- Right to deletion (data purging)
-- Data retention policies (3 years)
-- Data minimization
-
-**CCPA Compliance:**
-
-- Consumer data access
-- Opt-out mechanisms
-- Data sale disclosure
-
-### Audit Logging
-
-**Events Logged:**
-
-- All API requests
-- Data access patterns
-- Configuration changes
-- Security events
-
-**Retention:**
-
-- Security logs: 7 years
-- Access logs: 1 year
-- Application logs: 90 days
-
----
-
-## 18. Capacity Planning
-
-### Growth Projections
-
-**Year-over-Year Growth:**
-
-| Metric            | Current | Year 1 | Year 2  | Year 3  |
-|-------------------|---------|--------|---------|---------|
-| **Events/day**    | 43.2 B  | 86.4 B | 172.8 B | 345.6 B |
-| **Storage**       | 15 PB   | 30 PB  | 60 PB   | 120 PB  |
-| **Kafka brokers** | 10      | 20     | 40      | 80      |
-| **Flink workers** | 50      | 100    | 200     | 400     |
-| **Cost/month**    | $100k   | $200k  | $400k   | $800k   |
-
-### Resource Allocation
-
-**Cost Breakdown:**
-
-- Storage (S3): 40% ($40k/month)
-- Compute (EC2): 35% ($35k/month)
-- Kafka (MSK): 15% ($15k/month)
-- Database (RDS): 5% ($5k/month)
-- Networking: 5% ($5k/month)
-
-**Scaling Triggers:**
-
-- Kafka lag > 5 minutes → Add brokers
-- Flink backpressure > 50% → Add workers
-- Redis memory > 80% → Add nodes
-- API latency > 100ms → Add gateways
-
----
-
-## 19. Interview Discussion Points
-
-### Common Interview Questions
-
-**Q1: Why Kappa over Lambda architecture?**
-
-**Answer:**
-
-- Unified codebase reduces complexity
-- Same transformation logic for real-time and batch
-- Modern tools (Flink) handle both well
-- Easier to maintain consistency
-- Trade-off: Limited reprocessing window (Kafka retention)
-
-**Q2: How do you handle exactly-once semantics?**
-
-**Answer:**
-
-- Flink checkpointing with Kafka offsets
-- Idempotent Kafka producers
-- Two-phase commit for state + offsets
-- Trade-off: 60-second recovery time
-- Critical for billing accuracy
-
-**Q3: How do you prevent hot partitions?**
-
-**Answer:**
-
-- Partition by campaign_id hash (uniform distribution)
-- Monitor partition sizes
-- Manual repartitioning for viral campaigns
-- Consider consistent hashing for better balance
-
-**Q4: What happens if Redis fails?**
-
-**Answer:**
-
-- Dashboard shows stale data or errors
-- Real-time analytics unavailable
-- Billing unaffected (batch path)
-- Sentinel auto-failover (< 30 sec)
-- Fallback to PostgreSQL (slower queries)
-
-**Q5: How do you handle late arrivals?**
-
-**Answer:**
-
-- Flink watermarks (5-minute grace period)
-- Batch reprocessing catches all late events
-- Two-speed pipeline design
-- Real-time: 98% accuracy
-- Batch: 100% accuracy (source of truth)
-
-### Scalability Discussions
-
-**Scaling to 10M events/sec:**
-
-1. **Kafka:** 100 → 200 brokers, 200 → 400 partitions
-2. **Flink:** 50 → 500 workers, distributed state store (Cassandra)
-3. **Redis:** 6 → 60 nodes, Redis Cluster sharding
-4. **S3:** No changes (scales infinitely)
-5. **Cost:** $100k → $1M/month
-
-**Bottlenecks at Scale:**
-
-- Flink state size (10M → 100M counters)
-- Redis memory (384 GB → 3.8 TB)
-- Kafka replication lag (cross-region)
-- Spark job duration (2 hours → 20 hours)
-
-### Design Trade-Offs
-
-**What Would You Change?**
-
-**At 10x scale (5M events/sec):**
-
-- Switch to ClickHouse for real-time analytics (columnar, SQL)
-- Use Cassandra for distributed counters (better write scaling)
-- Implement custom partitioning (consistent hashing)
-- Pre-aggregate in Flink (reduce Redis writes)
-
-**At 100x scale (50M events/sec):**
-
-- Abandon Redis (too expensive)
-- ClickHouse + Materialized Views
-- Custom C++ stream processor (Flink overhead)
-- Multi-tier storage (hot/warm/cold)
-
-**If cost was no object:**
-
-- AWS Kinesis Data Analytics (fully managed)
-- Amazon Timestream (time-series database)
-- Real-time ML inference (GPU instances)
-- Global active-active multi-master
-
----
-
-## 20. Lessons Learned
-
-### What Works Well
-
-**Stream Processing:**
-
-- Flink's exactly-once semantics are reliable
-- RocksDB state backend scales well
-- Checkpointing to S3 is fast and durable
-
-**Two-Speed Pipeline:**
-
-- Best of both worlds (latency + accuracy)
-- Allows real-time UX without compromising billing
-- Reconciliation catches discrepancies early
+### 6.2 Disaster Recovery
 
 **Kafka:**
 
-- Extremely reliable at scale
-- Low-latency replication
-- Easy to operate (MSK)
+- Mirror Maker 2: Replicate to backup region
+- Retention: 7 days (time to recover)
+- Backup to S3: Every 6 hours
 
-### Common Pitfalls
+**Flink:**
 
-**State Size Explosion:**
+- Checkpoints to S3: Every 60 seconds
+- Recovery time: < 5 minutes
+- Exactly-once semantics (no duplicate counting)
 
-- Problem: Flink state grew to 10 GB per worker
-- Solution: Aggressive TTL, state compaction
-- Lesson: Monitor state size closely
+**Redis:**
 
-**Redis Evictions:**
+- RDB snapshots: Every 5 minutes
+- AOF (Append-Only File): Sync every second
+- Recovery: Rebuild from Kafka (7 days history)
 
-- Problem: LRU evictions caused missing data
-- Solution: Increased memory, shorter TTL
-- Lesson: Size Redis for peak load + 20%
+**S3:**
 
-**Kafka Rebalancing:**
+- Cross-region replication
+- Versioning enabled
+- 99.999999999% durability
 
-- Problem: Consumer rebalances caused lag spikes
-- Solution: Static membership, longer session timeout
-- Lesson: Avoid frequent worker restarts
+### 6.3 Backpressure Handling
 
-### Best Practices
+**Kafka Full:**
 
-1. **Always use exactly-once semantics** for financial data
-2. **Monitor Kafka lag religiously** (alert on > 1 min)
-3. **Test failover regularly** (chaos engineering)
-4. **Optimize for 99th percentile**, not average
-5. **Cache aggressively**, but invalidate correctly
-6. **Use incremental checkpoints** (10x faster recovery)
-7. **Partition by business key** (campaign_id, not random)
-8. **Separate real-time and batch** (different SLAs)
-9. **Design for eventual consistency** in real-time path
-10. **Keep batch as source of truth** for billing
+- Producers buffer in memory (up to 128 MB)
+- Exponential backoff retries
+- Circuit breaker: Reject writes after 10 seconds
 
-### Production Readiness Checklist
+**Flink Lag:**
 
-**Before Going Live:**
+- Monitor consumer lag metric
+- Auto-scale workers if lag > 5 minutes
+- Alert if lag > 15 minutes
 
-- [ ] Load testing completed (2x expected peak)
-- [ ] Chaos engineering tests passed
-- [ ] Disaster recovery procedures documented
-- [ ] Runbooks created for common issues
-- [ ] On-call rotation established
-- [ ] Monitoring dashboards configured
-- [ ] Alert thresholds validated
-- [ ] Security audit completed
-- [ ] Data retention policies implemented
-- [ ] Cost projections validated
+**Redis Full:**
 
-**Operational Metrics to Track:**
+- LRU eviction (least recently used)
+- Acceptable: Old campaigns evicted
+- Dashboard shows "data unavailable" for evicted keys
 
-- Ingestion rate (events/sec)
-- End-to-end latency (P50, P95, P99)
-- Kafka consumer lag
-- Flink backpressure
-- Redis memory usage
-- Fraud detection rate
-- Real-time vs batch discrepancy
-- Error rates per component
+---
+
+## 7. Bottlenecks and Optimizations
+
+### 7.1 Ingestion Bottleneck
+
+**Problem:** NGINX cannot handle 500k connections/sec.
+
+**Solution:**
+
+- Use L4 load balancer (AWS NLB) instead of L7
+- Connection pooling: Reuse TCP connections
+- HTTP/2: Multiplexing (multiple requests per connection)
+
+### 7.2 Kafka Write Throughput
+
+**Problem:** Kafka brokers saturate at 300k writes/sec.
+
+**Solution:**
+
+- Add more brokers (horizontal scaling)
+- Increase partitions: 100 → 200
+- Use faster disks (NVMe SSDs)
+- Batch producer writes (16 KB batches)
+
+### 7.3 Flink State Size
+
+**Problem:** 10M counters × 100 bytes = 1 GB state per worker.
+
+**Solution:**
+
+- Use RocksDB (disk-backed state)
+- Incremental checkpoints (only changed state)
+- State TTL: Remove inactive campaigns after 7 days
+- Compress state with Snappy
+
+### 7.4 Query Performance
+
+**Problem:** Dashboard queries slow (> 1 second).
+
+**Solution:**
+
+- Pre-aggregate in Flink (don't query raw Redis keys)
+- Use Redis pipelining (batch 100 GET commands)
+- Cache popular queries in CDN (1-minute TTL)
+- Use materialized views for common breakdowns
+
+---
+
+## 8. Common Anti-Patterns
+
+### ❌ Anti-Pattern 1: Synchronous API Response
+
+**Problem:**
+API waits for Kafka write confirmation before responding to client.
+
+**Bad:**
+
+```
+POST /click → Write to Kafka (50ms) → Return 200 OK
+Total latency: 50ms+ per request
+```
+
+**Good:**
+
+```
+POST /click → Buffer in memory → Return 202 Accepted (< 1ms)
+Async: Flush buffer to Kafka every 10ms
+```
+
+**Why:** At 500k QPS, synchronous writes cause API saturation.
+
+### ❌ Anti-Pattern 2: Real-Time Billing
+
+**Problem:**
+Using real-time counts for billing invoices.
+
+**Why It's Wrong:**
+
+- Real-time has ~2% error rate (duplicates, fraud)
+- Late arrivals not included
+- Redis evictions cause missing data
+
+**Solution:**
+Use batch processing for billing (source of truth).
+
+### ❌ Anti-Pattern 3: No Fraud Filtering
+
+**Problem:**
+Count all clicks blindly.
+
+**Impact:**
+
+- 10-30% of clicks are fraud
+- Advertisers overpay
+- Legal liability
+
+**Solution:**
+Multi-stage fraud detection (Bloom filter + ML + batch analysis).
+
+### ❌ Anti-Pattern 4: Lambda Architecture
+
+**Problem:**
+Separate batch and stream codebases.
+
+**Why It's Wrong:**
+
+- Code duplication
+- Hard to maintain consistency
+- Bugs in one path not in other
+
+**Solution:**
+Kappa architecture (unified stream processing).
+
+---
+
+## 9. Alternative Approaches
+
+### 9.1 Lambda Architecture
+
+**What:**
+Separate batch layer and stream layer, merge results.
+
+**Pros:**
+
+- Historical reprocessing easy
+- Fault tolerance via batch
+
+**Cons:**
+
+- Code duplication
+- Complex merge logic
+- Eventual consistency issues
+
+**When to Use:**
+If batch requirements differ significantly from real-time.
+
+### 9.2 Kinesis Instead of Kafka
+
+**Pros:**
+
+- Managed service (less ops)
+- Auto-scaling
+- AWS integration
+
+**Cons:**
+
+- Higher cost (10x vs Kafka)
+- Shard limit (1 MB/sec per shard)
+- Vendor lock-in
+
+**Decision:** Kafka chosen for cost and throughput.
+
+*See this-over-that.md::kafka-vs-kinesis for detailed comparison*
+
+### 9.3 ClickHouse for Real-Time Storage
+
+**Pros:**
+
+- Columnar OLAP database
+- Fast aggregations
+- SQL queries
+
+**Cons:**
+
+- Higher write latency (> 1 second)
+- Complex cluster management
+- Memory overhead
+
+**Decision:** Redis chosen for sub-millisecond latency.
+
+---
+
+## 10. Monitoring and Observability
+
+### 10.1 Key Metrics
+
+| Metric                 | Target          | Alert Threshold                        |
+|------------------------|-----------------|----------------------------------------|
+| **Ingestion Rate**     | 500k events/sec | < 400k/sec (capacity issue)            |
+| **Kafka Lag**          | < 1 minute      | > 5 minutes (consumer slow)            |
+| **Flink Backpressure** | 0%              | > 50% (needs scaling)                  |
+| **Redis Memory**       | < 80%           | > 90% (eviction risk)                  |
+| **Fraud Rate**         | 10-20%          | > 30% (attack) or < 5% (filter broken) |
+| **Batch Job Duration** | < 2 hours       | > 3 hours (data accumulation)          |
+| **Real-Time Accuracy** | 98%+ vs batch   | < 95% (reconciliation needed)          |
+
+### 10.2 Distributed Tracing
+
+**Trace Path:**
+
+```
+API Gateway → Kafka Producer → Flink Consumer → Redis
+```
+
+**Span Tags:**
+
+- campaign_id
+- event_id
+- partition_id
+- processing_time_ms
+
+**Tool:** Jaeger or OpenTelemetry
+
+### 10.3 Alerting
+
+**Critical Alerts:**
+
+- Kafka cluster down
+- Flink job failed
+- S3 sink stopped
+- Fraud rate spike
+
+**Warning Alerts:**
+
+- Kafka lag > 5 minutes
+- Redis memory > 80%
+- Batch job slow
+
+---
+
+## 11. Trade-offs Summary
+
+| Decision                           | What We Gain                  | What We Sacrifice                 |
+|------------------------------------|-------------------------------|-----------------------------------|
+| **Kappa Architecture**             | ✅ Unified codebase            | ❌ Harder batch reprocessing       |
+| **Kafka Partitioning by Campaign** | ✅ Event ordering per campaign | ❌ Uneven partition sizes          |
+| **Redis for Real-Time**            | ✅ Sub-ms query latency        | ❌ Eventual consistency, evictions |
+| **S3 for Cold Storage**            | ✅ Cheap, durable              | ❌ Slow query (seconds)            |
+| **Bloom Filter Fraud**             | ✅ Fast lookup (O(1))          | ❌ 0.1% false positives            |
+| **Async API Response**             | ✅ High throughput             | ❌ No immediate confirmation       |
+| **Batch for Billing**              | ✅ 100% accuracy               | ❌ 24-hour lag                     |
+| **Flink Checkpointing**            | ✅ Exactly-once semantics      | ❌ 60-second recovery window       |
+
+---
+
+## 12. Real-World Examples
+
+### Google Ads
+
+**Architecture:**
+
+- Dremel (Presto-like) for ad-hoc queries
+- Flume for log ingestion
+- Bigtable for real-time counters
+- MapReduce for batch billing
+
+**Scale:**
+
+- 100+ billion clicks/day
+- 10 PB/day ingestion
+
+### Facebook Ads
+
+**Architecture:**
+
+- Scribe for event ingestion
+- Puma for real-time aggregation
+- Hive for batch processing
+- Scuba for exploratory analytics
+
+**Key Innovation:**
+
+- Custom ML models for fraud detection
+- 3-tier storage (hot/warm/cold)
+
+### Amazon Advertising
+
+**Architecture:**
+
+- Kinesis for event streaming
+- EMR (Spark) for batch processing
+- DynamoDB for real-time counters
+- S3 + Athena for queries
+
+**Scale:**
+
+- 50+ billion events/day
+- Sub-second dashboard latency
+
+---
+
+## 13. References
+
+### Related System Design Components
+
+- **[2.3.2 Apache Kafka Deep Dive](../../02-components/2.3-messaging-streaming/2.3.2-apache-kafka-deep-dive.md)** -
+  Event streaming
+- **[2.3.7 Apache Spark Deep Dive](../../02-components/2.3-messaging-streaming/2.3.7-apache-spark-deep-dive.md)** -
+  Batch processing
+- **[2.3.8 Apache Flink Deep Dive](../../02-components/2.3-messaging-streaming/2.3.8-apache-flink-deep-dive.md)** -
+  Stream processing
+- **[2.2.1 Redis Deep Dive](../../02-components/2.2-caching/2.2.1-redis-deep-dive.md)** - Real-time storage
+- **[2.5.4 Bloom Filter](../../02-components/2.5-algorithms/2.5.4-bloom-filter.md)** - Fraud detection
+
+### Related Design Challenges
+
+- **[3.4.3 Monitoring System](../3.4.3-monitoring-system/)** - Metrics aggregation patterns
+- **[3.4.2 News Feed](../3.4.2-news-feed/)** - Real-time aggregation
+- **[3.3.3 Flash Sale](../3.3.3-flash-sale/)** - High write throughput
+- **[3.5.1 Payment Gateway](../3.5.1-payment-gateway/)** - Fraud detection, accuracy
+
+### External Resources
+
+- **Kappa Architecture:** [Jay Kreps' Blog](https://www.oreilly.com/radar/questioning-the-lambda-architecture/)
+- **Flink State Management:
+  ** [Apache Flink Docs](https://nightlies.apache.org/flink/flink-docs-master/docs/dev/datastream/fault-tolerance/state/)
+- **Kafka at Scale:** [LinkedIn Engineering Blog](https://engineering.linkedin.com/kafka/running-kafka-scale)
+- **Real-Time Analytics:
+  ** [Netflix Tech Blog](https://netflixtechblog.com/keystone-real-time-stream-processing-platform-a3ee651812a)
+
+### Books
+
+- *Streaming Systems* by Tyler Akidau - Windowing, watermarks, late data
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Stream vs batch
+- *Kafka: The Definitive Guide* by Neha Narkhede - Kafka architecture
+
+---
+
+## 14. Deployment and Infrastructure
+
+### 14.1 Kubernetes Deployment
+
+**API Gateway:**
+
+```yaml
+Deployment:
+  - Replicas: 20-100 (autoscaling)
+  - Resources: 2 vCPU, 4 GB RAM
+  - HPA target: CPU 70%
+  - Liveness probe: /health every 10s
+```
+
+**Flink:**
+
+- JobManager: 1 replica (4 vCPU, 8 GB RAM)
+- TaskManager: 50 replicas (4 vCPU, 16 GB RAM each)
+- Checkpoints to S3
+- Restart strategy: Exponential backoff
+
+**Redis:**
+
+- StatefulSet: 6 pods (3 masters + 3 replicas)
+- PVC: 100 GB SSD per pod
+- Redis Sentinel for failover
+
+### 14.2 AWS Infrastructure
+
+**VPC:**
+
+- 3 Availability Zones
+- Private subnets for Kafka, Flink, Redis
+- Public subnets for API Gateway
+- VPC peering to S3
+
+**Kafka (MSK):**
+
+- kafka.m5.4xlarge: 10 brokers
+- 2 TB storage per broker
+- Multi-AZ deployment
+
+**Flink (EMR):**
+
+- m5.2xlarge: 50 task nodes
+- Spot instances for cost savings
+- Auto-scaling based on backlog
+
+**Redis (ElastiCache):**
+
+- cache.r6g.2xlarge: 6 nodes
+- 54 GB memory per node
+- Multi-AZ with automatic failover
+
+**S3:**
+
+- Bucket: ad-clicks-data-lake
+- Lifecycle: Standard → IA → Glacier
+- Cross-region replication
+
+### 14.3 Multi-Region Strategy
+
+**Primary Region:** US-East-1 (80% traffic)
+**Secondary Region:** EU-West-1 (20% traffic)
+
+**Data Strategy:**
+
+- Regional ingestion (low latency)
+- Kafka MirrorMaker for replication
+- S3 cross-region replication (async)
+- Batch processing in primary region only
+
+---
+
+## 15. Advanced Features
+
+### 15.1 Real-Time Anomaly Detection
+
+**Use Case:** Detect unusual traffic patterns in real-time.
+
+**Implementation:**
+
+- Sliding window: Track clicks/min for each campaign
+- Baseline: Average of last 7 days
+- Alert if current > 3x baseline
+
+**Benefits:**
+
+- Catch DDoS attacks
+- Detect viral campaigns
+- Early fraud detection
+
+### 15.2 Cost Attribution
+
+**Use Case:** Break down costs by advertiser, campaign, creative.
+
+**Implementation:**
+
+- Store cost_per_click in event
+- Aggregate: SUM(cost_per_click) GROUP BY dimension
+- Store in separate Redis keys
+
+**Example:**
+
+```
+cost:advertiser:123:daily → $12,345.67
+cost:campaign:456:hourly → $234.56
+```
+
+### 15.3 A/B Testing Support
+
+**Use Case:** Test ad variants.
+
+**Implementation:**
+
+- Add variant_id to event
+- Aggregate clicks by variant
+- Calculate conversion rate per variant
+
+**Schema:**
+
+```
+ab_test_stats: {
+  "test_id": "test_789",
+  "variant_a_clicks": 5000,
+  "variant_b_clicks": 5200,
+  "variant_a_conversions": 250,
+  "variant_b_conversions": 280
+}
+```
+
+### 15.4 Click Heatmaps
+
+**Use Case:** Visualize where users click on ads.
+
+**Implementation:**
+
+- Add click_x, click_y coordinates to event
+- Aggregate: Group by (x, y) buckets
+- Generate heatmap image
+
+**Storage:**
+
+```
+heatmap:ad_123:coordinates → [{x: 100, y: 50, count: 45}, ...]
+```
+
+---
+
+## 16. Performance Optimization
+
+### 16.1 Kafka Tuning
+
+**Producer:**
+
+- batch.size: 32 KB
+- linger.ms: 50 ms
+- compression.type: lz4
+- acks: 1 (performance over durability for real-time)
+
+**Consumer:**
+
+- fetch.min.bytes: 1 MB
+- max.poll.records: 10000
+- session.timeout.ms: 30000
+
+### 16.2 Flink Tuning
+
+**Memory:**
+
+- taskmanager.memory.managed.fraction: 0.4
+- taskmanager.memory.network.fraction: 0.1
+
+**State:**
+
+- state.backend: rocksdb
+- state.backend.incremental: true
+- state.backend.rocksdb.block.cache-size: 256 MB
+
+**Checkpointing:**
+
+- execution.checkpointing.interval: 60s
+- execution.checkpointing.mode: EXACTLY_ONCE
+- execution.checkpointing.timeout: 10min
+
+### 16.3 Redis Optimization
+
+**Memory:**
+
+- maxmemory-policy: allkeys-lru
+- maxmemory: 50 GB (leave 20% headroom)
+
+**Persistence:**
+
+- save 300 1 (save if 1 key changed in 5 min)
+- appendonly: no (RDB only for speed)
+
+**Pipelining:**
+
+- Batch 100 commands per roundtrip
+- Use MGET for bulk reads
+
+### 16.4 S3 Performance
+
+**Writes:**
+
+- Use S3 Transfer Acceleration
+- Multipart upload for files > 100 MB
+- Parallel uploads (10 threads)
+
+**Reads:**
+
+- S3 Select for column pruning
+- Parquet predicate pushdown
+- Cache frequently accessed files in EBS
+
+---
+
+## 17. Interview Discussion Points
+
+### 17.1 Common Interview Questions
+
+**Q1: Why Kafka instead of SQS?**
+
+**Answer:**
+
+- **Throughput:** Kafka handles 500k writes/sec, SQS limited to 3000/sec per queue
+- **Retention:** Kafka retains 7 days for replay, SQS max 14 days
+- **Ordering:** Kafka guarantees partition ordering, SQS FIFO has throughput limits
+- **Cost:** Kafka $0.01/GB, SQS $0.40/million requests
+
+**Q2: How do you handle late-arriving events?**
+
+**Answer:**
+
+- **Real-time:** Use watermarks (Flink), allow 5-minute grace period
+- **Batch:** Reprocess last 7 days nightly to catch late arrivals
+- **Trade-off:** Real-time slightly inaccurate, batch is source of truth
+
+**Q3: How do you prevent data loss?**
+
+**Answer:**
+
+- **Kafka:** Replication factor 3, acks=all, min.insync.replicas=2
+- **Flink:** Checkpointing to S3 every 60 seconds, exactly-once semantics
+- **S3:** Cross-region replication, 99.999999999% durability
+
+**Q4: What if Flink crashes?**
+
+**Answer:**
+
+- **Recovery:** Restart from last checkpoint (60-second lag max)
+- **State:** RocksDB persisted to S3, restore on restart
+- **Idempotence:** Kafka consumer offsets stored in checkpoint
+
+### 17.2 Scalability Scenarios
+
+**Scenario 1: Traffic doubles to 1M events/sec**
+
+**Actions:**
+
+1. Double Kafka partitions: 100 → 200
+2. Double Flink workers: 50 → 100
+3. Add Kafka brokers: 10 → 15
+4. Increase Redis memory: 384 GB → 768 GB
+
+**Cost:** ~$50k/month additional
+
+**Scenario 2: Need to support 1 million active campaigns**
+
+**Actions:**
+
+1. Increase Flink state: Use Flink SQL for stateless processing
+2. Redis: Shard by campaign_id hash (add 6 more nodes)
+3. Batch processing: Partition PostgreSQL by campaign_id
+
+### 17.3 Trade-Off Discussions
+
+**Q: Real-time vs Accuracy?**
+
+**Answer:**
+
+- **Real-time:** 2% error acceptable for dashboards
+- **Batch:** 100% accurate for billing
+- **Decision:** Two-speed pipeline, batch as source of truth
+
+**Q: Cost vs Latency?**
+
+**Answer:**
+
+- **Low latency:** Use Flink + Redis (~$30k/month)
+- **Low cost:** Use batch only (~$5k/month)
+- **Decision:** Hybrid approach, real-time for UX, batch for billing

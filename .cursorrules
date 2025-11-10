@@ -223,21 +223,23 @@ Each design challenge in `03-challenges/` follows this exact structure:
 ```
 03-challenges/
 ├── 3.x.y-problem-name/
-│   ├── 3.x.y-design-problem-name.md    # FULL comprehensive guide (main file)
-│   ├── README.md                        # Identical or similar to main file
+│   ├── README.md                        # FULL comprehensive guide (primary document, replaces main design file)
+│   ├── quick-overview.md                # Quick revision guide with core concepts, architecture flows, key takeaways
 │   ├── hld-diagram.md                   # ONLY Mermaid architecture diagrams with explanations
 │   ├── sequence-diagrams.md             # ONLY Mermaid sequence diagrams with explanations
 │   ├── this-over-that.md                # In-depth discussion of design choices, trade-offs, and alternatives
 │   └── pseudocode.md                    # OPTIONAL: Detailed algorithm implementations (if needed)
 ```
 
+**⚠️ IMPORTANT:** The main design file (`3.x.y-design-problem-name.md`) should NOT exist in the final structure. Its content should be moved to `README.md`, and a `quick-overview.md` file should be created for quick revision purposes.
+
 ### File Content Guidelines
 
 ## ⚠️ CRITICAL FORMAT REQUIREMENTS ⚠️
 
-### EXACT FORMAT FOR ALL MAIN FILES AND README FILES
+### EXACT FORMAT FOR README FILES
 
-**ALL main challenge files (`3.x.y-design-problem-name.md`) and README files MUST follow this EXACT structure:**
+**ALL README files MUST follow this EXACT structure:**
 
 ```markdown
 # 3.x.y Challenge Title
@@ -310,11 +312,11 @@ Verify numbers are: 1, 2, 3, 4, 5... (sequential, no duplicates)
 
 ## ⚠️ CRITICAL: COMPREHENSIVE CONTENT RULE ⚠️
 
-### **BOTH Main File AND README MUST Be Comprehensive**
+### **README MUST Be Comprehensive**
 
-**Key Principle:** The README is NOT a "quick overview" or "summary" file. It is a **full, standalone comprehensive guide** similar to the main file.
+**Key Principle:** The README is the **primary comprehensive document** (replaces the old main design file). It is a **full, standalone comprehensive guide** with all content.
 
-### **Main File Requirements:**
+### **README Requirements:**
 - **Recommended Length:** 1,000+ lines for comprehensive coverage (absolute minimum: 800 lines, no upper limit)
 - **Depth:** Deep explanations of ALL components, design decisions, trade-offs, deployment, and optimization
 - **Content:** 15-22 major sections covering full system design lifecycle
@@ -327,15 +329,11 @@ Verify numbers are: 1, 2, 3, 4, 5... (sequential, no duplicates)
   - **News Feed (3.4.2):** 1,169 lines ✅
   - **URL Shortener (3.1.1):** 1,153 lines ✅
 
-### **README Requirements:**
-- **Minimum Length:** 75-120% of main file line count (typically 77-100%)
-- **Same Sections:** Include ALL major sections from main file
-- **Same Depth:** Full explanations, not summaries
-- **Same Tables:** Complete tables for estimation, trade-offs, comparisons
-- **Same Diagrams:** ASCII diagrams where appropriate
-- **Reference Examples:**
-  - URL Shortener: 886 lines (77% of 1,153) ✅
-  - Live Chat System: 955 lines (77% of 1,233) ✅
+### **quick-overview.md Requirements:**
+- **Purpose:** Quick revision guide (NOT a replacement for README)
+- **Length:** Typically 300-600 lines (concise but comprehensive)
+- **Content:** Core concepts, architecture flows, key design decisions, bottlenecks, anti-patterns, trade-offs, real-world examples, key takeaways
+- **Format:** No section numbering required, use clear headings
 
 ### **Validation Commands:**
 
@@ -343,29 +341,27 @@ Verify numbers are: 1, 2, 3, 4, 5... (sequential, no duplicates)
 ```bash
 cd /path/to/challenge-folder
 
-# 1. Check main file length
-MAIN_LINES=$(wc -l < 3.x.y-design-problem-name.md)
-echo "Main file: $MAIN_LINES lines"
-
-# 2. Check README length
+# 1. Check README length
 README_LINES=$(wc -l < README.md)
 echo "README: $README_LINES lines"
 
-# 3. Calculate ratio
-RATIO=$(echo "scale=0; $README_LINES * 100 / $MAIN_LINES" | bc)
-echo "README is $RATIO% of main file"
+# 2. Check quick-overview length
+QUICK_LINES=$(wc -l < quick-overview.md)
+echo "quick-overview: $QUICK_LINES lines"
 
-# 4. Validate ratio (should be 75-120%)
-if [ $RATIO -lt 75 ] || [ $RATIO -gt 120 ]; then
-    echo "❌ FAILED: README should be 75-120% of main file"
+# 3. Validate lengths
+if [ $README_LINES -lt 800 ]; then
+    echo "❌ FAILED: README should be ≥ 800 lines"
+elif [ $QUICK_LINES -lt 300 ]; then
+    echo "❌ FAILED: quick-overview.md should be ≥ 300 lines"
 else
-    echo "✅ PASSED: README length is within acceptable range"
+    echo "✅ PASSED: Length validation passed"
 fi
 ```
 
-### **Content Parity Checklist:**
+### **Content Checklist for README:**
 
-Both main file AND README must include:
+README must include:
 - ✅ Problem Statement (full paragraph)
 - ✅ Requirements & Scale Estimation (complete tables with calculations)
 - ✅ High-Level Architecture (ASCII diagram + component descriptions)
@@ -379,18 +375,23 @@ Both main file AND README must include:
 - ✅ Monitoring & Observability (metrics, alerts)
 - ✅ Trade-offs Summary (what we gained vs sacrificed)
 - ✅ Real-World Examples (how companies solve this)
-- ✅ References (links to other chapters)
+- ✅ References (links to other chapters with sub-sections)
 
-### **What's Different Between Main File and README:**
+### **Content Checklist for quick-overview.md:**
 
-| Aspect | Main File | README |
-|--------|-----------|--------|
-| **Section Numbering** | MUST have numbers (## 1., ## 2., ## 3.) | MAY omit numbers (## Problem Statement) |
-| **Depth of Detail** | Slightly more detailed | Slightly more concise, but still comprehensive |
-| **Length** | 100% (reference) | 75-120% of main file (typically 77-100%) |
-| **Purpose** | Primary comprehensive document | Standalone comprehensive guide (users can read either) |
-
-**IMPORTANT:** The only acceptable difference is that README may be *slightly* more concise (75% minimum), but it must still include ALL sections with FULL explanations.
+quick-overview.md must include:
+- ✅ Core Concept (high-level explanation)
+- ✅ Requirements (functional and non-functional summary)
+- ✅ Components (list of key components)
+- ✅ Architecture Flow (request/response paths)
+- ✅ Key Design Decisions (major choices with trade-offs)
+- ✅ Bottlenecks & Solutions (key bottlenecks and solutions)
+- ✅ Common Anti-Patterns (3-5 patterns with ❌ bad vs ✅ good)
+- ✅ Monitoring & Observability (key metrics and alerts)
+- ✅ Trade-offs Summary (table format)
+- ✅ Real-World Examples (how companies solve this)
+- ✅ Key Takeaways (5-10 bullet points)
+- ✅ Recommended Stack (technology stack)
 
 ---
 
@@ -438,8 +439,8 @@ To reach 1000+ lines with comprehensive coverage, include these 4 advanced secti
 
 ---
 
-#### Main Challenge File (`3.x.y-design-problem-name.md`):
-- **Complete standalone document** with all content
+#### Main Challenge File (`README.md`):
+- **Complete standalone document** with all content (replaces the old `3.x.y-design-problem-name.md` file)
 - **MUST follow EXACT format shown above** (no variations allowed)
 - **Line-by-line requirements:**
   1. **Line 1:** Title: `# [ID] [Challenge Name]`
@@ -467,30 +468,24 @@ To reach 1000+ lines with comprehensive coverage, include these 4 advanced secti
   - **Optional Sections (domain-specific):** Security & Compliance, Multi-Currency Support, Webhook Systems, Refunds/Chargebacks, etc.
   - **Gold Standard Example:** Payment Gateway (3.5.1) has 22 sections covering full system lifecycle
 
-#### README.md:
-- **⚠️ CRITICAL: README MUST BE COMPREHENSIVE LIKE MAIN FILE** - NOT a quick overview
-- **MUST follow EXACT SAME format as main file** (see format above)
+#### quick-overview.md:
+- **Purpose:** Quick revision guide for the challenge
 - **Content Requirements:**
-  - **Similar length to main file** (within 75-120% line count, typically 77-100%)
-  - **Include ALL major sections** from main file (Requirements, Architecture, Component Design, Bottlenecks, Anti-Patterns, Trade-offs, etc.)
-  - **Full explanations** for all design decisions, not just summaries
-  - **Complete tables** for scale estimation, technology choices, trade-offs
-  - **ASCII diagrams** inline where appropriate
-  - **Example:** URL Shortener README (887 lines = 77% of 1,153 main file) ✅
-- **Line-by-line requirements (SAME as main file):**
-  1. Title
-  2. Blank line
-  3. Note block (3 lines)
-  4. Blank line
-  5. `## 📊 Visual Diagrams & Resources`
-  6. Links to all 4 files
-  7. `---` separator
-  8. Blank line
-  9. `## Problem Statement` (can omit section numbers in README, but include all content)
-  10. Continue with ALL sections from main file
-- **NO detailed pseudocode implementations** - only basic definitions and implementation descriptions
-- Reference `pseudocode.md::function_name()` for all algorithm implementations
-- **Purpose:** README serves as a standalone comprehensive guide that users can read without opening main file
+  - **Core Concept:** High-level explanation of the system
+  - **Requirements:** Functional and non-functional requirements summary
+  - **Components:** List of key components with brief descriptions
+  - **Architecture Flow:** Request/response paths (write path, read path, etc.)
+  - **Key Design Decisions:** Major architectural choices with trade-offs
+  - **Bottlenecks & Solutions:** Key bottlenecks and how they're solved
+  - **Common Anti-Patterns:** 3-5 common mistakes (❌ bad vs ✅ good)
+  - **Monitoring & Observability:** Key metrics and alerts
+  - **Trade-offs Summary:** Table of what we gain vs sacrifice
+  - **Real-World Examples:** How companies solve this problem
+  - **Key Takeaways:** 5-10 bullet points summarizing the design
+  - **Recommended Stack:** Technology stack used
+- **Length:** Typically 300-600 lines (concise but comprehensive)
+- **Format:** No section numbering required, use clear headings
+- **Purpose:** Users can quickly review the challenge design without reading the full README
 
 #### hld-diagram.md:
 - **REQUIRED FORMAT:**
@@ -887,8 +882,10 @@ graph TB
 ## When Adding New Challenges
 
 1. Create folder: `03-challenges/3.x.y-problem-name/`
-2. Create main file: `3.x.y-design-problem-name.md` (comprehensive, NO detailed pseudocode, NO programming code)
-3. Create `README.md` (similar to main file, NO detailed pseudocode)
+2. Create `README.md` (comprehensive guide, NO detailed pseudocode, NO programming code)
+   - This is the PRIMARY document (replaces the old `3.x.y-design-problem-name.md` file)
+   - Must follow the exact format with note block, diagrams section, and numbered sections
+3. Create `quick-overview.md` (quick revision guide with core concepts, architecture flows, key takeaways)
 4. Create `hld-diagram.md` (Mermaid diagrams WITH flow explanations for EVERY diagram)
 5. Create `sequence-diagrams.md` (Mermaid diagrams WITH step-by-step flow explanations for EVERY diagram)
 6. Create `this-over-that.md` (in-depth design decision discussions)
@@ -900,6 +897,7 @@ graph TB
 12. NO programming language implementations - only pseudocode in pseudocode.md
 13. Verify ALL referenced functions (`pseudocode.md::function_name()`) exist in pseudocode.md
 14. Add Table of Contents to pseudocode.md for easy navigation
+15. **⚠️ DO NOT create `3.x.y-design-problem-name.md`** - use `README.md` as the primary document instead
 
 ## Mathematical Notation
 
@@ -926,14 +924,14 @@ Before considering a challenge complete, verify all 6 required files exist and m
 **Run these validation commands:**
 
 ```bash
-# Check main file section numbering (must be 1, 2, 3, 4, 5...)
-grep "^## [0-9]" 03-challenges/3.x.y-problem-name/3.x.y-design-problem-name.md
+# Check README section numbering (must be 1, 2, 3, 4, 5...)
+grep "^## [0-9]" 03-challenges/3.x.y-problem-name/README.md
 
-# Check for note block in main file
-head -10 03-challenges/3.x.y-problem-name/3.x.y-design-problem-name.md | grep "Note on Implementation"
+# Check for note block in README
+head -10 03-challenges/3.x.y-problem-name/README.md | grep "Note on Implementation"
 
-# Check for diagrams section in main file
-head -20 03-challenges/3.x.y-problem-name/3.x.y-design-problem-name.md | grep "Visual Diagrams"
+# Check for diagrams section in README
+head -20 03-challenges/3.x.y-problem-name/README.md | grep "Visual Diagrams"
 
 # Check for TOC in hld-diagram.md
 head -10 03-challenges/3.x.y-problem-name/hld-diagram.md | grep "Table of Contents"
@@ -949,10 +947,10 @@ head -1 03-challenges/3.x.y-problem-name/this-over-that.md
 ```
 
 **VERIFY:**
-- [ ] ✅ Main file sections are numbered: 1, 2, 3, 4, 5... (NO duplicates, NO gaps)
-- [ ] ✅ Main file has note block BEFORE first section
-- [ ] ✅ Main file has "📊 Visual Diagrams & Resources" section BEFORE "## 1. Problem Statement"
-- [ ] ✅ README has same format (note + diagrams section at top)
+- [ ] ✅ README sections are numbered: 1, 2, 3, 4, 5... (NO duplicates, NO gaps)
+- [ ] ✅ README has note block BEFORE first section
+- [ ] ✅ README has "📊 Visual Diagrams & Resources" section BEFORE "## 1. Problem Statement"
+- [ ] ✅ quick-overview.md exists and contains core concepts, architecture flows, and key takeaways
 - [ ] ✅ hld-diagram.md has "## Table of Contents" section
 - [ ] ✅ sequence-diagrams.md has "## Table of Contents" section
 - [ ] ✅ pseudocode.md has correct title: `# [Challenge Name] - Pseudocode Implementations`
@@ -961,12 +959,13 @@ head -1 03-challenges/3.x.y-problem-name/this-over-that.md
 - [ ] ✅ this-over-that.md has Table of Contents
 
 ### File Existence (6 files):
-- [ ] `3.x.y-design-problem-name.md` exists (main comprehensive file)
-- [ ] `README.md` exists (similar to main file)
+- [ ] `README.md` exists (primary comprehensive document, replaces old main design file)
+- [ ] `quick-overview.md` exists (quick revision guide with core concepts and key takeaways)
 - [ ] `hld-diagram.md` exists (10-15 diagrams with explanations)
 - [ ] `sequence-diagrams.md` exists (10-15 diagrams with explanations)
 - [ ] `this-over-that.md` exists (5-10 major design decisions)
 - [ ] `pseudocode.md` exists (10-20 function implementations)
+- [ ] **⚠️ `3.x.y-design-problem-name.md` should NOT exist** (content moved to README.md)
 
 ### ⚠️ Comprehensive Content Validation (CRITICAL):
 
@@ -974,33 +973,32 @@ head -1 03-challenges/3.x.y-problem-name/this-over-that.md
 ```bash
 cd /path/to/challenge-folder
 
-# Check line counts
-MAIN=$(wc -l < 3.x.y-design-problem-name.md)
+# Check README line count
 README=$(wc -l < README.md)
-RATIO=$(echo "scale=0; $README * 100 / $MAIN" | bc)
+QUICK=$(wc -l < quick-overview.md)
 
-echo "Main file: $MAIN lines"
 echo "README: $README lines"
-echo "Ratio: $RATIO%"
+echo "quick-overview: $QUICK lines"
 
 # Validate
-if [ $MAIN -lt 800 ]; then
-    echo "❌ Main file too short (minimum 800 lines)"
-elif [ $RATIO -lt 75 ] || [ $RATIO -gt 120 ]; then
-    echo "❌ README ratio out of range (should be 75-120%)"
+if [ $README -lt 800 ]; then
+    echo "❌ README too short (minimum 800 lines)"
+elif [ $QUICK -lt 300 ]; then
+    echo "❌ quick-overview.md too short (minimum 300 lines)"
 else
     echo "✅ Length validation passed"
 fi
 ```
 
 **Checklist:**
-- [ ] ✅ **Main file ≥ 800 lines** (most challenges should be 1000+ lines)
-- [ ] ✅ **README is 75-120% of main file** (typically 77-100%, run validation script above)
-- [ ] ✅ **README includes ALL sections** from main file (not just a subset)
-- [ ] ✅ **Both files have complete tables** (not summary tables)
-- [ ] ✅ **Both files have full explanations** (not "see main file for details")
+- [ ] ✅ **README ≥ 800 lines** (most challenges should be 1000+ lines)
+- [ ] ✅ **quick-overview.md ≥ 300 lines** (typically 300-600 lines)
+- [ ] ✅ **README includes ALL sections** (Problem, Requirements, Architecture, Component Design, Bottlenecks, Anti-Patterns, Trade-offs, etc.)
+- [ ] ✅ **README has complete tables** (not summary tables)
+- [ ] ✅ **README has full explanations** (comprehensive guide)
+- [ ] ✅ **quick-overview.md has core concepts, architecture flows, and key takeaways**
 
-### Content Quality - Main File:
+### Content Quality - README:
 - [ ] ✅ **EXACT FORMAT:** Title → Note → Diagrams Section → `## 1. Problem Statement` → `## 2. Requirements...`
 - [ ] ✅ **SECTION NUMBERING:** Sequential (1, 2, 3, 4...) with NO duplicates
 - [ ] Has note at top referencing pseudocode.md
@@ -1012,15 +1010,21 @@ fi
 - [ ] Scale estimation with back-of-envelope calculations
 - [ ] Comparison tables for architectural choices
 - [ ] Real-world examples (e.g., "Twitter uses X because...")
+- [ ] References section with sub-sections (Related System Design Components, Related Design Challenges, External Resources, Books)
 
-### Content Quality - README:
-- [ ] ✅ **SAME FORMAT as main file:** Title → Note → Diagrams Section → Content
-- [ ] ✅ **COMPREHENSIVE (similar length to main file):** 75-120% of main file line count (typically 77-100%)
-- [ ] ✅ **ALL major sections included:** Requirements, Architecture, Component Design, Bottlenecks, Anti-Patterns, Trade-offs
-- [ ] Has visual diagrams section at top with links to all files
-- [ ] NO detailed pseudocode (only descriptions + references to pseudocode.md)
-- [ ] References all supplementary files
-- [ ] **Line count check:** README lines ≥ 75% of main file lines
+### Content Quality - quick-overview.md:
+- [ ] ✅ **Core Concept:** High-level explanation of the system
+- [ ] ✅ **Requirements:** Functional and non-functional requirements summary
+- [ ] ✅ **Components:** List of key components with brief descriptions
+- [ ] ✅ **Architecture Flow:** Request/response paths (write path, read path, etc.)
+- [ ] ✅ **Key Design Decisions:** Major architectural choices with trade-offs
+- [ ] ✅ **Bottlenecks & Solutions:** Key bottlenecks and how they're solved
+- [ ] ✅ **Common Anti-Patterns:** 3-5 common mistakes (❌ bad vs ✅ good)
+- [ ] ✅ **Monitoring & Observability:** Key metrics and alerts
+- [ ] ✅ **Trade-offs Summary:** Table of what we gain vs sacrifice
+- [ ] ✅ **Real-World Examples:** How companies solve this problem
+- [ ] ✅ **Key Takeaways:** 5-10 bullet points summarizing the design
+- [ ] ✅ **Recommended Stack:** Technology stack used
 
 ### Content Quality - Diagrams:
 - [ ] ✅ **hld-diagram.md has Table of Contents** at top
@@ -1060,10 +1064,10 @@ fi
 - [ ] Never include line numbers in code content
 
 ### Cross-Reference Verification:
-- [ ] All pseudocode references in main file exist in pseudocode.md
 - [ ] All pseudocode references in README exist in pseudocode.md
-- [ ] All diagram links in main file point to correct sections
+- [ ] All diagram links in README point to correct sections
 - [ ] All internal links work correctly
+- [ ] quick-overview.md references align with README.md content
 
 ---
 
@@ -1072,19 +1076,26 @@ fi
 ### Run These Commands to Verify ALL Challenges Are Consistent:
 
 ```bash
-# 1. Check section numbering in ALL main files (must be sequential: 1, 2, 3, 4...)
+# 1. Check section numbering in ALL README files (must be sequential: 1, 2, 3, 4...)
 cd /path/to/hld-architecture-handbook/03-challenges
 for dir in 3.*/; do 
   echo "=== $dir ===" 
-  grep "^## [0-9]" "$dir"3.*.md | head -10
+  grep "^## [0-9]" "$dir"README.md | head -10
 done
 
-# 2. Verify ALL main files and READMEs have note + diagrams section at top
+# 2. Verify ALL READMEs have note + diagrams section at top
 for dir in 3.*/; do
-  echo "=== $dir MAIN ===" 
-  head -20 "$dir"3.*.md | grep -E "^#|^>|^##"
   echo "=== $dir README ==="
   head -20 "$dir"README.md | grep -E "^#|^>|^##"
+done
+
+# 3. Verify quick-overview.md files exist
+for dir in 3.*/; do
+  if [ -f "$dir"quick-overview.md ]; then
+    echo "✅ $dir has quick-overview.md"
+  else
+    echo "❌ $dir missing quick-overview.md"
+  fi
 done
 
 # 3. Verify ALL diagram files have Table of Contents
@@ -1106,7 +1117,7 @@ for dir in 3.*/; do head -1 "$dir"this-over-that.md; done
 
 ### Expected Output (All Challenges Should Match This):
 
-**Main File Format:**
+**README Format:**
 ```
 # 3.x.y Challenge Title
 > 📚 **Note on Implementation Details:**
@@ -1124,6 +1135,17 @@ for dir in 3.*/; do head -1 "$dir"this-over-that.md; done
 ## 3. High-Level Architecture
 ## 4. Detailed Component Design
 ## 5. [Continue sequentially...]
+```
+
+**File Structure:**
+```
+03-challenges/3.x.y-problem-name/
+├── README.md (primary comprehensive document)
+├── quick-overview.md (quick revision guide)
+├── hld-diagram.md
+├── sequence-diagrams.md
+├── this-over-that.md
+└── pseudocode.md
 ```
 
 **Diagram Files (MUST have TOC):**

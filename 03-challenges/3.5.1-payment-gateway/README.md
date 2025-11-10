@@ -13,26 +13,26 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
-Design a secure **payment gateway** like Stripe or PayPal that processes credit card transactions for e-commerce
+Design a **payment gateway** like Stripe or PayPal that securely processes credit card transactions for e-commerce
 platforms. The system must handle authorization, capture, refunds, and chargebacks while maintaining **ACID guarantees
 **, **PCI-DSS compliance**, and **idempotency** to prevent duplicate charges.
 
-**Core Challenges:**
+**Key Challenges:**
 
-- Financial integrity (exactly-once processing, no double charges)
-- Security (PCI-DSS Level 1 compliance, tokenization)
-- Latency (< 500ms authorization time)
-- Availability (99.99% uptime for critical payment flow)
-- Fraud prevention (real-time ML-based detection)
-- Auditability (immutable ledger for reconciliation)
+- **Financial Integrity**: Guarantee exactly-once payment processing (no double charges)
+- **Security**: Protect sensitive card data, comply with PCI-DSS Level 1
+- **Latency**: Process payments in under 500ms
+- **Availability**: 99.99% uptime (critical path for all transactions)
+- **Fraud Prevention**: Detect and block fraudulent transactions in real-time
+- **Auditability**: Maintain immutable ledger for reconciliation
 
 ---
 
-## Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements
+### Functional Requirements (FRs)
 
 1. **Transaction Processing**: Accept, authorize, and capture credit card payments
 2. **Idempotency**: Guarantee exactly-once processing using idempotency keys
@@ -41,369 +41,440 @@ platforms. The system must handle authorization, capture, refunds, and chargebac
 5. **Webhooks**: Notify merchants of payment events asynchronously
 6. **Compliance**: Adhere to PCI-DSS, GDPR, SOC 2 regulations
 
-### Non-Functional Requirements
+### Non-Functional Requirements (NFRs)
 
-1. **Strong Consistency**: Financial ledgers must be ACID compliant (atomicity, isolation, durability)
-2. **High Availability**: 99.99% uptime (52 minutes downtime per year)
-3. **Low Latency**: < 500ms authorization, < 200ms token generation
+1. **Strong Consistency**: Financial ledgers must be ACID compliant
+2. **High Availability**: 99.99% uptime (4 nines = 52 minutes downtime/year)
+3. **Low Latency**: < 500ms for authorization, < 200ms for token generation
 4. **Security**: End-to-end encryption, tokenization, zero-trust architecture
 5. **Auditability**: Immutable transaction logs, full audit trails
 
 ### Scale Estimation
 
-| Metric                    | Assumption             | Result                   |
-|---------------------------|------------------------|--------------------------|
-| **Peak Throughput**       | Black Friday traffic   | 20,000 QPS               |
-| **Daily Transactions**    | 10% peak sustained     | ~170M transactions/day   |
-| **Transaction Storage**   | 10 years retention     | 620 billion transactions |
-| **Data Volume**           | 1 KB per transaction   | 620 TB storage           |
-| **Authorization Latency** | Network + processing   | < 500ms target           |
-| **Downtime Cost**         | $10M daily at 2.9% fee | **$350/minute**          |
+| Metric                    | Assumption               | Calculation                           | Result                                           |
+|---------------------------|--------------------------|---------------------------------------|--------------------------------------------------|
+| **Peak Throughput**       | Black Friday traffic     | 20,000 QPS                            | $20 \text{k}$ $\text{API}$ $\text{requests/sec}$ |
+| **Daily Transactions**    | Average processing       | $20 \text{k} \times 86400 \times 0.1$ | ~170M transactions/day                           |
+| **Transaction Storage**   | 10 years retention       | $170 \text{M} \times 365 \times 10$   | 620 billion transactions                         |
+| **Data Volume**           | 1 KB per transaction     | $620 \text{B} \times 1 \text{KB}$     | 620 TB storage                                   |
+| **Authorization Latency** | To bank and back         | Network + processing                  | < 500ms target                                   |
+| **Database Write Load**   | Every transaction logged | $20 \text{k}$ writes/sec peak         | Requires sharded RDBMS                           |
+
+**Cost of Downtime**: For a gateway processing $10M transactions/day at 2.9% fee:
+
+- Revenue: $290k/day × 2.9% = ~$8.4k/day
+- Downtime cost: **$350/minute** ($5.8/second)
 
 ---
 
-## High-Level Architecture
+## 3. High-Level Architecture
 
-The architecture centers around **dual-phase commit** (authorization → capture), **idempotency layer**, and **immutable
-ledger**.
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
+
+The architecture centers around a **dual-phase commit** (authorization → capture), **idempotency layer**, and *
+*immutable ledger** for financial integrity.
 
 ### Core Components
 
 ```
-Merchant Website → API Gateway (TLS, Rate Limiting)
-                         ↓
-        ┌────────────────┼────────────────┐
-        ↓                ↓                ↓
-  Tokenization      Payment          Fraud
-   Service          Service        Detection
-  (PCI Scope)                      (ML-based)
-        ↓                ↓                ↓
-        └────────────────┼────────────────┘
-                         ↓
-                  Idempotency Store
-                     (Redis)
-                         ↓
-                  Ledger Service
-                   (PostgreSQL)
-                  Sharded by Merchant
-                         ↓
-                  Bank Processor API
-                (Visa, Mastercard)
+┌──────────────────────────────────────────────────────────────────┐
+│                         Merchant Website                         │
+└──────────────────────┬───────────────────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                       API Gateway (TLS)                           │
+│         Rate Limiting • Authentication • Load Balancing           │
+└──────────────────────┬───────────────────────────────────────────┘
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+        ▼              ▼              ▼
+┌──────────────┐ ┌────────────┐ ┌────────────────┐
+│ Tokenization │ │  Payment   │ │ Fraud Detection│
+│   Service    │ │  Service   │ │    Service     │
+│ (PCI Scope)  │ │            │ │   (ML-based)   │
+└──────┬───────┘ └─────┬──────┘ └────────┬───────┘
+       │               │                  │
+       │               ▼                  │
+       │        ┌──────────────┐          │
+       │        │ Idempotency  │          │
+       │        │ Store (Redis)│          │
+       │        └──────┬───────┘          │
+       │               │                  │
+       │               ▼                  ▼
+       │        ┌──────────────────────────────┐
+       │        │   Ledger Service (Postgres)  │
+       │        │   Sharded by Merchant ID     │
+       │        │   ACID Transactions          │
+       │        └──────┬───────────────────────┘
+       │               │
+       └───────────────┼───────────────────────┘
+                       │
+                       ▼
+            ┌──────────────────────┐
+            │  Bank Processor API  │
+            │  (Visa, Mastercard)  │
+            └──────────────────────┘
 ```
-
-**Key Design Decisions:**
-
-1. **Two-Phase Commit**: Authorization (reserve funds) → Capture (transfer money)
-2. **Idempotency**: Redis cache prevents duplicate charges on retry
-3. **Tokenization**: Store tokens instead of raw cards (reduce PCI scope)
-4. **ACID Ledger**: PostgreSQL for financial integrity (not NoSQL)
-5. **Sharding**: 64 shards by merchant_id for horizontal scaling
 
 ---
 
-## Detailed Component Design
+## 4. Detailed Component Design
 
-### Payment Flow: Authorization vs Capture
+### 4.1 Payment Flow: Authorization vs Capture
 
 **Why Two Steps?**
 
-1. **Authorization**: Reserve funds, verify card validity (soft hold)
-2. **Capture**: Transfer money after fulfillment checks pass
+Modern payment systems use a **two-phase commit**:
+
+1. **Authorization**: Reserve funds ($\text{soft}$ $\text{hold}$), verify card validity
+2. **Capture**: Actually transfer money (usually after shipment)
 
 **Benefits:**
 
-- Cancel orders before capture (no refund needed)
-- Check inventory before charging
-- Reduces chargeback risk
+- Merchant can cancel orders before capture (no refund needed)
+- Reduces risk of chargebacks (customer changed mind)
+- Handles inventory checks (authorize first, capture only if in stock)
 
 **Flow:**
 
 ```
 Authorization:
-  POST /payments {amount, card_token, idempotency_key}
-  → Check idempotency cache
-  → Call bank for authorization
-  → Write AUTHORIZED to ledger
-  → Return {payment_id, status: authorized}
+  Client → API: POST /payments {amount, card_token, idempotency_key}
+  API → Bank: "Can this card pay $100?"
+  Bank → API: "Yes, authorized (auth_code: ABC123)"
+  API → Ledger: Write AUTHORIZED status
+  API → Client: {payment_id, status: authorized}
 
 Capture (hours/days later):
-  POST /payments/{id}/capture
-  → Verify payment authorized
-  → Call bank to transfer funds
-  → Write CAPTURED to ledger
-  → Return {status: captured}
-  → Trigger webhook: payment.captured
+  Client → API: POST /payments/{id}/capture
+  API → Bank: "Transfer the $100 (auth_code: ABC123)"
+  Bank → API: "Done (settlement_id: XYZ789)"
+  API → Ledger: Write CAPTURED status
+  API → Client: {status: captured}
 ```
 
-*See pseudocode.md::authorize_payment() and capture_payment() for details*
+*See pseudocode.md::authorize_payment() and pseudocode.md::capture_payment() for implementation*
 
-### Idempotency System
+### 4.2 Idempotency System
 
-**The Problem**: Network failures cause retries. Without idempotency, retry charges customer twice.
+**The Problem**: Network failures cause retries. Without idempotency, a retry charges the customer twice.
 
-**Solution**: Client provides `idempotency_key` (UUID). Server caches results in Redis.
+**Solution**: Client provides `idempotency_key` (UUID). Server caches results.
 
 **Implementation:**
 
 ```
 1. Client generates UUID: "idem_abc123"
-2. Server: GET idempotency:idem_abc123 from Redis
-3. If exists → return cached result (same response)
+2. Server checks Redis: GET idempotency:idem_abc123
+3. If exists → return cached result (HTTP 200, same response)
 4. If not exists:
-   - Process payment
-   - SET idempotency:idem_abc123 {response} EX 86400 (24h TTL)
-   - Return response
+   a. Process payment
+   b. Store result in Redis: SET idempotency:idem_abc123 {response} EX 86400
+   c. Return response
 ```
 
-**Properties:**
+**Key Properties:**
 
 - **TTL**: 24 hours (balances memory vs safety)
-- **Scope**: Per merchant
-- **Storage**: Redis cluster (replicated)
-- **Stale reads OK**: Idempotency is best-effort
+- **Scope**: Per merchant (merchant_A and merchant_B can use same key)
+- **Storage**: Redis for speed (1ms lookup)
+- **Durability**: Replicated Redis cluster (async replication OK, stale read acceptable)
 
 *See pseudocode.md::check_idempotency() for implementation*
 
-### Tokenization (PCI-DSS Compliance)
+### 4.3 Tokenization (PCI-DSS Compliance)
 
-**Problem**: Storing credit card numbers requires expensive PCI-DSS Level 1 certification.
+**The Problem**: Storing credit card numbers is expensive (PCI-DSS Level 1 certification costs millions).
 
-**Solution**: Replace card with non-sensitive token.
+**Solution**: **Tokenization** - Replace card with non-sensitive token.
 
 **Flow:**
 
 ```
-1. POST /tokens {card_number: "4111111111111111"}
-2. Tokenization Service:
-   - Validate card (Luhn algorithm)
-   - Generate token: "tok_abc123"
-   - Encrypt card: AES-256(card_number)
-   - Store: tokens_db[tok_abc123] = encrypted_card
-   - Return token
-3. POST /payments {amount, token: "tok_abc123"}
-4. Payment Service: Fetch card, send to bank
+1. Client: POST /tokens {card_number: "4111111111111111"}
+2. Tokenization Service (PCI scope):
+   a. Validate card (Luhn algorithm)
+   b. Generate token: "tok_abc123"
+   c. Encrypt card: AES-256(card_number)
+   d. Store: tokens_db[tok_abc123] = encrypted_card
+   e. Return token to client
+3. Client: POST /payments {amount, token: "tok_abc123"}
+4. Payment Service: Fetch card from tokens_db, send to bank
 ```
 
 **Security:**
 
-- **Encryption**: AES-256 at rest, TLS 1.3 in transit
+- **Encryption at Rest**: AES-256 with key rotation
+- **Encryption in Transit**: TLS 1.3 only
 - **Key Management**: AWS KMS / HashiCorp Vault (HSM-backed)
-- **PCI Scope**: Only Tokenization Service in scope
+- **PCI Scope Reduction**: Only Tokenization Service handles raw cards
 
-**Schema:**
+**Database Schema:**
 
 ```sql
 CREATE TABLE tokens (
-    token_id VARCHAR(32) PRIMARY KEY,
-    card_fingerprint CHAR(64),  -- SHA-256 for dedup
-    encrypted_card BYTEA,       -- AES-256
-    card_brand VARCHAR(20),
-    last4 CHAR(4),
+    token_id VARCHAR(32) PRIMARY KEY,  -- tok_abc123
+    card_fingerprint CHAR(64),  -- SHA-256 hash for deduplication
+    encrypted_card BYTEA,  -- AES-256 encrypted
+    card_brand VARCHAR(20),  -- Visa, Mastercard
+    last4 CHAR(4),  -- 1111 (for display)
     exp_month INT,
     exp_year INT,
     merchant_id VARCHAR(32),
-    created_at TIMESTAMP
+    created_at TIMESTAMP DEFAULT NOW(),
+    INDEX (merchant_id, created_at)
 );
 ```
 
 *See pseudocode.md::tokenize_card() for implementation*
 
-### Ledger Database Design
+### 4.4 Ledger Database Design
 
 **Requirements:**
 
-- **ACID**: Atomicity, Consistency, Isolation, Durability
-- **Immutable**: Append-only, never update
+- **ACID Transactions**: Atomicity (all-or-nothing), Isolation (no dirty reads)
+- **Immutable**: Once written, never updated (append-only)
 - **Auditable**: Every state change logged
-- **Reconcilable**: Match bank statements exactly
+- **Reconcilable**: Match exactly with bank statements
 
 **Choice: Sharded PostgreSQL**
 
 **Why PostgreSQL over NoSQL?**
 
-| Feature           | PostgreSQL  | Cassandra         | DynamoDB          |
-|-------------------|-------------|-------------------|-------------------|
-| **ACID**          | ✅ Full      | ❌ Eventual        | ❌ Eventual        |
-| **Transactions**  | ✅ Multi-row | ❌ Single-row      | ❌ Limited         |
-| **Financial Use** | ✅ Standard  | ❌ Not recommended | ❌ Not recommended |
+| Feature          | PostgreSQL                   | Cassandra                   | DynamoDB                    |
+|------------------|------------------------------|-----------------------------|-----------------------------|
+| **ACID**         | ✅ Full ACID                  | ❌ Eventual consistency      | ❌ Eventual consistency      |
+| **Transactions** | ✅ Multi-row transactions     | ❌ Single-row only           | ❌ Limited transactions      |
+| **Auditability** | ✅ Write-ahead log (WAL)      | ⚠️ Harder to audit          | ⚠️ Harder to audit          |
+| **Compliance**   | ✅ Financial systems standard | ❌ Not recommended for money | ❌ Not recommended for money |
 
-**Schema:**
+**Schema Design:**
 
 ```sql
 CREATE TABLE payments (
     payment_id VARCHAR(32) PRIMARY KEY,
     merchant_id VARCHAR(32) NOT NULL,
     idempotency_key VARCHAR(64) UNIQUE,
-    amount_cents BIGINT NOT NULL,  -- Store as cents
-    currency CHAR(3),
-    status VARCHAR(20),  -- authorized, captured, refunded
+    amount_cents BIGINT NOT NULL,  -- Store as cents (avoid floats)
+    currency CHAR(3),  -- USD, EUR
+    status VARCHAR(20),  -- authorized, captured, refunded, failed
     card_token VARCHAR(32),
-    authorization_code VARCHAR(64),
-    created_at TIMESTAMP,
+    customer_id VARCHAR(32),
+    authorization_code VARCHAR(64),  -- From bank
+    captured_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
     INDEX (merchant_id, created_at),
     INDEX (idempotency_key)
 );
 
 CREATE TABLE payment_events (
     event_id BIGSERIAL PRIMARY KEY,
-    payment_id VARCHAR(32),
-    event_type VARCHAR(32),
+    payment_id VARCHAR(32) NOT NULL,
+    event_type VARCHAR(32),  -- authorized, captured, refunded
     previous_status VARCHAR(20),
     new_status VARCHAR(20),
-    metadata JSONB,
-    created_at TIMESTAMP
+    metadata JSONB,  -- Flexible for audit data
+    created_at TIMESTAMP DEFAULT NOW(),
+    INDEX (payment_id, created_at)
 );
 ```
 
-**Sharding:**
+**Sharding Strategy:**
 
-- **Shard Key**: merchant_id (all payments for one merchant on same shard)
-- **Shard Count**: 64 shards (300 writes/sec per shard)
+- **Shard Key**: `merchant_id` (all payments for one merchant on same shard)
+- **Why Merchant ID?** Queries are always scoped to merchant (for analytics, reports)
+- **Shard Count**: 64 shards (handle 20k writes/sec ÷ 64 = ~300 writes/sec per shard)
 - **Replication**: 3 replicas per shard (primary + 2 read replicas)
 
 *See pseudocode.md::write_to_ledger() for implementation*
 
 ---
 
-## Security and Compliance
+## 5. Security and Compliance
 
-### PCI-DSS Level 1 Compliance
+### 5.1 PCI-DSS Compliance
 
-**Requirements** (6M+ transactions/year):
+**PCI-DSS Level 1** (6M+ transactions/year) requirements:
 
-1. **Secure Network**: Firewalls, no default passwords
-2. **Protect Cardholder Data**: AES-256 encryption, TLS 1.3
-3. **Vulnerability Management**: Regular updates, anti-virus
-4. **Access Control**: Need-to-know basis, unique IDs
-5. **Monitor Networks**: Track all card data access
-6. **Security Policy**: Documented for all personnel
+1. **Build and Maintain Secure Network**
+    - Firewalls between public/private networks
+    - Change default passwords
+
+2. **Protect Cardholder Data**
+    - Encrypt card data at rest (AES-256)
+    - Encrypt card data in transit (TLS 1.3)
+    - Tokenization (reduce scope)
+
+3. **Vulnerability Management**
+    - Use anti-virus software
+    - Regularly update systems
+
+4. **Access Control**
+    - Restrict access to cardholder data (need-to-know basis)
+    - Unique IDs for each person with access
+    - Physical access controls
+
+5. **Monitor and Test Networks**
+    - Track all access to cardholder data
+    - Regular security testing
+
+6. **Information Security Policy**
+    - Maintain policy for all personnel
 
 **Implementation:**
 
 - **Tokenization Service**: Only component in PCI scope
-- **Encryption**: AES-256 for card data
-- **Key Rotation**: Monthly via AWS KMS
-- **Access Logs**: Every card access logged immutably
-- **Network Segmentation**: Tokenization in isolated VPC
+- **Encryption**: All card data encrypted with AES-256
+- **Key Rotation**: Monthly key rotation via AWS KMS
+- **Access Logs**: Every card access logged to immutable audit log
+- **Network Segmentation**: Tokenization service in isolated VPC
 
-### Fraud Detection
+### 5.2 Fraud Detection
 
-**Challenge**: Detect fraud in < 50ms (part of authorization flow).
+**Challenge**: Detect fraudulent transactions in < 50ms (part of authorization flow).
 
 **Solution**: Real-time ML-based risk scoring.
 
-**Features:**
+**Features for ML Model:**
 
-1. **Transaction**: Amount, currency, merchant category
-2. **Card**: Brand, issuing bank, decline rate
-3. **Customer**: Email, IP, billing vs shipping mismatch
-4. **Behavioral**: Spending pattern deviation, velocity
+1. **Transaction Features**:
+    - Amount, currency
+    - Merchant category
+    - Time of day, day of week
 
-**Pipeline:**
+2. **Card Features**:
+    - Card brand, issuing bank
+    - Previous transaction history
+    - Decline rate
+
+3. **Customer Features**:
+    - Email domain, IP address
+    - Billing vs shipping address mismatch
+    - Velocity (transactions per hour)
+
+4. **Behavioral Features**:
+    - Deviation from normal spending pattern
+    - First-time customer flag
+    - VPN/proxy usage
+
+**Model Pipeline:**
 
 ```
-Real-Time (Synchronous):
-- Load features from Redis
-- Score with decision tree
-- If risk > 0.8 → BLOCK
-- If 0.5-0.8 → FLAG (3D Secure)
-- If < 0.5 → ALLOW
+1. Real-Time Scoring (Synchronous):
+   - Load features from cache (Redis)
+   - Score with lightweight model (decision tree)
+   - If risk > 0.8 → BLOCK
+   - If 0.5 < risk < 0.8 → FLAG (manual review)
+   - If risk < 0.5 → ALLOW
 
-Offline (Daily):
-- Kafka → Spark → Feature engineering
-- Train XGBoost on labeled data
-- Deploy new model to Redis
+2. Offline Training (Daily):
+   - Kafka → Spark → Feature engineering
+   - Train XGBoost model on labeled data
+   - Deploy new model to Redis (A/B test)
 ```
 
-**Actions:**
+**Risk Actions:**
 
 - **Low Risk** (< 0.5): Auto-approve
-- **Medium Risk** (0.5-0.8): 3D Secure challenge
+- **Medium Risk** (0.5-0.8): 3D Secure challenge (customer verifies)
 - **High Risk** (> 0.8): Block transaction
 
 *See pseudocode.md::calculate_fraud_score() for implementation*
 
 ---
 
-## Refunds and Chargebacks
+## 6. Refunds and Chargebacks
 
-### Refunds
+### 6.1 Refunds
 
 **Types:**
 
 1. **Full Refund**: Return entire amount
-2. **Partial Refund**: Return portion
+2. **Partial Refund**: Return portion (e.g., returned item)
 
 **Flow:**
 
 ```
-1. POST /payments/{id}/refunds {amount}
-2. Verify payment captured
-3. Create refund record in ledger
-4. Send refund to bank
-5. Update ledger with status
-6. Webhook: payment.refunded
+1. Merchant: POST /payments/{id}/refunds {amount}
+2. Payment Service:
+   a. Verify payment exists and is captured
+   b. Check refund amount <= captured amount
+   c. Create refund record in ledger
+   d. Send refund request to bank
+   e. Bank returns refund_id
+   f. Update ledger with refund status
+3. Response: {refund_id, status: processing}
+4. Webhook: payment.refunded event sent to merchant
 ```
 
-**Idempotency**: Refunds use idempotency keys (prevent double refunds).
+**Idempotency**: Refunds also use idempotency keys (prevent double refunds).
 
-**Schema:**
+**Database Schema:**
 
 ```sql
 CREATE TABLE refunds (
     refund_id VARCHAR(32) PRIMARY KEY,
-    payment_id VARCHAR(32),
-    amount_cents BIGINT,
+    payment_id VARCHAR(32) NOT NULL,
+    amount_cents BIGINT NOT NULL,
     reason VARCHAR(255),
-    status VARCHAR(20),
-    created_at TIMESTAMP,
-    FOREIGN KEY (payment_id) REFERENCES payments(payment_id)
+    status VARCHAR(20),  -- pending, completed, failed
+    created_at TIMESTAMP DEFAULT NOW(),
+    completed_at TIMESTAMP,
+    FOREIGN KEY (payment_id) REFERENCES payments(payment_id),
+    INDEX (payment_id)
 );
 ```
 
-### Chargebacks
+### 6.2 Chargebacks
 
 **Definition**: Customer disputes charge with bank (not merchant).
 
-**Reasons:**
+**Chargeback Reasons:**
 
 - Fraudulent transaction
 - Product not received
+- Product not as described
 - Duplicate charge
 
 **Flow:**
 
 ```
-1. Bank notifies gateway of chargeback
-2. Create chargeback record
-3. Webhook: payment.dispute.created
+1. Bank notifies payment gateway of chargeback
+2. Gateway creates chargeback record
+3. Gateway sends webhook to merchant: payment.dispute.created
 4. Merchant has 7-21 days to provide evidence
-5. If win → funds returned
-6. If lose → funds deducted, fee applied ($15-$25)
+5. If merchant wins → funds returned
+6. If merchant loses → funds deducted, chargeback fee applied ($15-$25)
 ```
 
 **Impact:**
 
-- High chargeback rate (> 1%) → Gateway may terminate merchant
-- Chargeback fee: $15-$25 per chargeback
-- Reserve funds: Gateway may hold 10% of revenue
+- **High chargeback rate** (> 1%) → Gateway may terminate merchant
+- **Chargeback fees**: $15-$25 per chargeback
+- **Reserve funds**: Gateway may hold 10% of revenue as reserve
 
 *See pseudocode.md::process_chargeback() for implementation*
 
 ---
 
-## Multi-Currency Support
+## 7. Multi-Currency Support
+
+**Challenge**: Support 150+ currencies with accurate conversion rates.
 
 **Components:**
 
 1. **Exchange Rate Service**:
-    - Fetch rates from providers
-    - Cache in Redis (TTL: 1 hour)
-    - Update every 30 minutes
+    - Fetch rates from providers (e.g., Open Exchange Rates API)
+    - Cache rates in Redis (TTL: 1 hour)
+    - Update rates every 30 minutes
 
-2. **Presentment vs Settlement**:
+2. **Presentment Currency vs Settlement Currency**:
     - **Presentment**: Currency shown to customer (EUR)
     - **Settlement**: Currency paid to merchant (USD)
+    - Gateway handles conversion
 
 **Example:**
 
@@ -413,19 +484,20 @@ Customer in Europe:
 - Exchange rate: 1 EUR = 1.10 USD
 - Merchant receives: $110.00
 - Fee (2.9% + $0.30): $3.49
-- Net: $106.51
+- Net to merchant: $106.51
 ```
 
-**Schema:**
+**Database Schema:**
 
 ```sql
 CREATE TABLE exchange_rates (
     rate_id BIGSERIAL PRIMARY KEY,
-    base_currency CHAR(3),
-    quote_currency CHAR(3),
-    rate DECIMAL(18, 8),
+    base_currency CHAR(3),  -- USD
+    quote_currency CHAR(3),  -- EUR
+    rate DECIMAL(18, 8),  -- 0.90909091
     valid_from TIMESTAMP,
-    valid_until TIMESTAMP
+    valid_until TIMESTAMP,
+    INDEX (base_currency, quote_currency, valid_from)
 );
 ```
 
@@ -433,9 +505,9 @@ CREATE TABLE exchange_rates (
 
 ---
 
-## Webhook System
+## 8. Webhook System
 
-**Purpose**: Notify merchants of async events.
+**Purpose**: Notify merchants of async events (payment captured, refund completed).
 
 **Events:**
 
@@ -445,261 +517,918 @@ CREATE TABLE exchange_rates (
 - `payment.refunded`
 - `payment.dispute.created`
 
-**Delivery:**
+**Delivery Guarantees:**
 
-- **At-least-once**: Retry up to 10 times
-- **Signature**: HMAC-SHA256 in header
-- **Idempotency**: Merchant handles duplicates
+- **At-least-once delivery**: Retry up to 10 times with exponential backoff
+- **Signature verification**: HMAC-SHA256 signature in header
+- **Idempotency**: Merchant should handle duplicate events
+
+**Flow:**
+
+```
+1. Event occurs (payment captured)
+2. Create webhook job in queue (Kafka)
+3. Webhook Worker picks up job
+4. Send POST request to merchant endpoint
+5. If success (HTTP 200) → Mark as delivered
+6. If failure (HTTP 5xx, timeout) → Retry with backoff
+7. After 10 retries → Mark as failed, alert merchant
+```
 
 **Retry Schedule:**
 
-1. Immediate
-2. 1 minute
-3. 5 minutes
-4. 30 minutes
-   5-10. 1h, 6h, 12h, 24h
+- Attempt 1: Immediate
+- Attempt 2: 1 minute later
+- Attempt 3: 5 minutes later
+- Attempt 4: 30 minutes later
+- Attempt 5-10: 1 hour, 6 hours, 12 hours, 24 hours
 
 *See pseudocode.md::deliver_webhook() for implementation*
 
 ---
 
-## Availability and Fault Tolerance
+## 9. Availability and Fault Tolerance
 
-### Database Failover
+### 9.1 Database Failover
 
-**Setup**: Multi-master PostgreSQL (3 nodes per shard).
+**Setup**: Multi-master PostgreSQL cluster (3 nodes per shard).
 
-**Failure:**
+**Failure Scenario:**
 
 ```
-Normal: Primary (writes) → Replica 1 → Replica 2
+Normal:
+  Primary (writes + reads) → Replica 1 (reads) → Replica 2 (reads)
 
 Primary Fails:
-1. Health check detects (< 10s)
-2. Replica 1 promoted to primary
-3. Traffic rerouted
-4. Failed node replaced
+  1. Health check detects failure (< 10 seconds)
+  2. Replica 1 promoted to primary (automatic)
+  3. Traffic routed to new primary
+  4. Failed node replaced
 
 RTO: < 30 seconds
-RPO: 0 (synchronous replication)
+RPO: 0 (synchronous replication to at least 1 replica)
 ```
 
-### Circuit Breaker for Bank API
+### 9.2 Circuit Breaker for Bank API
 
-**Problem**: Bank API slow → system backs up.
+**Problem**: Bank API slow/unavailable → our system backs up.
 
 **Solution**: Circuit breaker pattern.
 
 **States:**
 
-1. **Closed**: All requests go through
-2. **Open**: Fail fast, don't call bank
-3. **Half-Open**: Test request after cooldown
+1. **Closed** (normal): All requests go through
+2. **Open** (bank down): Fail fast, don't call bank
+3. **Half-Open** (testing): Send test request after cooldown
 
-**Config:**
+**Configuration:**
 
-- **Failure threshold**: 50% error rate over 10s
+- **Failure threshold**: 50% error rate over 10 seconds
 - **Cooldown**: 60 seconds
-- **Success threshold**: 5 consecutive successes
+- **Success threshold**: 5 consecutive successes to close circuit
 
 *See pseudocode.md::circuit_breaker() for implementation*
 
 ---
 
-## Common Anti-Patterns
+## 10. Bottlenecks and Optimizations
 
-### ❌ 1. Using Floats for Money
+### 10.1 Database Write Contention
+
+**Problem**: 20k writes/sec to single database → bottleneck.
+
+**Solution**: Aggressive sharding by `merchant_id`.
+
+**Sharding Strategy:**
+
+```
+Shard = hash(merchant_id) % 64
+
+Each shard:
+- Primary: 300 writes/sec
+- Replica 1: Read queries
+- Replica 2: Read queries
+
+Total capacity: 64 shards × 300 writes/sec = 19,200 writes/sec
+```
+
+**Shard Rebalancing**: When adding shards, use consistent hashing to minimize data movement.
+
+### 10.2 Hot Merchant Problem
+
+**Problem**: Large merchant (Amazon) generates 50% of traffic → single shard overloaded.
+
+**Solution**: Sub-sharding for hot merchants.
+
+```
+Normal merchant: hash(merchant_id) % 64
+Hot merchant: hash(merchant_id + transaction_id) % 256
+
+Result: Hot merchant split across 4 shards (256/64)
+```
+
+### 10.3 Latency to Bank Processors
+
+**Problem**: Bank API latency varies (100ms to 2 seconds).
+
+**Solution**: Smart routing + multiple processors.
+
+**Implementation:**
+
+```
+1. Track latency per processor:
+   - Visa: p95 = 200ms
+   - Mastercard: p95 = 300ms
+   - Amex: p95 = 500ms
+
+2. Route based on card brand and latency:
+   - Visa card → Route to fastest Visa processor
+   - Mastercard → Route to fastest Mastercard processor
+
+3. Failover:
+   - If primary processor down → route to backup
+   - If all processors down → return error (don't retry indefinitely)
+```
+
+*See pseudocode.md::route_to_processor() for implementation*
+
+---
+
+## 11. Common Anti-Patterns
+
+### ❌ **1. Using Floats for Money**
 
 **Problem**: Floating-point arithmetic is imprecise.
 
 ```
-0.1 + 0.2 = 0.30000000000000004
+0.1 + 0.2 = 0.30000000000000004  // JavaScript, Python, etc.
 ```
 
-**Solution**: Store as **cents** (integers).
+**Impact**: Rounding errors accumulate over millions of transactions.
 
-```
-✅ CORRECT: amount_cents = 10050  // $100.50
-❌ WRONG: amount_dollars = 100.50  // Precision loss
-```
-
-### ❌ 2. Skipping Idempotency
-
-**Problem**: Network failures → retries → double charges.
-
-**Solution**: Always require `idempotency_key`.
+**Solution**: Store amounts as **cents** (integers).
 
 ```
 ✅ CORRECT:
-POST /payments {"amount": 10000, "idempotency_key": "idem_abc123"}
+amount_cents = 10050  // $100.50
+amount_cents = 99  // $0.99
 
 ❌ WRONG:
-POST /payments {"amount": 10000}  // No idempotency
+amount_dollars = 100.50  // Precision loss
 ```
 
-### ❌ 3. Storing Raw Credit Cards
+### ❌ **2. Skipping Idempotency**
 
-**Problem**: PCI-DSS Level 1 certification costs millions.
+**Problem**: Network failures cause retries → double charges.
 
-**Solution**: Tokenize immediately.
+**Impact**: Customer charged twice, chargebacks, reputation damage.
+
+**Solution**: Always require `idempotency_key` for mutation operations.
 
 ```
-✅ CORRECT: tokens_db[tok_abc] = AES-256("4111...")
-❌ WRONG: payments_db[id] = {"card": "4111..."}
+✅ CORRECT:
+POST /payments
+{
+  "amount": 10000,
+  "currency": "usd",
+  "idempotency_key": "idem_abc123"  // Required
+}
+
+❌ WRONG:
+POST /payments
+{
+  "amount": 10000,
+  "currency": "usd"
+  // No idempotency key → retry doubles charge
+}
 ```
 
-### ❌ 4. Missing Audit Trail
+### ❌ **3. Storing Raw Credit Cards**
 
-**Problem**: Can't reconcile with bank statements.
+**Problem**: PCI-DSS Level 1 certification costs millions, increases liability.
 
-**Solution**: Append-only event log.
+**Solution**: Tokenize immediately, never store raw cards.
+
+```
+✅ CORRECT:
+tokens_db[tok_abc123] = AES-256("4111111111111111")
+
+❌ WRONG:
+payments_db[payment_id] = {
+  card_number: "4111111111111111"  // Massive PCI scope
+}
+```
+
+### ❌ **4. Missing Audit Trail**
+
+**Problem**: Can't reconcile with bank statements, fails audits.
+
+**Solution**: Append-only event log for every state change.
 
 ```
 ✅ CORRECT:
 payment_events:
-- event_id=1: pending → authorized
-- event_id=2: authorized → captured
+- event_id=1: status=pending → authorized
+- event_id=2: status=authorized → captured
+- event_id=3: status=captured → refunded
 
 ❌ WRONG:
-UPDATE payments SET status='captured'  // Lost history
+UPDATE payments SET status='refunded'  // Lost history
 ```
 
-### ❌ 5. Synchronous Webhook Delivery
+### ❌ **5. Synchronous Webhook Delivery**
 
-**Problem**: Merchant endpoint down → block payment.
+**Problem**: Merchant webhook endpoint down → block payment flow.
 
-**Solution**: Async webhook delivery.
+**Solution**: Async webhook delivery with retries.
 
 ```
 ✅ CORRECT:
 1. Capture payment
-2. Publish to Kafka
-3. Return success
+2. Publish webhook event to Kafka
+3. Return success to customer
 4. Worker delivers webhook async
 
 ❌ WRONG:
 1. Capture payment
-2. Call webhook (blocking)
-3. If fails → fail payment
+2. Call merchant webhook (blocking)
+3. If webhook fails → fail entire payment
 ```
 
 ---
 
-## Monitoring and Observability
+## 12. Alternative Approaches
+
+### Alternative 1: Event Sourcing for Ledger
+
+**Approach**: Store every state change as event, derive current state by replaying events.
+
+**Pros:**
+
+- Perfect audit trail
+- Can replay history
+- Time-travel queries
+
+**Cons:**
+
+- Complex to implement
+- Read queries slower (need to replay)
+- Harder to debug
+
+**When to Use**: If audit trail is critical (regulatory requirements).
+
+### Alternative 2: Blockchain for Transparency
+
+**Approach**: Use blockchain for immutable transaction ledger.
+
+**Pros:**
+
+- Cryptographically immutable
+- Distributed trust
+
+**Cons:**
+
+- Slow (Bitcoin: 7 TPS, Ethereum: 15 TPS)
+- Expensive (gas fees)
+- Overkill for centralized system
+
+**When to Use**: Multi-party settlement (inter-bank transfers).
+
+### Alternative 3: Outsource to Processor
+
+**Approach**: Use existing processor (Adyen, Stripe) instead of building.
+
+**Pros:**
+
+- Fast time-to-market
+- PCI compliance handled
+- Existing integrations
+
+**Cons:**
+
+- Higher fees (2.9% + $0.30 vs 0.5% internal)
+- Less control
+- Vendor lock-in
+
+**When to Use**: Small businesses, rapid prototyping.
+
+---
+
+## 13. Monitoring and Observability
 
 ### Key Metrics
 
 **Business Metrics:**
 
-| Metric                         | Target       | Alert |
-|--------------------------------|--------------|-------|
-| **Authorization Success Rate** | > 98%        | < 95% |
-| **Fraud Detection Rate**       | 0.1% blocked | > 1%  |
-| **Chargeback Rate**            | < 0.5%       | > 1%  |
+| Metric                         | Target       | Alert Threshold |
+|--------------------------------|--------------|-----------------|
+| **Authorization Success Rate** | > 98%        | < 95%           |
+| **Capture Success Rate**       | > 99.5%      | < 99%           |
+| **Fraud Detection Rate**       | 0.1% blocked | > 1% blocked    |
+| **Chargeback Rate**            | < 0.5%       | > 1%            |
+| **Average Transaction Value**  | $50          | -20% change     |
 
 **System Metrics:**
 
-| Metric                  | Target  | Alert    |
-|-------------------------|---------|----------|
-| **API Latency (p95)**   | < 500ms | > 1000ms |
-| **DB Query Time (p95)** | < 50ms  | > 200ms  |
-| **Cache Hit Rate**      | > 80%   | < 50%    |
+| Metric                         | Target  | Alert Threshold |
+|--------------------------------|---------|-----------------|
+| **API Latency (p95)**          | < 500ms | > 1000ms        |
+| **Database Query Time (p95)**  | < 50ms  | > 200ms         |
+| **Idempotency Cache Hit Rate** | > 80%   | < 50%           |
+| **Webhook Delivery Rate**      | > 99%   | < 95%           |
 
 **Dashboards:**
 
-1. **Transaction Health**: Authorization rate, latency, errors
-2. **Financial Health**: Revenue, refunds, chargebacks
-3. **Infrastructure**: DB CPU, Redis hit rate, Kafka lag
+1. **Transaction Health**:
+    - Authorization rate (by card brand)
+    - Latency breakdown (API → Bank → DB)
+    - Error rate by error type
+
+2. **Financial Health**:
+    - Revenue per hour
+    - Refund rate
+    - Chargeback rate
+
+3. **Infrastructure**:
+    - Database CPU/memory
+    - Redis cache hit rate
+    - Kafka lag
+
+**Alerting:**
+
+- **Critical**: Authorization rate < 95% → Page on-call
+- **High**: Latency > 1s → Slack alert
+- **Medium**: Fraud rate spike → Email security team
 
 ---
 
-## Cost Analysis
+## 14. Trade-offs Summary
 
-**Monthly Cost** (170M transactions/month):
-
-| Component                  | Cost            |
-|----------------------------|-----------------|
-| **API Gateway**            | $15k            |
-| **Payment Service**        | $40k            |
-| **PostgreSQL** (64 shards) | $120k           |
-| **Redis Cluster**          | $10k            |
-| **Tokenization**           | $30k            |
-| **Fraud Detection**        | $35k            |
-| **Total**                  | **$345k/month** |
-
-**Revenue** (2.9% + $0.30 fee):
-
-```
-170M transactions × $50 avg = $8.5B volume
-- Percentage: $8.5B × 2.9% = $246.5M
-- Fixed: 170M × $0.30 = $51M
-Total: $297.5M/month
-
-Net margin: 99.9% (infrastructure negligible)
-```
+| Decision                    | What We Gain                                   | What We Sacrifice                     |
+|-----------------------------|------------------------------------------------|---------------------------------------|
+| **Authorization + Capture** | ✅ Merchant flexibility (cancel before capture) | ❌ Two API calls, more complexity      |
+| **Tokenization**            | ✅ PCI scope reduction (cheaper compliance)     | ❌ Additional service to maintain      |
+| **PostgreSQL Ledger**       | ✅ ACID guarantees, audit trail                 | ❌ Harder to scale (need sharding)     |
+| **Idempotency Keys**        | ✅ Exactly-once processing                      | ❌ Client must generate UUIDs          |
+| **Async Webhooks**          | ✅ Non-blocking payment flow                    | ❌ Merchant must handle async events   |
+| **Sharded Database**        | ✅ Horizontal scaling                           | ❌ Cross-shard queries difficult       |
+| **Multi-Region**            | ✅ Low latency globally                         | ❌ Complex replication, data residency |
+| **Real-Time Fraud**         | ✅ Block fraud before capture                   | ❌ Adds 50ms latency                   |
 
 ---
 
-## Trade-offs Summary
-
-| Decision             | Gain                  | Sacrifice          |
-|----------------------|-----------------------|--------------------|
-| **Two-Phase Commit** | ✅ Flexibility         | ❌ Complexity       |
-| **Tokenization**     | ✅ PCI scope reduction | ❌ Extra service    |
-| **PostgreSQL**       | ✅ ACID guarantees     | ❌ Harder to scale  |
-| **Idempotency**      | ✅ Exactly-once        | ❌ Client UUID      |
-| **Async Webhooks**   | ✅ Non-blocking        | ❌ Async complexity |
-
----
-
-## Real-World Examples
+## 15. Real-World Examples
 
 ### Stripe
 
-- **Architecture**: Ruby on Rails → microservices
-- **Database**: Sharded PostgreSQL
-- **Cache**: Redis for idempotency
-- **Scale**: $640B volume (2021)
-- **Innovation**: Developer-first API
+**Architecture:**
+
+- Ruby on Rails monolith (initially), now microservices
+- PostgreSQL for ledger (sharded by merchant)
+- Redis for idempotency
+- Real-time fraud detection (Radar)
+- 99.99% uptime SLA
+
+**Scale:**
+
+- $640B payment volume (2021)
+- 100+ countries
+- Millions of merchants
+
+**Key Innovation**: Developer-first API (simple integration).
 
 ### PayPal
 
-- **Architecture**: Java microservices
-- **Database**: Oracle → distributed systems
-- **Scale**: $1.36T volume (2021)
-- **Innovation**: Buyer/seller protection
+**Architecture:**
+
+- Java microservices
+- Oracle database (historically), now moving to distributed systems
+- Multi-region active-active
+- Fraud detection with ML (PayPal Risk Models)
+
+**Scale:**
+
+- $1.36T payment volume (2021)
+- 400M active accounts
+- 30M merchants
+
+**Key Innovation**: Buyer/seller protection, dispute resolution.
 
 ### Square
 
-- **Architecture**: Go, Ruby microservices
-- **Database**: MySQL
-- **Scale**: $112B volume (2020)
-- **Innovation**: Unified online + offline commerce
+**Architecture:**
+
+- Microservices (Go, Ruby)
+- MySQL for transactions
+- Point-of-sale hardware integration
+- Real-time analytics
+
+**Scale:**
+
+- $112B payment volume (2020)
+- 2M active merchants
+- Focus on small businesses
+
+**Key Innovation**: Unified commerce (online + offline).
 
 ---
 
-## References
+## 16. References
 
-**Related Chapters:**
+### Related System Design Components
 
-- [PostgreSQL Deep Dive](../../02-components/2.1-databases/2.1.1-postgresql-deep-dive.md) - ACID transactions
-- [Redis Deep Dive](../../02-components/2.2-caching/2.2.1-redis-deep-dive.md) - Idempotency cache
-- [Kafka Deep Dive](../../02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md) - Event streaming
+- **[2.1.7 PostgreSQL Deep Dive](../../02-components/2.1-databases/2.1.7-postgresql-deep-dive.md)** - ACID transactions for ledger
+- **[2.1.11 Redis Deep Dive](../../02-components/2.1-databases/2.1.11-redis-deep-dive.md)** - Idempotency cache
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)** - Event streaming for webhooks
+- **[2.3.4 Distributed Transactions and Idempotency](../../02-components/2.3-messaging-streaming/2.3.4-distributed-transactions-and-idempotency.md)** - Exactly-once processing
+- **[1.1.4 Data Consistency Models](../../01-principles/1.1.4-data-consistency-models.md)** - ACID vs BASE
+- **[2.4.1 Security Fundamentals](../../02-components/2.4-security-observability/2.4.1-security-fundamentals.md)** - Encryption, tokenization, PCI-DSS
+- **[2.1.4 Database Scaling](../../02-components/2.1.4-database-scaling.md)** - PostgreSQL sharding strategies
 
-**External Resources:**
+### Related Design Challenges
 
-- Stripe API Documentation: https://stripe.com/docs/api
-- PCI-DSS Standards: https://www.pcisecuritystandards.org/
-- Idempotency in APIs: https://stripe.com/blog/idempotency
+- **[3.3.3 Flash Sale](../3.3.3-flash-sale/)** - High-contention transactions, inventory management
+- **[3.5.2 Ad Click Aggregator](../3.5.2-ad-click-aggregator/)** - High write throughput, fraud detection
 
-**Books:**
+### External Resources
 
-- *Designing Data-Intensive Applications* by Martin Kleppmann
-- *Site Reliability Engineering* by Google
+- **Stripe API Documentation:** [Stripe Docs](https://stripe.com/docs/api) - Payment processing API
+- **PCI-DSS Standards:** [PCI Security Standards](https://www.pcisecuritystandards.org/) - Payment card industry compliance
+- **Payment Card Industry:** [Wikipedia](https://en.wikipedia.org/wiki/Payment_card_industry) - Industry overview
+- **Idempotency in APIs:** [Stripe Blog](https://stripe.com/blog/idempotency) - Idempotency patterns
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Transactions, ACID guarantees, distributed systems
+- *Site Reliability Engineering* by Google - Handling overload, fault tolerance
+- *Building Microservices* by Sam Newman - Service architecture patterns
+
+### Papers
+
+- *TAO: Facebook's Distributed Data Store for the Social Graph* - Cache invalidation patterns
+- *Spanner: Google's Globally-Distributed Database* - Distributed transactions, consistency
 
 ---
 
-## Interview Discussion Points
+## 17. Deployment and Infrastructure
+
+### 18.1 Multi-Region Deployment Strategy
+
+**Region Selection:**
+
+- **US-East-1** (Virginia): Primary region, largest capacity
+- **US-West-2** (Oregon): Secondary US region for failover
+- **EU-West-1** (Ireland): European users, GDPR compliance
+- **AP-Southeast-1** (Singapore): Asian users
+
+**Active-Active Configuration:**
+
+```
+Each Region:
+├── API Gateway (10 instances per AZ × 3 AZs = 30 instances)
+├── Payment Service (20 instances per AZ × 3 AZs = 60 instances)
+├── Tokenization Service (5 instances per AZ × 3 AZs = 15 instances)
+├── Fraud Detection (3 instances per AZ × 3 AZs = 9 instances)
+├── PostgreSQL Shards (16 shards × 3 replicas = 48 nodes)
+├── Redis Cluster (3 masters + 3 replicas = 6 nodes)
+└── Kafka Cluster (5 brokers × 3 AZs = 15 brokers)
+```
+
+**Cross-Region Replication:**
+
+1. **Database Replication**: Async replication with 1-2 second lag
+2. **Cache Invalidation**: Pub/sub pattern via Kafka
+3. **S3 Cross-Region Replication**: For logs and audit trails
+4. **Route53 Latency-Based Routing**: Route users to nearest region
+
+**Disaster Recovery:**
+
+- **RTO** (Recovery Time Objective): 5 minutes
+- **RPO** (Recovery Point Objective): 0 (synchronous within region, async cross-region)
+- **Backup Strategy**: Continuous backups to S3, daily snapshots
+- **Runbook**: Automated failover scripts tested quarterly
+
+### 18.2 Database Sharding Implementation
+
+**Shard Mapping Table:**
+
+```sql
+CREATE TABLE shard_map (
+    merchant_id VARCHAR(32) PRIMARY KEY,
+    shard_id INT NOT NULL,
+    shard_host VARCHAR(255),
+    shard_port INT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    INDEX (shard_id)
+);
+```
+
+**Shard Router Service:**
+
+```
+Request Flow:
+1. Client: POST /payments {merchant_id, amount, ...}
+2. API Gateway → Shard Router
+3. Shard Router:
+   - Compute: shard_id = hash(merchant_id) % 64
+   - Lookup: shard_host = shard_map[shard_id]
+   - Route request to correct shard
+4. PostgreSQL Shard: Process payment
+5. Response back through router
+```
+
+**Consistent Hashing for Shard Rebalancing:**
+
+When adding new shards (e.g., 64 → 128):
+
+```
+Old: shard = hash(merchant_id) % 64
+New: shard = hash(merchant_id) % 128
+
+Only ~50% of merchants move (not 100%)
+- Merchants 0-63 stay in same shards
+- Merchants 64-127 move to new shards
+
+Migration strategy:
+1. Deploy new shards (64-127)
+2. Stream replication from old shards
+3. Switch reads to new shards (dual-write period)
+4. Switch writes to new shards
+5. Remove old shard mappings
+```
+
+---
+
+## 18. Advanced Features
+
+### 19.1 3D Secure (3DS) Authentication
+
+**Purpose**: Additional authentication layer for high-risk transactions.
+
+**Flow:**
+
+```
+1. Risk score indicates medium risk (0.5-0.8)
+2. Payment Service redirects to 3DS challenge
+3. Customer enters OTP sent to phone
+4. Bank verifies OTP
+5. If success → liability shifts to bank (no chargeback risk)
+6. If failure → transaction declined
+
+Benefits:
+- Reduces fraud
+- Shifts chargeback liability to issuing bank
+- Required for SCA (Strong Customer Authentication) in EU
+```
+
+**Implementation:**
+
+```
+Authorization with 3DS:
+1. POST /payments {amount, card_token, ...}
+2. Fraud score: 0.65 (medium risk)
+3. Response: {status: requires_action, next_action: {type: "3ds", url: "..."}}
+4. Client redirects to 3DS URL
+5. Customer completes challenge
+6. Callback: POST /payments/{id}/confirm
+7. Complete authorization
+8. Response: {status: authorized}
+```
+
+*See pseudocode.md::handle_3ds_challenge() for implementation*
+
+### 19.2 Recurring Payments / Subscriptions
+
+**Use Case**: Netflix, Spotify subscriptions.
+
+**Components:**
+
+1. **Subscription Service**: Manages billing cycles
+2. **Scheduler**: Cron job to charge subscriptions
+3. **Retry Logic**: Retry failed charges with exponential backoff
+
+**Subscription Lifecycle:**
+
+```
+1. Create Subscription:
+   POST /subscriptions {
+     customer_id,
+     plan_id,  // monthly, annual
+     payment_method: tok_abc123
+   }
+
+2. Store Subscription:
+   subscriptions_db[sub_123] = {
+     customer: customer_456,
+     plan: plan_monthly_$9.99,
+     payment_method: tok_abc123,
+     current_period_start: 2024-01-01,
+     current_period_end: 2024-02-01,
+     status: active
+   }
+
+3. Billing Cycle (Daily Cron at 00:00 UTC):
+   - Query: SELECT * FROM subscriptions WHERE current_period_end = TODAY()
+   - For each subscription:
+     a. Charge payment method
+     b. If success → Extend period (current_period_end + 1 month)
+     c. If failure → Retry with backoff (3 attempts over 7 days)
+     d. If all fail → Mark subscription as past_due
+     e. Send webhook: invoice.payment_failed
+     f. After 30 days past_due → Cancel subscription
+
+4. Customer Update:
+   - Update payment method: PUT /subscriptions/{id}
+   - Cancel subscription: DELETE /subscriptions/{id}
+   - Resume subscription: POST /subscriptions/{id}/resume
+```
+
+**Retry Strategy:**
+
+```
+Attempt 1: Day 0 (billing date)
+Attempt 2: Day 3
+Attempt 3: Day 7
+If all fail: Mark past_due, email customer
+After 30 days: Cancel subscription
+```
+
+**Schema:**
+
+```sql
+CREATE TABLE subscriptions (
+    subscription_id VARCHAR(32) PRIMARY KEY,
+    customer_id VARCHAR(32) NOT NULL,
+    plan_id VARCHAR(32),
+    payment_method_token VARCHAR(32),
+    status VARCHAR(20),  -- active, past_due, canceled
+    current_period_start DATE,
+    current_period_end DATE,
+    cancel_at_period_end BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP,
+    canceled_at TIMESTAMP,
+    INDEX (customer_id),
+    INDEX (current_period_end, status)
+);
+```
+
+*See pseudocode.md::process_subscription_billing() for implementation*
+
+### 19.3 Payment Links
+
+**Use Case**: Send payment link via email/SMS (no website needed).
+
+**Flow:**
+
+```
+1. Merchant: POST /payment_links {
+     amount: 5000,  // $50.00
+     description: "Consultation fee",
+     success_url: "https://merchant.com/success"
+   }
+
+2. Response: {
+     link_id: "plink_abc123",
+     url: "https://pay.gateway.com/plink_abc123",
+     expires_at: "2024-01-08"  // 7 days
+   }
+
+3. Merchant sends link to customer via email
+
+4. Customer clicks link → Hosted payment page
+   - Enter card details
+   - Submit payment
+   - Gateway processes payment
+   - Redirect to success_url
+
+5. Merchant receives webhook: payment.succeeded
+```
+
+**Hosted Payment Page:**
+
+- **PCI Scope**: Gateway-hosted (merchant doesn't handle cards)
+- **Customization**: Merchant logo, colors, terms
+- **Security**: TLS 1.3, CSP headers, rate limiting
+- **Mobile-Optimized**: Responsive design
+
+**Schema:**
+
+```sql
+CREATE TABLE payment_links (
+    link_id VARCHAR(32) PRIMARY KEY,
+    merchant_id VARCHAR(32) NOT NULL,
+    amount_cents BIGINT,
+    currency CHAR(3),
+    description TEXT,
+    success_url TEXT,
+    status VARCHAR(20),  -- active, paid, expired
+    expires_at TIMESTAMP,
+    payment_id VARCHAR(32),  -- Populated after payment
+    created_at TIMESTAMP,
+    INDEX (merchant_id, status),
+    INDEX (expires_at, status)
+);
+```
+
+*See pseudocode.md::create_payment_link() for implementation*
+
+### 19.4 Split Payments (Marketplace Model)
+
+**Use Case**: Uber, Airbnb, Stripe Connect.
+
+**Scenario**:
+
+- Customer pays $100 to platform (Uber)
+- Platform takes $20 commission
+- Driver receives $80
+
+**Flow:**
+
+```
+1. Create Connected Account (Driver):
+   POST /accounts {
+     type: "express",
+     country: "US",
+     email: "driver@example.com"
+   }
+   Response: {account_id: "acct_123"}
+
+2. Onboard Driver:
+   - Collect tax information (W-9, SSN)
+   - Bank account details for payouts
+   - Identity verification (KYC)
+
+3. Customer Payment:
+   POST /payments {
+     amount: 10000,  // $100
+     application_fee_amount: 2000,  // $20 platform fee
+     on_behalf_of: "acct_123",  // Driver account
+     transfer_data: {
+       destination: "acct_123"
+     }
+   }
+
+4. Money Flow:
+   - Customer charged: $100
+   - Platform receives: $20 (application fee)
+   - Driver receives: $80 (transferred automatically)
+
+5. Payout to Driver:
+   - Automatic daily payout to driver's bank account
+   - Or on-demand payout: POST /payouts {amount: 8000, destination: bank_account}
+```
+
+**Revenue Split Models:**
+
+1. **Direct Charge + Transfer**:
+    - Platform charges customer
+    - Platform transfers to merchant
+    - Pro: Platform controls funds
+    - Con: Platform liable for chargebacks
+
+2. **Destination Charge**:
+    - Merchant charges customer
+    - Platform takes application fee
+    - Pro: Merchant liable for chargebacks
+    - Con: Merchant needs full account
+
+**Schema:**
+
+```sql
+CREATE TABLE connected_accounts (
+    account_id VARCHAR(32) PRIMARY KEY,
+    type VARCHAR(20),  -- express, standard, custom
+    country CHAR(2),
+    email VARCHAR(255),
+    verification_status VARCHAR(20),  -- pending, verified
+    payout_schedule VARCHAR(20),  -- daily, weekly, monthly
+    default_currency CHAR(3),
+    created_at TIMESTAMP
+);
+
+CREATE TABLE transfers (
+    transfer_id VARCHAR(32) PRIMARY KEY,
+    payment_id VARCHAR(32),
+    source_account_id VARCHAR(32),  -- Platform
+    destination_account_id VARCHAR(32),  -- Merchant
+    amount_cents BIGINT,
+    currency CHAR(3),
+    status VARCHAR(20),  -- pending, paid, failed
+    created_at TIMESTAMP,
+    FOREIGN KEY (payment_id) REFERENCES payments(payment_id)
+);
+```
+
+*See pseudocode.md::create_transfer() for implementation*
+
+---
+
+## 19. Performance Optimization
+
+### 20.1 Database Connection Pooling
+
+**Problem**: Opening new DB connection per request is slow (100ms handshake).
+
+**Solution**: Connection pool (reuse connections).
+
+**Configuration:**
+
+```
+Connection Pool Settings:
+- Min connections: 50 per instance
+- Max connections: 200 per instance
+- Connection timeout: 30 seconds
+- Idle timeout: 10 minutes
+- Max lifetime: 30 minutes
+
+With 60 Payment Service instances:
+- Total connections: 60 × 200 = 12,000
+- Per shard (64 shards): 12,000 / 64 = 187 connections per shard
+- PostgreSQL max_connections: 500 (safe margin)
+```
+
+### 20.2 Read Replicas for Analytics
+
+**Problem**: Merchant dashboard queries slow down payment processing.
+
+**Solution**: Route analytics queries to read replicas.
+
+**Architecture:**
+
+```
+Payment Flow (Write Path):
+  API → Primary DB (writes)
+
+Analytics Flow (Read Path):
+  Dashboard → Read Replica (reads)
+
+Replication:
+  Primary → Replica 1 (async, lag < 1s)
+  Primary → Replica 2 (async, lag < 1s)
+```
+
+### 20.3 Caching Strategy
+
+**Multi-Level Cache:**
+
+```
+Level 1: Application Cache (in-memory, per instance)
+  - Exchange rates (TTL: 1 hour)
+  - Merchant configs (TTL: 10 minutes)
+  - Size: 100 MB per instance
+
+Level 2: Redis Cache (distributed)
+  - Idempotency keys (TTL: 24 hours)
+  - Token metadata (TTL: 1 hour)
+  - Fraud features (TTL: 5 minutes)
+  - Size: 50 GB cluster
+
+Level 3: Database
+  - Source of truth
+```
+
+### 20.4 API Rate Limiting
+
+**Strategy**: Token bucket algorithm per merchant.
+
+**Limits:**
+
+```
+Tier 1 (Small Merchants):
+- 100 requests/second
+- 10,000 requests/hour
+
+Tier 2 (Medium Merchants):
+- 1,000 requests/second
+- 100,000 requests/hour
+
+Tier 3 (Enterprise):
+- 10,000 requests/second
+- 1,000,000 requests/hour
+```
+
+**Implementation:**
+
+```
+Redis-based token bucket:
+
+1. Request arrives for merchant_123
+2. Check: INCR rate_limit:merchant_123:second
+3. If count > limit → HTTP 429 (Too Many Requests)
+4. Else → Process request
+5. Set TTL: EXPIRE rate_limit:merchant_123:second 1
+
+Response Headers:
+  X-RateLimit-Limit: 100
+  X-RateLimit-Remaining: 87
+  X-RateLimit-Reset: 1609459200
+```
+
+*See pseudocode.md::check_rate_limit() for implementation*
+
+---
+
+## 20. Interview Discussion Points
 
 ### Question 1: How do you prevent double charging?
 
@@ -711,13 +1440,13 @@ Net margin: 99.9% (infrastructure negligible)
 2. Server checks Redis cache for key
 3. If exists → return cached result
 4. If not → process payment, cache result with 24h TTL
-5. Scope: per merchant
+5. Scope: per merchant (merchant_A and merchant_B can use same key)
 
 **Follow-up**: What if Redis fails?
 
-- Graceful degradation: Query database
-- Slower but correct
-- Alert ops team
+- Graceful degradation: Query database for duplicate payment_id
+- Slower but still correct
+- Alert ops team to restore Redis
 
 ### Question 2: Why PostgreSQL instead of NoSQL?
 
@@ -725,24 +1454,46 @@ Net margin: 99.9% (infrastructure negligible)
 
 **Deep Dive:**
 
-- **Atomicity**: All-or-nothing
-- **Consistency**: Referential integrity
-- **Isolation**: No concurrent interference
-- **Durability**: Survives crashes
+- **Atomicity**: All-or-nothing (can't partially charge)
+- **Consistency**: Referential integrity (payments reference valid tokens)
+- **Isolation**: Concurrent transactions don't interfere
+- **Durability**: Committed transactions survive crashes
 
-**Scaling**: Horizontal sharding (64 shards by merchant_id)
+**NoSQL Trade-offs:**
+
+- Cassandra: Eventual consistency (unacceptable for money)
+- DynamoDB: Limited transactions (max 25 items)
+- MongoDB: Recently added transactions, but less mature
+
+**Scaling PostgreSQL:**
+
+- Horizontal sharding by merchant_id (64 shards)
+- Each shard: 300 writes/sec (total 19,200 writes/sec)
+- Read replicas for analytics queries
 
 ### Question 3: How do you handle bank API failures?
 
-**Answer**: Circuit breaker + multiple processors.
+**Answer**: Circuit breaker pattern + multiple processors.
+
+**Deep Dive:**
 
 **Circuit Breaker States:**
 
-1. **Closed**: Normal operation
-2. **Open**: Fail fast
-3. **Half-Open**: Testing recovery
+1. **Closed** (normal): All requests go through
+2. **Open** (bank down): Fail fast, return error immediately
+3. **Half-Open** (testing): Send test request after cooldown
 
-**Config**: 50% error threshold, 60s cooldown
+**Configuration:**
+
+- Failure threshold: 50% error rate over 10 seconds
+- Cooldown: 60 seconds
+- Success threshold: 5 consecutive successes to close
+
+**Multiple Processors:**
+
+- Visa processor A (primary)
+- Visa processor B (backup)
+- If both fail → return error (don't retry indefinitely)
 
 ### Question 4: How do you scale to 20k QPS?
 
@@ -750,17 +1501,23 @@ Net margin: 99.9% (infrastructure negligible)
 
 **Horizontal Scaling:**
 
-- API Gateway: 100 instances
-- Payment Service: 200 instances
-- Database: 64 shards
-- Redis: 10-node cluster
+1. **API Gateway**: 100 instances behind load balancer
+2. **Payment Service**: 200 instances (stateless)
+3. **Database**: 64 shards (300 writes/sec each)
+4. **Redis**: 10-node cluster (200k ops/sec)
 
 **Vertical Optimizations:**
 
-- Connection pooling
-- Redis caching
-- Async webhooks
-- Read replicas
+1. **Connection Pooling**: Reuse DB connections (avoid 100ms handshake)
+2. **Caching**: Redis for idempotency (1ms vs 10ms DB query)
+3. **Async Webhooks**: Don't block payment flow on merchant endpoint
+4. **Read Replicas**: Route analytics to replicas (offload primary)
+
+**Bottleneck Identification:**
+
+- Monitor: Latency, error rate, resource utilization
+- Profiling: Flame graphs to find slow code paths
+- Load testing: Identify breaking points before production
 
 ### Question 5: How do you ensure PCI-DSS compliance?
 
@@ -768,666 +1525,23 @@ Net margin: 99.9% (infrastructure negligible)
 
 **Strategy:**
 
-1. **Minimize Scope**: Only Tokenization Service stores cards
-2. **Secure Service**: Isolated VPC, HSM for keys, AES-256 encryption
-3. **Regular Audits**: Annual PCI assessment, quarterly scans
-4. **Employee Training**: Security awareness, background checks
-
----
-
-## Advanced Features
-
-### 3D Secure (3DS) Authentication
-
-**Purpose**: Additional authentication for high-risk transactions.
-
-**Flow:**
-
-```
-1. Risk score: 0.65 (medium)
-2. Redirect to 3DS challenge
-3. Customer enters OTP
-4. Bank verifies
-5. If success → liability shifts to bank
-```
-
-**Benefits**:
-
-- Reduces fraud
-- Required for EU SCA
-- Shifts chargeback liability
-
-### Recurring Payments / Subscriptions
-
-**Use Case**: Netflix, Spotify billing.
-
-**Lifecycle:**
-
-```
-1. Create subscription
-2. Store with billing cycle
-3. Daily cron charges on due date
-4. Retry failed charges (Day 0, 3, 7)
-5. After 30 days → Cancel
-```
-
-**Schema:**
-
-```sql
-CREATE TABLE subscriptions (
-    subscription_id VARCHAR(32) PRIMARY KEY,
-    customer_id VARCHAR(32),
-    plan_id VARCHAR(32),
-    payment_method_token VARCHAR(32),
-    status VARCHAR(20),
-    current_period_end DATE
-);
-```
-
-### Payment Links
-
-**Use Case**: Send payment via email/SMS.
-
-**Flow:**
-
-```
-1. Merchant: POST /payment_links {amount, description}
-2. Response: {url: "https://pay.gateway.com/plink_abc"}
-3. Send to customer
-4. Customer pays on hosted page
-5. Merchant receives webhook
-```
-
-**Benefits**:
-
-- No website needed
-- Gateway handles PCI
-- Mobile-optimized
-
-### Split Payments (Marketplace)
-
-**Use Case**: Uber, Airbnb platforms.
-
-**Scenario**:
-
-- Customer pays $100
-- Platform takes $20 commission
-- Driver receives $80
-
-**Flow:**
-
-```
-POST /payments {
-  amount: 10000,
-  application_fee_amount: 2000,
-  transfer_data: {destination: "acct_driver"}
-}
-
-Result:
-- Customer: -$100
-- Platform: +$20
-- Driver: +$80 (auto-transfer)
-```
-
----
-
-## Performance Optimization
-
-### Database Connection Pooling
-
-**Problem**: New connection per request = 100ms overhead.
-
-**Solution**: Connection pool.
-
-**Config:**
-
-- Min: 50 connections per instance
-- Max: 200 connections per instance
-- Total: 60 instances × 200 = 12k connections
-- Per shard: 12k / 64 = 187 connections
-
-### Read Replicas
-
-**Problem**: Dashboard queries slow down payments.
-
-**Solution**: Route analytics to read replicas.
-
-```
-Write Path: API → Primary DB
-Read Path: Dashboard → Read Replica (1s lag OK)
-```
-
-### Multi-Level Caching
-
-**Levels:**
-
-1. **Application Cache**: In-memory (100 MB per instance)
-    - Exchange rates (1h TTL)
-    - Merchant configs (10m TTL)
-
-2. **Redis Cache**: Distributed (50 GB cluster)
-    - Idempotency keys (24h TTL)
-    - Token metadata (1h TTL)
-    - Fraud features (5m TTL)
-
-3. **Database**: Source of truth
-
-### API Rate Limiting
-
-**Strategy**: Token bucket per merchant.
-
-**Limits:**
-
-- Tier 1 (Small): 100 req/sec
-- Tier 2 (Medium): 1,000 req/sec
-- Tier 3 (Enterprise): 10,000 req/sec
-
-**Implementation**: Redis INCR with TTL.
-
----
-
-## Deployment Strategy
-
-### Multi-Region Architecture
-
-**Regions:**
-
-- US-East-1 (Primary)
-- US-West-2 (Secondary)
-- EU-West-1 (GDPR compliance)
-- AP-Southeast-1 (Asian users)
-
-**Per Region:**
-
-- API Gateway: 30 instances
-- Payment Service: 60 instances
-- PostgreSQL: 16 shards × 3 replicas
-- Redis: 6 nodes
-- Kafka: 15 brokers
-
-**Disaster Recovery:**
-
-- RTO: 5 minutes
-- RPO: 0 (sync within region)
-- Automated failover scripts
-
-### Database Sharding
-
-**Strategy**: Hash-based sharding by merchant_id.
-
-**Shard Calculation:**
-
-```
-shard_id = hash(merchant_id) % 64
-```
-
-**Benefits:**
-
-- All merchant payments on same shard
-- Enables merchant-scoped analytics
-- Even distribution
-
-**Rebalancing**: Consistent hashing when adding shards (only 50% move).
-
----
-
-## Testing
-
-### Unit Tests
-
-**Critical Functions:**
-
-1. **Idempotency**: Same key → same result
-2. **Amount Calculation**: Integer arithmetic only
-3. **Fraud Scoring**: Known patterns flagged
-4. **Tokenization**: Encryption/decryption
-
-### Integration Tests
-
-**Scenarios:**
-
-1. **Successful Flow**: Authorize → Capture
-2. **Idempotency**: Retry returns same payment_id
-3. **Fraud Block**: High-risk transaction blocked
-
-### Load Testing
-
-**Black Friday Simulation:**
-
-- Tool: JMeter / Locust
-- Profile: 0 → 20k QPS over 10 min
-- Sustain: 20k QPS for 40 min
-- Mix: 70% auth, 20% token, 10% other
-
-**Success Criteria:**
-
-- p95 latency < 500ms
-- Error rate < 0.1%
-- Resource utilization < 80%
-
-### Chaos Engineering
-
-**Experiments:**
-
-1. **Database Failover**: Kill primary, verify auto-promotion
-2. **Bank API Outage**: Simulate 500 errors, verify circuit breaker
-3. **Network Partition**: Isolate AZ, verify traffic reroute
-4. **Cache Failure**: Stop Redis, verify graceful degradation
-
----
-
-## Compliance and Auditing
-
-### Audit Logging
-
-**What to Log:**
-
-1. **Card Data Access**: Who, what, when, where, result
-2. **Payment State Changes**: Previous → new state, trigger, reason
-3. **Configuration Changes**: Settings, API keys, webhooks
-4. **Security Events**: Failed auth, rate limits, fraud
-
-**Schema:**
-
-```sql
-CREATE TABLE audit_logs (
-    log_id BIGSERIAL PRIMARY KEY,
-    event_type VARCHAR(64),
-    actor_id VARCHAR(32),
-    resource_type VARCHAR(32),
-    action VARCHAR(32),
-    previous_value JSONB,
-    new_value JSONB,
-    created_at TIMESTAMP
-);
-```
-
-**Retention**: 7 years (PCI requirement: 1 year minimum)
-
-### SOC 2 Compliance
-
-**Trust Criteria:**
-
-1. **Security**: Authorized access controls
-2. **Availability**: 99.99% uptime SLA
-3. **Processing Integrity**: Complete, valid, accurate
-4. **Confidentiality**: Protected information
-5. **Privacy**: Personal data handling
-
-**Controls:**
-
-- MFA for all employees
-- Principle of least privilege
-- 24/7 SOC monitoring
-- Weekly DR drills
-
----
-
-## Key Architectural Decisions Summary
-
-### 1. Two-Phase Commit (Authorization → Capture)
-
-**Why**: Flexibility for merchants to cancel before capture.
-
-**Trade-off**: More complexity but reduces refunds.
-
-### 2. Idempotency Keys
-
-**Why**: Prevent double charges on network retry.
-
-**Trade-off**: Client must generate UUIDs.
-
-### 3. Tokenization
-
-**Why**: Reduce PCI scope (only one service stores cards).
-
-**Trade-off**: Additional service to maintain.
-
-### 4. PostgreSQL with Sharding
-
-**Why**: ACID guarantees for financial data.
-
-**Trade-off**: Harder to scale than NoSQL (need sharding).
-
-### 5. Async Webhooks
-
-**Why**: Don't block payment flow on merchant endpoint.
-
-**Trade-off**: Merchant must handle eventual delivery.
-
-### 6. Real-Time Fraud Detection
-
-**Why**: Block fraud before money moves.
-
-**Trade-off**: Adds 50ms latency to authorization.
-
-### 7. Circuit Breaker for Bank APIs
-
-**Why**: Prevent cascading failures.
-
-**Trade-off**: Some requests fail fast (better than timeout).
-
-### 8. Multi-Region Deployment
-
-**Why**: Low latency globally + high availability.
-
-**Trade-off**: 2x infrastructure cost.
-
----
-
-## Comparison with Real Systems
-
-### Stripe
-
-**Similarities:**
-
-- PostgreSQL for ledger
-- Redis for idempotency
-- Tokenization for PCI scope reduction
-- Webhook delivery system
-
-**Differences:**
-
-- Started as Rails monolith (we start with microservices)
-- More emphasis on developer experience (SDKs, docs)
-
-### PayPal
-
-**Similarities:**
-
-- Two-phase commit (authorization → capture)
-- Fraud detection with ML
-- Multi-region deployment
-
-**Differences:**
-
-- Oracle database historically (we use PostgreSQL)
-- Buyer/seller protection (dispute resolution)
-- More focus on consumer payments (we focus on merchant)
-
-### Square
-
-**Similarities:**
-
-- MySQL/PostgreSQL for transactions
-- Real-time authorization
-- Webhook notifications
-
-**Differences:**
-
-- Unified online + offline (point-of-sale hardware)
-- Focus on small businesses
-- Simpler API (we have more advanced features)
-
----
-
-## Conclusion
-
-This payment gateway design demonstrates:
-
-- **Financial Integrity**: ACID transactions, idempotency, immutable ledger
-- **Security**: PCI-DSS compliance, tokenization, encryption
-- **Scalability**: 20k QPS via sharding, caching, horizontal scaling
-- **Availability**: 99.99% uptime via multi-region, circuit breakers
-- **Fraud Prevention**: Real-time ML scoring, 3D Secure
-- **Developer Experience**: Clean API, webhooks, comprehensive docs
-
-**Key Takeaways:**
-
-1. Use ACID database (PostgreSQL) for financial transactions
-2. Implement idempotency to prevent double charges
-3. Tokenize cards to reduce PCI scope
-4. Shard database by merchant_id for horizontal scaling
-5. Use circuit breakers to handle bank API failures
-6. Deploy multi-region for low latency and high availability
-7. Real-time fraud detection with ML models
-8. Comprehensive testing (unit, integration, load, chaos)
-9. Audit logging for compliance
-10. Monitor business and system metrics
-
-The system handles **$297M/month revenue** on **$345k/month infrastructure** (99.9% margin), processing **170M
-transactions/day** at **20k QPS peak** with **< 500ms latency** and **99.99% uptime**.
-
-
----
-
-## Additional Technical Deep Dives
-
-### Idempotency Implementation Details
-
-**Redis Storage:**
-
-```
-Key: idempotency:{merchant_id}:{idempotency_key}
-Value: {
-  payment_id,
-  status,
-  amount_cents,
-  response_payload,
-  created_at
-}
-TTL: 86400 seconds (24 hours)
-```
-
-**Edge Cases:**
-
-1. **Concurrent Requests**: Use Redis SETNX for atomic check-and-set
-2. **Partial Success**: Store intermediate state for resume
-3. **Key Expiry**: After 24h, allow reprocessing (merchant should use new key)
-
-### Fraud Detection Model Features
-
-**Transaction Features (10):**
-
-- Amount, currency, merchant_category
-- Time of day, day of week
-- Device fingerprint
-- IP address, geolocation
-- Billing vs shipping address match
-- Velocity (transactions per hour)
-
-**Card Features (8):**
-
-- Card brand, issuing bank
-- Card country vs IP country
-- Previous decline rate
-- First transaction on card
-- Card age (days since first use)
-- BIN (Bank Identification Number) risk score
-- Credit vs debit
-
-**Customer Features (12):**
-
-- Email domain reputation
-- Phone number verification
-- Account age (days since registration)
-- Previous successful payments
-- Chargeback history
-- Device history (known vs new)
-- Browser/user agent
-- Operating system
-- Screen resolution (fraud bots often have unusual resolutions)
-- Timezone match with IP
-- Language/locale
-- Referrer URL
-
-**Model**: XGBoost with 30 features, trained daily on 1M labeled transactions.
-
-**Performance**:
-
-- True Positive Rate: 85% (correctly block fraud)
-- False Positive Rate: 2% (incorrectly block legitimate)
-- Inference Time: 20ms (on GPU)
-
-### Database Schema Complete
-
-**Full Schema (7 tables):**
-
-```sql
--- Core payment tracking
-CREATE TABLE payments (
-    payment_id VARCHAR(32) PRIMARY KEY,
-    merchant_id VARCHAR(32) NOT NULL,
-    customer_id VARCHAR(32),
-    idempotency_key VARCHAR(64) UNIQUE,
-    amount_cents BIGINT NOT NULL,
-    currency CHAR(3) DEFAULT 'USD',
-    status VARCHAR(20),
-    card_token VARCHAR(32),
-    authorization_code VARCHAR(64),
-    captured_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    INDEX idx_merchant_created (merchant_id, created_at),
-    INDEX idx_status (status),
-    INDEX idx_customer (customer_id, created_at)
-);
-
--- Immutable event log
-CREATE TABLE payment_events (
-    event_id BIGSERIAL PRIMARY KEY,
-    payment_id VARCHAR(32) NOT NULL,
-    event_type VARCHAR(32),
-    previous_status VARCHAR(20),
-    new_status VARCHAR(20),
-    metadata JSONB,
-    created_at TIMESTAMP DEFAULT NOW(),
-    INDEX idx_payment (payment_id, created_at)
-);
-
--- Tokenized cards
-CREATE TABLE tokens (
-    token_id VARCHAR(32) PRIMARY KEY,
-    card_fingerprint CHAR(64),
-    encrypted_card BYTEA,
-    card_brand VARCHAR(20),
-    last4 CHAR(4),
-    exp_month INT,
-    exp_year INT,
-    merchant_id VARCHAR(32),
-    created_at TIMESTAMP DEFAULT NOW(),
-    INDEX idx_merchant (merchant_id, created_at),
-    INDEX idx_fingerprint (card_fingerprint)
-);
-
--- Refunds
-CREATE TABLE refunds (
-    refund_id VARCHAR(32) PRIMARY KEY,
-    payment_id VARCHAR(32) NOT NULL,
-    amount_cents BIGINT,
-    reason VARCHAR(255),
-    status VARCHAR(20),
-    created_at TIMESTAMP DEFAULT NOW(),
-    completed_at TIMESTAMP,
-    FOREIGN KEY (payment_id) REFERENCES payments(payment_id),
-    INDEX idx_payment (payment_id)
-);
-
--- Exchange rates
-CREATE TABLE exchange_rates (
-    rate_id BIGSERIAL PRIMARY KEY,
-    base_currency CHAR(3),
-    quote_currency CHAR(3),
-    rate DECIMAL(18, 8),
-    valid_from TIMESTAMP,
-    valid_until TIMESTAMP,
-    INDEX idx_currencies (base_currency, quote_currency, valid_from)
-);
-
--- Webhooks
-CREATE TABLE webhooks (
-    webhook_id BIGSERIAL PRIMARY KEY,
-    merchant_id VARCHAR(32),
-    event_type VARCHAR(64),
-    payload JSONB,
-    url TEXT,
-    status VARCHAR(20),
-    attempts INT DEFAULT 0,
-    last_attempt_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW(),
-    INDEX idx_merchant_status (merchant_id, status),
-    INDEX idx_created (created_at)
-);
-
--- Audit logs
-CREATE TABLE audit_logs (
-    log_id BIGSERIAL PRIMARY KEY,
-    event_type VARCHAR(64),
-    actor_id VARCHAR(32),
-    resource_type VARCHAR(32),
-    resource_id VARCHAR(32),
-    action VARCHAR(32),
-    previous_value JSONB,
-    new_value JSONB,
-    created_at TIMESTAMP DEFAULT NOW(),
-    INDEX idx_resource (resource_type, resource_id),
-    INDEX idx_actor (actor_id, created_at)
-);
-```
-
-### API Endpoints Summary
-
-**Payment Operations:**
-
-- POST /tokens - Tokenize card
-- POST /payments - Authorize payment
-- POST /payments/{id}/capture - Capture authorized payment
-- POST /payments/{id}/cancel - Cancel authorization
-- GET /payments/{id} - Get payment details
-- POST /payments/{id}/refunds - Create refund
-
-**Subscription Operations:**
-
-- POST /subscriptions - Create subscription
-- GET /subscriptions/{id} - Get subscription
-- PUT /subscriptions/{id} - Update subscription
-- DELETE /subscriptions/{id} - Cancel subscription
-
-**Marketplace Operations:**
-
-- POST /accounts - Create connected account
-- POST /transfers - Create transfer
-- POST /payouts - Create payout
-
-**Utility Operations:**
-
-- POST /payment_links - Create payment link
-- GET /exchange_rates - Get current rates
-- POST /webhooks - Register webhook endpoint
-
-### Error Codes and Handling
-
-**HTTP Status Codes:**
-
-- 200 OK: Success
-- 400 Bad Request: Invalid parameters
-- 401 Unauthorized: Invalid API key
-- 402 Payment Required: Insufficient funds
-- 404 Not Found: Resource not found
-- 409 Conflict: Duplicate idempotency key with different params
-- 429 Too Many Requests: Rate limit exceeded
-- 500 Internal Server Error: Our fault
-- 502 Bad Gateway: Bank API error
-- 503 Service Unavailable: Maintenance mode
-
-**Error Response Format:**
-
-```json
-{
-  "error": {
-    "type": "card_error",
-    "code": "insufficient_funds",
-    "message": "Your card has insufficient funds.",
-    "param": "amount",
-    "payment_id": "pay_abc123"
-  }
-}
-```
-
-**Error Categories:**
-
-1. **Card Errors**: insufficient_funds, expired_card, incorrect_cvc
-2. **API Errors**: invalid_request, authentication_required
-3. **Rate Limit Errors**: rate_limit_exceeded
-4. **Processing Errors**: processing_error, bank_timeout
-
+1. **Minimize Scope**:
+    - Only Tokenization Service stores cards
+    - Payment Service never sees raw cards (only tokens)
+    - Smaller scope = cheaper compliance
+
+2. **Secure Tokenization Service**:
+    - Isolated VPC (no internet access)
+    - Hardware Security Module (HSM) for keys
+    - Encrypted at rest (AES-256) and in transit (TLS 1.3)
+    - Access logged to immutable audit log
+
+3. **Regular Audits**:
+    - Annual PCI-DSS assessment by QSA (Qualified Security Assessor)
+    - Quarterly vulnerability scans by ASV (Approved Scanning Vendor)
+    - Penetration testing annually
+
+4. **Employee Training**:
+    - Security awareness training for all employees
+    - PCI-specific training for engineers with card access
+    - Background checks for personnel with access

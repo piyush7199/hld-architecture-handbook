@@ -31,8 +31,8 @@ Each completed design challenge now includes **6 comprehensive files** for compl
 ```
 03-challenges/
 └── 3.x.y-problem-name/
-    ├── 3.x.y-design-problem-name.md    # FULL comprehensive guide (main file)
-    ├── README.md                        # Similar to main file with quick navigation
+    ├── README.md                        # FULL comprehensive guide (primary document, replaces main design file)
+    ├── quick-overview.md                # Quick revision guide with core concepts, architecture flows, key takeaways
     ├── hld-diagram.md                   # System architecture diagrams (10-15 Mermaid diagrams)
     ├── sequence-diagrams.md             # Detailed interaction flows (10-15 Mermaid diagrams)
     ├── this-over-that.md                # In-depth design decisions & trade-offs analysis
@@ -48,6 +48,7 @@ Each completed design challenge now includes **6 comprehensive files** for compl
 - 🚀 **GitHub Native:** Renders beautifully in GitHub without external tools
 - 🧠 **Deep Understanding:** Detailed "This Over That" analysis explains WHY each architectural choice was made
 - 💻 **Implementation Ready:** Comprehensive pseudocode with time complexity analysis
+- 📖 **Quick Revision:** quick-overview.md provides concise summaries for fast review
 
 ## 🗺️ Learning Roadmap: Core Concepts
 
@@ -164,8 +165,8 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 **📊 Each challenge folder contains 6 comprehensive files:**
 
-- **[3.x.y-design-problem-name.md]** - Complete comprehensive guide with all content (main file)
-- **[README.md]** - Quick navigation with links to all supplementary files
+- **[README.md]** - Complete comprehensive guide with all content (primary document, replaces main design file)
+- **[quick-overview.md]** - Quick revision guide with core concepts, architecture flows, and key takeaways
 - **[hld-diagram.md]** - 10-15 system architecture diagrams with detailed flow explanations
 - **[sequence-diagrams.md]** - 10-15 interaction flows with step-by-step explanations
 - **[this-over-that.md]** - In-depth analysis of 5-10 major design decisions and trade-offs
@@ -278,15 +279,17 @@ When adding a new design challenge to `03-challenges/`, create a folder `3.x.y-p
 
 ```
 03-challenges/3.x.y-problem-name/
-├── 3.x.y-design-problem-name.md    # Main comprehensive guide
-├── README.md                        # Quick overview with navigation links
+├── README.md                        # Main comprehensive guide (primary document, replaces old main design file)
+├── quick-overview.md                # Quick revision guide with core concepts, architecture flows, key takeaways
 ├── hld-diagram.md                   # 10-15 architecture diagrams (Mermaid)
 ├── sequence-diagrams.md             # 10-15 sequence diagrams (Mermaid)
 ├── this-over-that.md                # In-depth design decision analysis
 └── pseudocode.md                    # Algorithm implementations
 ```
 
-#### Main File Template (3.x.y-design-problem-name.md):
+**⚠️ IMPORTANT:** The main design file (`3.x.y-design-problem-name.md`) should NOT exist in the final structure. Its content should be moved to `README.md`, and a `quick-overview.md` file should be created for quick revision purposes.
+
+#### Main File Template (README.md):
 
 **REQUIRED STRUCTURE** (must follow this exact order):
 
@@ -431,13 +434,14 @@ result = function_name(arg1, arg2)
 
 **Key Requirements:**
 
-- **STANDARDIZED FORMAT**: All main challenge files MUST follow this exact structure:
+- **STANDARDIZED FORMAT**: All README files MUST follow this exact structure:
     1. Title
     2. "Note on Implementation Details" block (referencing pseudocode.md)
-    3. "📊 Visual Diagrams & Resources" section (with links to all 6 files)
+    3. "📊 Visual Diagrams & Resources" section (with links to all supplementary files)
     4. Section numbering starts at "## 1. Problem Statement"
     5. Continue with "## 2. Requirements...", "## 3. High-Level Architecture", etc.
-- Main file: NO programming language code, NO detailed pseudocode (describe in words, reference pseudocode.md)
+- **README.md**: NO programming language code, NO detailed pseudocode (describe in words, reference pseudocode.md)
+- **quick-overview.md**: Concise revision guide (300-600 lines) with core concepts, architecture flows, key design decisions, bottlenecks, anti-patterns, trade-offs, real-world examples, and key takeaways
 - All diagrams MUST have flow explanations (steps, benefits, trade-offs)
 - this-over-that.md: 5-10 major decisions with detailed analysis
 - pseudocode.md: 10-20 functions with complexity analysis

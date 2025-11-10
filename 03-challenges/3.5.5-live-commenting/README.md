@@ -13,126 +13,175 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
 Design a real-time commenting system for live streaming platforms like **Facebook Live** or **Twitch** that delivers
 comments to millions of concurrent viewers with sub-second latency. The system must handle massive fanout (1 comment → 5M
-viewers), extreme write bursts (10k comments/sec), real-time moderation, and maintain persistent connections.
+viewers), extreme write bursts (10k comments/sec), real-time moderation, and maintain persistent connections for instant
+delivery.
 
-**Core Challenges:**
+**Key Challenges:**
 
-- **Massive Fanout**: One comment broadcast to 5 million viewers simultaneously
-- **Real-Time Delivery**: Comments appear within 500ms
+- **Massive Fanout**: Single comment must reach millions of viewers simultaneously
+- **Real-Time Delivery**: Comments must appear within 500ms
 - **Connection Management**: Maintain millions of persistent WebSocket connections
 - **Bursty Traffic**: Handle sudden spikes during viral moments
-- **Moderation**: Filter offensive content without blocking delivery
+- **Moderation**: Filter offensive content in real-time without blocking delivery
+- **Horizontal Scaling**: Scale WebSocket servers while maintaining connection affinity
 
-Unlike traditional chat, live commenting requires broadcast-first architecture optimized for one-to-many delivery at
-extreme scale.
+Unlike traditional chat systems, live commenting requires:
+
+- **Broadcast-First Architecture**: One-to-many delivery (not peer-to-peer)
+- **Ephemeral Priority**: Real-time delivery more critical than durability
+- **Massive Concurrency**: Handle millions of simultaneous connections per stream
+- **Adaptive Throttling**: Sample comments during extreme traffic to prevent overload
 
 ---
 
-## Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements
+### 2.1 Functional Requirements
 
 | Requirement | Description | Priority |
 |------------|-------------|----------|
-| **Real-Time Delivery** | Comments broadcast within 500ms | Critical |
-| **High Fanout** | Single comment → millions of viewers | Critical |
-| **Persistent Connections** | WebSocket connections for instant push | Critical |
+| **Real-Time Delivery** | Comments broadcast to all viewers within 500ms | Critical |
+| **High Fanout** | Single comment delivered to millions of viewers simultaneously | Critical |
+| **Persistent Connections** | Maintain WebSocket connections for instant push | Critical |
 | **Moderation** | Real-time spam/offensive content filtering | High |
-| **Comment History** | Store comments for replay | Medium |
+| **Comment History** | Store comments for replay/analytics | Medium |
 | **User Presence** | Show active viewer count | High |
+| **Emoji Reactions** | Support quick reactions (like, heart, etc.) | Medium |
+| **Pinned Comments** | Allow broadcasters to pin important comments | Low |
 
-### Non-Functional Requirements
+### 2.2 Non-Functional Requirements
 
 | Requirement | Target | Justification |
 |------------|--------|---------------|
-| **Comment Latency** | $< 500$ ms (p95) | Sub-second delivery |
-| **Connection Stability** | 99.9% uptime | Uninterrupted streams |
-| **Write Throughput** | 10k comments/sec | Handle viral moments |
+| **Comment Latency** | $< 500$ ms (p95) | Sub-second delivery for real-time feel |
+| **Connection Stability** | 99.9% uptime | Viewers expect uninterrupted streams |
+| **Write Throughput** | 10k comments/sec per stream | Handle viral moments |
 | **Fanout Capacity** | 50B pushes per event | 10k comments × 5M viewers |
-| **Connection Limit** | 1M per server | Efficient resources |
+| **Connection Limit** | 1M connections per server | Efficient resource utilization |
+| **Data Consistency** | Eventual consistency acceptable | Real-time delivery prioritized over ordering |
 
-### Scale Estimation
+### 2.3 Scale Estimation
 
 #### Traffic Metrics
 
 | Metric | Assumption | Calculation | Result |
 |--------|-----------|-------------|---------|
 | **Concurrent Viewers** | 5M viewers per major event | - | 5M concurrent connections |
-| **Comment Ingestion** | 2% active commenters | $5M \times 0.02$ | 100k active writers |
-| **Peak Comment Rate** | 10% commenters/sec | $100k \times 0.1$ | 10k comments/sec |
-| **Fanout Operations** | 10k × 5M viewers | $10k \times 5M$ | 50B pushes/sec peak |
-| **Average Rate** | 1k comments/sec sustained | - | 1k comments/sec avg |
-| **Event Duration** | 2 hours streaming | - | 2 hours |
+| **Comment Ingestion** | 2% of viewers comment actively | $5M \times 0.02 = 100k$ active commenters | 100k potential writers |
+| **Peak Comment Rate** | 10% of active commenters/sec | $100k \times 0.1$ | 10k comments/sec |
+| **Fanout Operations** | 10k comments × 5M viewers | $10k \times 5M$ | 50B pushes/sec peak |
+| **Average Comment Rate** | 1k comments/sec sustained | - | 1k comments/sec avg |
+| **Typical Event Duration** | 2 hours | - | 2 hours streaming |
 
 #### Storage Estimation
 
 | Component | Calculation | Result |
 |-----------|-------------|---------|
-| **Comment Size** | 200 bytes avg | 200 bytes |
-| **Comments per Event** | 1k/sec × 7200 sec | 7.2M comments |
-| **Storage per Event** | $7.2M \times 200$ bytes | 1.44 GB/event |
+| **Comment Size** | 200 bytes avg (text + metadata) | 200 bytes |
+| **Comments per Event** | 1k comments/sec × 7200 sec | 7.2M comments |
+| **Storage per Event** | $7.2M \times 200 \text{ bytes}$ | 1.44 GB/event |
 | **Daily Events** | 10k simultaneous streams | 10k events |
-| **Daily Storage** | $10k \times 1.44$ GB | 14.4 TB/day |
-| **Annual Storage** | $14.4$ TB × 365 | 5.26 PB/year |
+| **Daily Storage** | $10k \times 1.44 \text{ GB}$ | 14.4 TB/day |
+| **Annual Storage** | $14.4 \text{ TB} \times 365$ | 5.26 PB/year |
+| **With Compression** | $5.26 \text{ PB} \times 0.3$ | 1.58 PB/year |
 
 #### Bandwidth Estimation
 
 | Metric | Calculation | Result |
 |--------|-------------|---------|
-| **Comment Payload** | 200 bytes | 200 bytes |
-| **Peak Fanout** | $10k \times 5M \times 200$ | 10 TB/sec peak |
-| **Average Fanout** | $1k \times 5M \times 200$ | 1 TB/sec avg |
-| **Daily Bandwidth** | 1 TB/sec × 86400 | 86 PB/day |
-| **Monthly** | 86 PB × 30 | 2.58 EB/month |
+| **Comment Payload** | 200 bytes per comment | 200 bytes |
+| **Peak Fanout Bandwidth** | $10k \times 5M \times 200 \text{ bytes}$ | 10 TB/sec peak |
+| **Average Fanout Bandwidth** | $1k \times 5M \times 200 \text{ bytes}$ | 1 TB/sec avg |
+| **Daily Bandwidth** | $1 \text{ TB/sec} \times 86400 \text{ sec}$ | 86 PB/day |
+| **Monthly Bandwidth** | $86 \text{ PB} \times 30$ | 2.58 EB/month |
 
-**Key Insight**: Bandwidth dominates infrastructure cost. Optimization through compression and adaptive sampling is
-critical.
+**Key Insight**: Bandwidth cost is the dominant expense. Optimization strategies include compression, adaptive sampling,
+and efficient serialization.
+
+#### Infrastructure Estimation
+
+| Component | QPS | CPU per Request | Total Cores |
+|-----------|-----|-----------------|-------------|
+| **Ingestion Service** | 10k peak writes | 10ms CPU | $\sim 100$ cores |
+| **Moderation Service** | 10k peak | 50ms CPU | $\sim 500$ cores |
+| **WebSocket Servers** | 5M connections | 0.1ms per message | $\sim 5,000$ servers |
+| **Broadcast Coordinator** | 10k fanout ops | 20ms CPU | $\sim 200$ cores |
+
+**Total Infrastructure**: 5,000+ servers primarily for WebSocket connection management.
 
 ---
 
-## High-Level Architecture
+## 3. High-Level Architecture
 
-Specialized **Pub/Sub architecture** optimized for **massive fanout-on-write** using **WebSockets**.
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
+
+The system is a specialized **Pub/Sub architecture** optimized for **massive fanout-on-write** using **WebSockets** for
+real-time bidirectional communication.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│           Live Commenting System                     │
-├─────────────────────────────────────────────────────┤
-│                                                       │
-│  Viewers (5M) → WebSocket Cluster (5k servers)      │
-│                        ↓                             │
-│               Broadcast Coordinator                  │
-│                        ↓                             │
-│                  Kafka Stream                        │
-│                    ↙        ↘                        │
-│           Moderation      Persistence                │
-│           Service         (Cassandra)                │
-│                                                       │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Live Commenting System                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  ┌──────────┐                                                                │
+│  │ Viewers  │                                                                │
+│  │ (5M)     │                                                                │
+│  └────┬─────┘                                                                │
+│       │ WebSocket                                                            │
+│       ↓                                                                      │
+│  ┌──────────────────────────────────────┐                                   │
+│  │   WebSocket Cluster (5k servers)     │                                   │
+│  │   - Persistent connections            │                                   │
+│  │   - Push comments to viewers          │                                   │
+│  └─────────┬────────────────────────────┘                                   │
+│            │ Redis Pub/Sub                                                   │
+│            ↓                                                                 │
+│  ┌──────────────────────────────────────┐                                   │
+│  │   Broadcast Coordinator               │                                   │
+│  │   - Fanout orchestration              │                                   │
+│  │   - Connection routing                │                                   │
+│  └─────────┬────────────────────────────┘                                   │
+│            │ Kafka Stream                                                    │
+│            ↓                                                                 │
+│  ┌──────────────────────────────────────┐                                   │
+│  │   Kafka (Comment Stream)              │                                   │
+│  │   - Buffer comments                   │                                   │
+│  │   - Event sourcing                    │                                   │
+│  └─────┬───────────┬─────────────────────┘                                  │
+│        │           │                                                         │
+│        │           └─────────────┐                                           │
+│        ↓                         ↓                                           │
+│  ┌─────────────┐          ┌──────────────┐                                  │
+│  │ Moderation  │          │  Persistence │                                  │
+│  │ Service     │          │  (Cassandra) │                                  │
+│  └─────────────┘          └──────────────┘                                  │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Core Components
+### 3.1 Core Components
 
 | Component | Technology | Purpose | Scalability |
 |-----------|-----------|---------|-------------|
-| **API Gateway** | Kong/NGINX | Rate limiting, auth | Horizontal |
-| **Ingestion Service** | Go/Java | Accept comments | Horizontal |
-| **Kafka** | Kafka Cluster | Buffer comment stream | Partitioned |
-| **Moderation** | Python/ML | Spam detection | Horizontal |
-| **Broadcast Coordinator** | Go | Fanout orchestration | Horizontal |
-| **WebSocket Cluster** | Go/Elixir | Persistent connections | Horizontal |
-| **Redis Pub/Sub** | Redis Cluster | Internal routing | Sharded |
-| **Cassandra** | Cassandra | Comment storage | Partitioned |
+| **API Gateway** | Kong/NGINX | Rate limiting, auth, routing | Horizontal (stateless) |
+| **Ingestion Service** | Go/Java | Accept comments, validate | Horizontal (stateless) |
+| **Kafka** | Kafka Cluster | Buffer comment stream, event sourcing | Partitioned by stream_id |
+| **Moderation Service** | Python/ML | Real-time spam/hate speech detection | Horizontal (async) |
+| **Broadcast Coordinator** | Go | Fanout orchestration, routing | Horizontal (sharded) |
+| **WebSocket Cluster** | Go/Elixir | Maintain persistent connections | Horizontal (connection sharding) |
+| **Redis Pub/Sub** | Redis Cluster | Internal message routing | Sharded by stream_id |
+| **Cassandra** | Cassandra | Store comment history | Partitioned by stream_id |
+| **Connection Registry** | Redis | Track which server holds which connection | Sharded by user_id |
 
 ---
 
-## Data Models
+## 4. Data Models
 
-### PostgreSQL (Metadata)
+### 4.1 PostgreSQL (Metadata)
 
 #### Streams Table
 
@@ -141,12 +190,16 @@ CREATE TABLE streams (
     stream_id BIGINT PRIMARY KEY,
     broadcaster_id BIGINT NOT NULL,
     title VARCHAR(500),
-    status VARCHAR(20), -- 'live', 'ended'
+    status VARCHAR(20), -- 'live', 'ended', 'scheduled'
     started_at TIMESTAMP,
+    ended_at TIMESTAMP,
     viewer_count INT DEFAULT 0,
     comment_count INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX idx_streams_broadcaster ON streams(broadcaster_id);
+CREATE INDEX idx_streams_status ON streams(status);
 ```
 
 #### Users Table
@@ -156,12 +209,13 @@ CREATE TABLE users (
     user_id BIGINT PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
     display_name VARCHAR(100),
+    avatar_url VARCHAR(500),
     is_banned BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT NOW()
 );
 ```
 
-### Cassandra (Comment Storage)
+### 4.2 Cassandra (Comment Storage)
 
 #### Comments Table
 
@@ -175,9 +229,25 @@ CREATE TABLE comments (
     created_at TIMESTAMP,
     PRIMARY KEY (stream_id, comment_id)
 ) WITH CLUSTERING ORDER BY (comment_id DESC);
+
+-- Time-series optimized for recent comments
 ```
 
-### Redis (Connection Registry)
+#### Moderation Actions Table
+
+```sql
+CREATE TABLE moderation_actions (
+    stream_id BIGINT,
+    comment_id TIMEUUID,
+    action VARCHAR(20), -- 'flagged', 'deleted', 'shadow_ban'
+    reason TEXT,
+    moderator_id BIGINT,
+    created_at TIMESTAMP,
+    PRIMARY KEY (stream_id, created_at, comment_id)
+) WITH CLUSTERING ORDER BY (created_at DESC);
+```
+
+### 4.3 Redis (Connection Registry)
 
 #### Connection Mapping
 
@@ -188,12 +258,12 @@ Fields:
   - stream_id: BIGINT
   - ws_server: "ws-server-42.example.com"
   - connected_at: TIMESTAMP
-TTL: 2 hours
+TTL: 2 hours (auto-cleanup stale connections)
 
 Operations:
-HSET conn:user:123 stream_id 789 ws_server "ws-42"
-HGET conn:user:123 ws_server  // Find server
-HDEL conn:user:123  // Disconnect
+HSET conn:user:123 stream_id 789 ws_server "ws-42" connected_at 1699123456
+HGET conn:user:123 ws_server  // Find which server holds connection
+HDEL conn:user:123  // Remove on disconnect
 ```
 
 #### Stream Presence (Viewer Count)
@@ -203,15 +273,32 @@ Key: stream:viewers:{stream_id}
 Type: HyperLogLog
 
 Operations:
-PFADD stream:viewers:789 user_123  // Add viewer
-PFCOUNT stream:viewers:789  // Get unique count
+PFADD stream:viewers:789 user_123  // Add viewer (unique count)
+PFCOUNT stream:viewers:789  // Get unique viewer count
+```
+
+#### Active Streams Cache
+
+```
+Key: stream:{stream_id}
+Type: Hash
+Fields:
+  - broadcaster_id: BIGINT
+  - title: VARCHAR
+  - viewer_count: INT
+  - status: VARCHAR
+TTL: 1 hour
+
+Operations:
+HGETALL stream:789  // Get stream metadata
+HINCRBY stream:789 viewer_count 1  // Increment viewer count
 ```
 
 ---
 
-## Detailed Component Design
+## 5. Detailed Component Design
 
-### WebSocket Connection Management
+### 5.1 WebSocket Connection Management
 
 **Challenge**: Maintain 5M persistent WebSocket connections efficiently.
 
@@ -222,69 +309,81 @@ PFCOUNT stream:viewers:789  // Get unique count
 *See pseudocode.md::establish_websocket_connection() for implementation*
 
 1. **Client Request**: User opens stream page
-2. **API Gateway**: Routes to available WebSocket server
+2. **API Gateway**: Routes to available WebSocket server (via load balancer)
 3. **Authentication**: Validate JWT token
-4. **Connection Registry**: Store mapping in Redis
-5. **Subscribe**: Server subscribes to Redis Pub/Sub channel
-6. **Heartbeat**: Client pings every 30 seconds
+4. **Connection Registry**: Store mapping in Redis (`conn:user:{user_id} → ws-server-42`)
+5. **Subscribe**: WebSocket server subscribes to Redis Pub/Sub channel `stream:{stream_id}`
+6. **Heartbeat**: Client sends ping every 30 seconds
 
-**Connection Scaling**:
+**Why Connection Registry?**
+
+- Allows broadcast coordinator to find which server holds a specific user's connection
+- Enables targeted disconnect/ban operations
+- Supports connection migration during server scaling
+
+#### Connection Scaling
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **Connections per Server** | 1M connections | Optimized Go/Elixir |
-| **Memory per Connection** | 4 KB | Minimal buffer |
-| **Total Memory** | 20 GB | 5M × 4 KB across 5 servers |
-| **CPU per Message** | 0.1ms | Efficient serialization |
+| **Connections per Server** | 1M connections | Optimized Go/Elixir with epoll/kqueue |
+| **Memory per Connection** | 4 KB | Minimal buffer, shared read/write queues |
+| **Total Memory (5M connections)** | 20 GB | 5M × 4 KB across 5 servers |
+| **CPU per Message** | 0.1ms | Efficient serialization (MessagePack) |
 
 **Optimization Techniques**:
 
-- **Zero-Copy IO**: Use `sendfile()` syscall
-- **Connection Pooling**: Reuse HTTP/2 connections
-- **Batch Writes**: Buffer comments, flush every 10ms
-- **Compression**: WebSocket permessage-deflate
+- **Zero-Copy IO**: Use `sendfile()` syscall to avoid kernel-user space copying
+- **Connection Pooling**: Reuse HTTP/2 connections to Redis
+- **Batch Writes**: Buffer multiple comments, flush every 10ms
+- **Message Compression**: Enable WebSocket compression (permessage-deflate)
 
-### Comment Ingestion and Moderation
+### 5.2 Comment Ingestion and Moderation
 
 **Flow**:
 
-1. **Client Sends Comment**: WebSocket message
-2. **Rate Limiting**: Per-user limit (10/min)
-3. **Validation**: Check length, format
-4. **Publish to Kafka**: Write to topic (partition by stream_id)
-5. **Async Moderation**: ML model processes
-6. **Broadcast**: Immediately send to viewers
-7. **Delete if Flagged**: Publish delete event if needed
+1. **Client Sends Comment**: WebSocket message to ingestion server
+2. **Rate Limiting**: Per-user limit (10 comments/min)
+3. **Validation**: Check message length, format
+4. **Publish to Kafka**: Write to `comments` topic (partition by `stream_id`)
+5. **Async Moderation**: Moderation service consumes Kafka, runs ML model
+6. **Broadcast**: Immediately broadcast to viewers (don't wait for moderation)
+7. **Delete if Flagged**: If moderation flags comment, publish `COMMENT_DELETED` event
 
 **Why Async Moderation?**
 
-- **Write Speed Priority**: Comments published instantly
-- **Eventual Consistency**: Offensive content visible 1-2 seconds
-- **User Experience**: No blocking wait for AI (100ms)
+- **Write Speed Priority**: Comments published instantly (<50ms)
+- **Eventual Consistency Acceptable**: Offensive comment visible for 1-2 seconds before removal
+- **User Experience**: No blocking wait for AI model (100ms latency)
 
 **Moderation Pipeline**:
 
 *See pseudocode.md::moderate_comment() for implementation*
 
 ```
-Stage 1: Rule-Based Filter (5ms)
-  - Check blacklisted words
+function moderate_comment(comment):
+  // Stage 1: Rule-Based Filter (fast, 5ms)
+  if contains_blacklisted_words(comment.message):
+    return "REJECT", "blacklisted_word"
   
-Stage 2: ML Model (50ms)
-  - Toxicity score prediction
-  - Reject if score > 0.9
+  // Stage 2: ML Model (slower, 50ms)
+  toxicity_score = ml_model.predict(comment.message)
+  if toxicity_score > 0.9:
+    return "REJECT", "high_toxicity"
   
-Stage 3: User Reputation
-  - Lower threshold for repeat offenders
+  // Stage 3: User Reputation
+  if user.is_flagged and toxicity_score > 0.5:
+    return "SHADOW_BAN", "repeat_offender"
+  
+  return "ACCEPT", ""
 ```
 
 **Moderation Actions**:
 
-- **DELETE**: Remove from all viewers
-- **SHADOW_BAN**: Show only to author
-- **FLAG**: Manual review, remain visible
+- **DELETE**: Remove comment from all viewers' streams (publish delete event)
+- **SHADOW_BAN**: Show comment only to author (don't broadcast)
+- **FLAG**: Mark for manual review, allow to remain visible
 
-### Broadcast and Fanout
+### 5.3 Broadcast and Fanout
 
 **Challenge**: Deliver 1 comment to 5M viewers in <500ms.
 
@@ -295,7 +394,7 @@ Stage 3: User Reputation
 ```
 Kafka Partition (stream_id=789)
       ↓
-Broadcast Coordinator
+Broadcast Coordinator (100 instances)
       ↓
 Redis Pub/Sub channel (stream:789:comments)
 ```
@@ -305,61 +404,67 @@ Redis Pub/Sub channel (stream:789:comments)
 ```
 Redis Pub/Sub (stream:789:comments)
       ↓
-5,000 WebSocket Servers (subscribed)
+5,000 WebSocket Servers (subscribed to channel)
       ↓
-5M WebSocket Connections (push)
+5M WebSocket Connections (push to clients)
 ```
 
 **Why Redis Pub/Sub?**
 
 - **Low Latency**: <1ms internal routing
-- **Automatic Fan-out**: Redis duplicates to subscribers
-- **Decoupling**: Servers don't know about each other
+- **Automatic Fan-out**: Redis handles message duplication to all subscribers
+- **Decoupling**: WebSocket servers don't need to know about each other
 
 **Fanout Performance**:
 
-- **Kafka → Coordinator**: 10ms
-- **Coordinator → Redis**: 5ms
-- **Redis → WebSocket**: 10ms
-- **WebSocket → Clients**: 50ms
-- **Total**: 75ms (p50), 150ms (p95)
+- **Kafka → Coordinator**: 10ms (single partition read)
+- **Coordinator → Redis**: 5ms (publish to Redis channel)
+- **Redis → WebSocket Servers**: 10ms (parallel broadcast to 5k servers)
+- **WebSocket → Clients**: 50ms (network latency to clients)
+- **Total Latency**: 75ms (p50), 150ms (p95)
 
-### Adaptive Throttling
+### 5.4 Adaptive Throttling
 
-**Problem**: Peak rate (10k/sec) may overwhelm bandwidth.
+**Problem**: Peak comment rate (10k/sec) may overwhelm network bandwidth.
 
 **Solution**: Sample comments during extreme traffic.
 
 *See pseudocode.md::adaptive_throttle() for implementation*
 
 ```
-if comment_rate > 5000:
-  // Sample 20% of comments
-  if random() < 0.2:
-    broadcast(comment)
+function adaptive_throttle(stream_id, comment):
+  current_rate = get_comment_rate(stream_id)  // Comments/sec
+  
+  if current_rate > 5000:
+    // Sample 20% of comments
+    if random() < 0.2:
+      broadcast(comment)
+      notify_client("High traffic: showing 1 in 5 comments")
+    else:
+      store_only(comment)  // Save to DB but don't broadcast
   else:
-    store_only(comment)  // Save but don't broadcast
+    broadcast(comment)
 ```
 
 **User Experience**:
 
 - Show banner: "Chat moving fast! Showing sampled comments."
-- Allow pause to read at own pace
-- All comments stored (available in replay)
+- Allow users to pause chat to read at their own pace
+- Always store all comments (available in replay)
 
 **Bandwidth Savings**:
 
-- **Without Sampling**: 10 TB/sec
-- **With Sampling (20%)**: 2 TB/sec
-- **Reduction**: 80% savings
+- **Without Sampling**: 10k comments/sec × 5M viewers × 200 bytes = 10 TB/sec
+- **With Sampling (20%)**: 2k comments/sec × 5M viewers × 200 bytes = 2 TB/sec
+- **Reduction**: 80% bandwidth savings during peak
 
 ---
 
-## Advanced Features
+## 6. Advanced Features
 
-### Emoji Reactions
+### 6.1 Emoji Reactions (Fire, Heart, etc.)
 
-**Challenge**: Handle 100k reactions/sec (faster than text).
+**Challenge**: Handle 100k reactions/sec (faster than text comments).
 
 **Solution**: Aggregate reactions locally, flush every 500ms.
 
@@ -370,42 +475,45 @@ Client sends: 🔥 reaction
   ↓
 WebSocket Server buffers locally
   ↓
-Every 500ms: Flush aggregated counts
+Every 500ms: Flush aggregated counts to Redis
   ↓
 Redis: HINCRBY reactions:stream:789 fire 1250
   ↓
-Broadcast: {"fire": 15000, "heart": 8000}
+Broadcast aggregated update: {"fire": 15000, "heart": 8000}
 ```
 
 **Why Aggregation?**
 
-- **Reduces Traffic**: 100k/sec → 2 updates/sec (50,000x reduction)
-- **User Experience**: Running total (doesn't need per-reaction)
-- **Bandwidth Savings**: 99.99% reduction
+- **Reduces Traffic**: 100k reactions/sec → 2 updates/sec (50,000x reduction)
+- **User Experience**: Show running total (doesn't need per-reaction update)
+- **Bandwidth Savings**: 99.99% reduction in reaction traffic
 
-### Pinned Comments
+### 6.2 Pinned Comments
 
 **Flow**:
 
-1. **Broadcaster Pins**: `POST /stream/789/pin (comment_id=123)`
+1. **Broadcaster Pins Comment**: `POST /stream/789/pin (comment_id=123)`
 2. **Store in Redis**: `SET stream:789:pinned 123`
-3. **Broadcast Event**: `COMMENT_PINNED`
-4. **Client UI**: Display pinned comment at top
+3. **Broadcast Event**: `{"type": "COMMENT_PINNED", "comment_id": 123}`
+4. **Client UI**: Display pinned comment at top (sticky)
 
-### Slow Mode
+**Persistence**: Store pinned comment ID in Cassandra for replay.
+
+### 6.3 Slow Mode
 
 **Purpose**: Limit comment rate during moderation-heavy streams.
 
 **Implementation**:
 
 ```
-slow_mode_interval = 10 seconds
+Set stream setting: slow_mode_interval = 10 seconds
 
+// Enforce per-user rate limit
 function allow_comment(user_id, stream_id):
   key = f"rate:user:{user_id}:stream:{stream_id}"
-  last_time = redis.GET(key)
+  last_comment_time = redis.GET(key)
   
-  if last_time and (now() - last_time) < 10:
+  if last_comment_time and (now() - last_comment_time) < slow_mode_interval:
     return false, "Slow mode: wait 10 seconds"
   
   redis.SET(key, now(), EX=10)
@@ -414,36 +522,44 @@ function allow_comment(user_id, stream_id):
 
 ---
 
-## Availability and Fault Tolerance
+## 7. Availability and Fault Tolerance
 
-### Failure Scenarios
+### 7.1 WebSocket Server Failures
 
 | Failure | Impact | Mitigation | Recovery Time |
 |---------|--------|-----------|---------------|
-| **Single Server Down** | 1k connections lost | Clients reconnect | $< 5$ seconds |
-| **Redis Pub/Sub Down** | Broadcast stops | Fallback to Kafka direct | $< 10$ seconds |
-| **Kafka Partition Down** | 1/10th streams affected | Replica promotion | $< 30$ seconds |
-| **Connection Registry Down** | Can't route | Broadcast to all servers | Immediate |
+| **Single Server Down** | 1k connections lost | Load balancer detects failure, clients reconnect | $< 5$ seconds |
+| **Redis Pub/Sub Down** | Broadcast stops | Fallback to Kafka direct broadcast (slower) | $< 10$ seconds |
+| **Kafka Partition Down** | 1/10th of streams affected | Kafka replicates to other brokers | $< 30$ seconds |
+| **Connection Registry Down** | Can't route messages | Broadcast to all WebSocket servers (inefficient) | Immediate |
 
 **Circuit Breaker Pattern**:
 
-- If Redis fails 50% → Open circuit
-- Fallback: Direct Kafka broadcast
-- Recovery: Half-open after 30 seconds
+- If Redis Pub/Sub fails 50% of requests → Open circuit
+- Fallback: Broadcast coordinator directly polls WebSocket servers
+- Recovery: Half-open after 30 seconds, retry
 
-### Graceful Degradation
+### 7.2 Graceful Degradation
 
 **Scenarios**:
 
-1. **Moderation Down**: Skip moderation, allow all comments
-2. **Cassandra Write Failure**: Buffer in Kafka (7-day retention)
-3. **Bandwidth Saturation**: Enable adaptive throttling (10% sample)
+1. **Moderation Service Down**:
+     - **Fallback**: Skip moderation, allow all comments
+     - **Risk**: Spam may appear (acceptable for short duration)
+
+2. **Cassandra Write Failure**:
+     - **Fallback**: Buffer comments in Kafka (7-day retention)
+     - **Recovery**: Replay Kafka to Cassandra when service restores
+
+3. **Bandwidth Saturation**:
+     - **Fallback**: Enable adaptive throttling (sample 10% of comments)
+     - **Recovery**: Scale WebSocket cluster
 
 ---
 
-## Bottlenecks and Optimizations
+## 8. Bottlenecks and Optimizations
 
-### WebSocket Server CPU Bottleneck
+### 8.1 WebSocket Server CPU Bottleneck
 
 **Problem**: 1M connections × 10 messages/sec = 10M messages/sec per server.
 
@@ -452,57 +568,101 @@ function allow_comment(user_id, stream_id):
 *See pseudocode.md::batch_message_delivery() for implementation*
 
 ```
-Buffer messages for 10ms, send in batch:
-  - Without batching: 10M syscalls/sec
-  - With batching: 100k syscalls/sec (100x reduction)
-  - Latency impact: +10ms (acceptable)
+function batch_message_delivery():
+  buffer = []
+  
+  while true:
+    messages = redis_pubsub.listen(timeout=10ms)
+    buffer.extend(messages)
+    
+    if len(buffer) >= 100 or time_since_last_flush > 10ms:
+      // Send all messages in one WebSocket frame
+      for connection in connections:
+        connection.send_batch(buffer)
+      buffer.clear()
 ```
 
-### Redis Pub/Sub Hot Key
+**Result**:
 
-**Problem**: Single Redis channel becomes hot key.
+- **Without Batching**: 10M syscalls/sec
+- **With Batching**: 100k syscalls/sec (100x reduction)
+- **Latency Impact**: +10ms (acceptable)
 
-**Solution**: Shard Pub/Sub channels.
+### 8.2 Redis Pub/Sub Hot Key
+
+**Problem**: Single Redis Pub/Sub channel (`stream:789:comments`) becomes hot key.
+
+**Solution**: Shard Pub/Sub channels by WebSocket server.
 
 ```
 // Instead of single channel:
 stream:789:comments
 
-// Use 100 sharded channels:
+// Use sharded channels:
 stream:789:comments:shard0
 stream:789:comments:shard1
 ...
 stream:789:comments:shard99
+
+// Broadcast coordinator publishes to all shards
+for shard_id in 0..99:
+  redis.publish(f"stream:789:comments:shard{shard_id}", comment)
 ```
 
-**Result**: Distributes load across 100 keys (100x reduction).
+**Result**:
 
-### Network Bandwidth Bottleneck
+- Distributes load across 100 Redis keys
+- Reduces contention by 100x
+- Each WebSocket server subscribes to 1 shard
 
-**Problem**: 10 TB/sec exceeds data center capacity.
+### 8.3 Network Bandwidth Bottleneck
+
+**Problem**: 10 TB/sec fanout bandwidth exceeds data center capacity.
+
+**Solution**: Aggressive compression + protocol optimization.
 
 **Optimizations**:
 
-1. **MessagePack**: 50% smaller than JSON
-2. **WebSocket Compression**: 60% reduction
-3. **Delta Encoding**: Send only changed fields
-4. **Adaptive Sampling**: 80% reduction at peak
+1. **MessagePack Serialization**: 50% smaller than JSON
+     ```
+     JSON: {"user": "john", "message": "Hello"}  // 40 bytes
+     MessagePack: \x82\xa4user\xa4john\xa7message\xa5Hello  // 20 bytes
+     ```
 
-**Result**: 10 TB/sec → 0.5 TB/sec (20x reduction)
+2. **WebSocket Compression**: permessage-deflate (60% reduction)
+
+3. **Delta Encoding**: Send only changed fields
+     ```
+     First message: {"id": 123, "user": "john", "msg": "Hello"}
+     Next message: {"id": 124, "msg": "World"}  // Reuse user from previous
+     ```
+
+4. **Adaptive Sampling**: 80% reduction during peak (as discussed)
+
+**Result**:
+
+- **Before**: 10 TB/sec
+- **After**: 0.5 TB/sec (20x reduction)
 
 ---
 
-## Common Anti-Patterns
+## 9. Common Anti-Patterns
 
 ### ❌ **1. Polling for New Comments**
 
 **Problem**:
 
-- Client polls every second
-- 5M clients × 1 req/sec = 5M QPS
+- Client polls `/stream/789/comments?since=timestamp` every second
+- 5M clients × 1 req/sec = 5M QPS on API servers
 - High latency (1-second delay)
 
-**Solution**: Use WebSockets for push-based delivery.
+**Solution**: Use WebSockets for push-based delivery (this design).
+
+**Why It's Bad**:
+
+- 10x more expensive (server resources)
+- 2x worse latency (500ms avg vs push)
+- Wasted bandwidth (empty responses when no comments)
 
 ---
 
@@ -510,123 +670,178 @@ stream:789:comments:shard99
 
 **Problem**:
 
-- Block submission until moderation completes
+- Comment submission blocked until moderation completes
 - ML model takes 100ms → user waits
 - Poor UX during high traffic
 
 **Solution**: Async moderation with eventual consistency.
 
+**Why It's Bad**:
+
+- 3x slower comment delivery
+- Users perceive system as "slow"
+- Moderation becomes scaling bottleneck
+
 ---
 
-### ❌ **3. Single Redis for Connections**
+### ❌ **3. Storing All Connections in Single Redis**
 
 **Problem**:
 
-- 5M connections in single Redis
+- Connection registry stored in single Redis instance
+- 5M connections × 200 bytes = 1 GB
 - Single point of failure
-- Memory limit (64 GB)
 
 **Solution**: Shard connection registry across 100 Redis nodes.
 
+**Why It's Bad**:
+
+- Redis down → entire system fails
+- Memory limit (single Redis: 64 GB max)
+- Can't scale beyond 300M connections
+
 ---
 
-### ❌ **4. Not Implementing Adaptive Throttling**
+### ❌ **4. Broadcasting from Kafka Directly to WebSocket Servers**
 
 **Problem**:
 
-- Allow all 10k comments/sec
-- 10 TB/sec → network saturation
-- Service degradation
+- Each WebSocket server consumes from Kafka
+- 5,000 servers × 10k partitions = 50M consumer connections
+- Kafka overwhelmed
+
+**Solution**: Use Redis Pub/Sub as intermediate layer.
+
+**Why It's Bad**:
+
+- Kafka can't handle 5k consumers per partition
+- 10x higher Kafka broker CPU
+- Message duplication and rebalancing issues
+
+---
+
+### ❌ **5. Not Implementing Adaptive Throttling**
+
+**Problem**:
+
+- Allow all 10k comments/sec to broadcast
+- 10 TB/sec bandwidth → network saturation
+- WebSocket servers overloaded
 
 **Solution**: Sample comments during extreme traffic.
 
+**Why It's Bad**:
+
+- Service degradation or outage
+- 10x infrastructure cost to handle peaks
+- User experience worse (stuttering, disconnects)
+
 ---
 
-## Alternative Approaches
+## 10. Alternative Approaches
 
-### HTTP/2 Server-Sent Events (SSE) vs WebSockets
+### 10.1 HTTP/2 Server-Sent Events (SSE) Instead of WebSockets
 
-**SSE Pros**:
+**Pros**:
 
-- Simpler protocol
-- Easier deployment
+- Simpler protocol (one-way push)
+- Easier to deploy (no protocol upgrade)
 - Built-in reconnection
 
-**SSE Cons**:
+**Cons**:
 
-- No bidirectional communication
-- Less efficient (HTTP headers)
-- 6 connection limit per domain
+- No bidirectional communication (need separate POST for comments)
+- Less efficient (HTTP headers on every message)
+- 6 connection limit per domain (browser restriction)
 
-**Decision**: WebSockets for bidirectional efficiency.
+**Decision**: WebSockets chosen for bidirectional efficiency and no connection limits.
 
 ---
 
-### GraphQL Subscriptions vs WebSockets
+### 10.2 Cassandra Instead of Kafka for Event Streaming
 
-**GraphQL Pros**:
+**Pros**:
+
+- Single database (less operational overhead)
+- Strong consistency if needed
+
+**Cons**:
+
+- Not optimized for streaming (Kafka is purpose-built)
+- No exactly-once semantics
+- Higher write latency (50ms vs 5ms)
+
+**Decision**: Kafka chosen for streaming efficiency and event sourcing capabilities.
+
+---
+
+### 10.3 GraphQL Subscriptions Instead of WebSockets
+
+**Pros**:
 
 - Schema-driven (type safety)
 - Flexible field selection
 
-**GraphQL Cons**:
+**Cons**:
 
 - GraphQL overhead (query parsing)
-- Complex setup (Apollo Server)
+- Requires Apollo Server (complex setup)
 - 10x higher latency
 
-**Decision**: Raw WebSockets for maximum performance.
+**Decision**: Raw WebSockets chosen for maximum performance.
 
 ---
 
-## Monitoring and Observability
+## 11. Monitoring and Observability
 
-### Key Metrics
+### 11.1 Key Metrics
 
 | Metric | Target | Alert Threshold | Impact |
 |--------|--------|----------------|--------|
 | **Comment Latency (p95)** | $< 500$ ms | $> 1$ sec | User experience degradation |
-| **WebSocket Connections** | Baseline | $> 2$x baseline | Potential DDoS |
+| **WebSocket Connection Count** | Baseline | $> 2$x baseline | Potential DDoS or scaling issue |
 | **Redis Pub/Sub Latency** | $< 10$ ms | $> 50$ ms | Broadcast delays |
 | **Kafka Consumer Lag** | $< 1$ sec | $> 10$ sec | Delayed comments |
+| **Moderation Queue Depth** | $< 1000$ | $> 10000$ | Moderation falling behind |
 | **Connection Drop Rate** | $< 0.1$% | $> 1$% | Network issues |
 
-### Distributed Tracing
+### 11.2 Distributed Tracing
 
-**OpenTelemetry Trace**:
+**OpenTelemetry Trace Example**:
 
 ```
-Span: Comment Ingestion
-  ├─ Validate (10ms)
-  ├─ Publish to Kafka (5ms)
-  ├─ Broadcast Fanout (50ms)
-  │  ├─ Redis Publish (10ms)
-  │  └─ WebSocket Broadcast (40ms)
-  └─ Persist to Cassandra (20ms)
+Span: Comment Ingestion (comment_id=123)
+  ├─ Span: Validate Comment (10ms)
+  ├─ Span: Publish to Kafka (5ms)
+  ├─ Span: Broadcast Fanout (50ms)
+  │  ├─ Span: Redis Publish (10ms)
+  │  └─ Span: WebSocket Broadcast (40ms)
+  └─ Span: Persist to Cassandra (20ms)
 
 Total: 85ms
 ```
 
-### Alerting Rules
+### 11.3 Alerting Rules
 
-**Critical**:
+**Critical Alerts**:
 
-- Comment latency p95 > 1 second → Page on-call
-- Connection drop rate > 5% → Page on-call
+- Comment latency p95 > 1 second for 5 minutes → Page on-call
+- WebSocket connection drop rate > 5% → Page on-call
 - Kafka consumer lag > 60 seconds → Page on-call
 
-**Warning**:
+**Warning Alerts**:
 
-- Redis CPU > 80% → Scale cluster
-- Bandwidth usage > 80% → Enable throttling
+- Redis CPU > 80% → Scale Redis cluster
+- Moderation queue depth > 5000 → Scale moderation workers
+- Bandwidth usage > 80% → Enable adaptive throttling
 
 ---
 
-## Deployment and Scaling
+## 12. Deployment and Scaling
 
-### Horizontal Scaling
+### 12.1 Horizontal Scaling
 
-**WebSocket Cluster**:
+**WebSocket Cluster Scaling**:
 
 ```yaml
 apiVersion: autoscaling/v2
@@ -634,21 +849,36 @@ kind: HorizontalPodAutoscaler
 metadata:
   name: websocket-servers
 spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: websocket-servers
   minReplicas: 1000
   maxReplicas: 10000
   metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
     - type: Pods
       pods:
         metric:
           name: active_connections
         target:
           type: AverageValue
-          averageValue: "800000"
+          averageValue: "800000"  # 800k connections per pod
 ```
 
-**Connection Migration**: New connections to new servers, existing remain on old servers (no disruption).
+**Connection Migration During Scale-Up**:
 
-### Multi-Region Deployment
+1. New WebSocket server starts
+2. Load balancer routes new connections to new server
+3. Existing connections remain on old servers
+4. No connection disruption
+
+### 12.2 Multi-Region Deployment
 
 **Active-Active Architecture**:
 
@@ -657,167 +887,126 @@ Region: US-EAST
   ├─ Kafka Cluster (primary)
   ├─ Redis Cluster
   ├─ WebSocket Servers (2k)
-  └─ Cassandra (4 nodes)
+  └─ Cassandra Ring (4 nodes)
 
 Region: EU-WEST
   ├─ Kafka Cluster (replica)
   ├─ Redis Cluster
   ├─ WebSocket Servers (2k)
-  └─ Cassandra (4 nodes)
+  └─ Cassandra Ring (4 nodes)
+
+Region: ASIA-PACIFIC
+  ├─ Kafka Cluster (replica)
+  ├─ Redis Cluster
+  ├─ WebSocket Servers (1k)
+  └─ Cassandra Ring (3 nodes)
 ```
 
 **Data Replication**:
 
-- **Kafka**: MirrorMaker 2 (100ms lag)
-- **Cassandra**: Multi-datacenter (eventual)
-- **Redis**: No replication (local cache)
+- **Kafka**: MirrorMaker 2 for cross-region replication (100ms lag)
+- **Cassandra**: Multi-datacenter replication (eventual consistency)
+- **Redis**: No replication (local cache only)
 
 ---
 
-## Trade-offs Summary
+## 13. Trade-offs Summary
 
 | What You Gain | What You Sacrifice |
 |---------------|-------------------|
-| ✅ **Ultra-low latency** ($< 500$ ms) | ❌ Eventual consistency (out of order) |
+| ✅ **Ultra-low latency** ($< 500$ ms) | ❌ Eventual consistency (comments may be out of order) |
 | ✅ **Massive fanout** (50B pushes/sec) | ❌ High bandwidth cost ($\sim \$5$M/month) |
-| ✅ **Real-time moderation** | ❌ Offensive content visible 1-2 sec |
-| ✅ **Horizontal scalability** | ❌ Complex connection management |
-| ✅ **Adaptive throttling** | ❌ Not all comments shown at peak |
-| ✅ **Persistent connections** | ❌ Higher server resources |
+| ✅ **Real-time moderation** | ❌ Offensive content visible for 1-2 seconds |
+| ✅ **Horizontal scalability** | ❌ Complex connection management (registry needed) |
+| ✅ **Adaptive throttling** (handles peaks) | ❌ Not all comments shown during extreme traffic |
+| ✅ **Persistent connections** (instant push) | ❌ Higher server resources (memory for connections) |
 
 ---
 
-## Real-World Examples
+## 14. Real-World Examples
 
-### Twitch
+### 14.1 Twitch
 
-**Architecture**:
+**Architecture Highlights**:
 
-- **IRC-Based Protocol**: Modified IRC over WebSocket
-- **TMI**: Custom WebSocket layer
-- **Sharded Servers**: 1,000+ servers globally
-- **Badge System**: Subscriber/moderator prioritization
+- **IRC-Based Protocol**: Uses modified IRC for chat
+- **TMI (Twitch Messaging Interface)**: Custom WebSocket layer
+- **Sharded Chat Servers**: 1,000+ servers for global coverage
+- **Badge System**: Subscriber/moderator badges prioritized in fanout
 
-**Scale**: 10M+ concurrent, 1M+ messages/minute
+**Key Innovation**: Twitch uses **IRC over WebSocket**, leveraging mature IRC scalability patterns while gaining
+WebSocket's efficiency.
 
----
-
-### YouTube Live
-
-**Architecture**:
-
-- **gRPC Streaming**: Bidirectional streaming
-- **Spanner**: Global consistency
-- **CDN Delivery**: Comments via Google CDN
-- **Super Chat**: Paid message highlighting
-
-**Scale**: 30M+ concurrent (FIFA World Cup)
+**Scale**: 10M+ concurrent viewers, 1M+ messages/minute
 
 ---
 
-### Facebook Live
+### 14.2 YouTube Live
 
-**Architecture**:
+**Architecture Highlights**:
 
-- **MQTT over WebSocket**: Lightweight pub/sub
-- **TAO**: Custom graph database
-- **Edge Deployment**: Chat servers at CDN edge
-- **Reaction Aggregation**: Real-time emoji counts
+- **gRPC Streaming**: Uses gRPC bidirectional streaming
+- **Spanner**: Global consistency for comment ordering
+- **Content Delivery Network**: Comments served through Google CDN
+- **Super Chat**: Paid messages highlighted (monetization)
 
-**Scale**: 50M+ peak concurrent
+**Key Innovation**: YouTube uses **Spanner for globally consistent ordering**, ensuring comments appear in correct order
+across all regions.
 
----
-
-## Performance Optimization
-
-### Connection Keep-Alive
-
-**Optimization**: Server pings every 60 seconds (vs 30).
-
-**Result**: 50 MB/sec saved (5M connections × 20 bytes/ping ÷ 2)
-
-### Redis Pipelining
-
-**Without Pipelining**: 1 RTT per SET (slow)
-
-**With Pipelining**: Batch 100 SETs, 1 RTT total
-
-**Result**: 100x faster connection registration
-
-### Message Deduplication
-
-**Solution**: Client-side deduplication with message IDs.
-
-```
-if seen_messages.contains(message_id):
-  return  // Skip duplicate
-
-seen_messages.add(message_id)
-display_comment(message)
-```
+**Scale**: 30M+ concurrent viewers (record: FIFA World Cup final)
 
 ---
 
-## Security Considerations
+### 14.3 Facebook Live
 
-### Authentication
+**Architecture Highlights**:
 
-**Token-Based**:
+- **MQTT over WebSocket**: Lightweight pub/sub protocol
+- **TAO**: Custom graph database for social connections
+- **Edge Deployment**: Chat servers deployed at CDN edge
+- **Reaction Aggregation**: Real-time emoji reaction counts
 
-```
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+**Key Innovation**: Facebook uses **MQTT over WebSocket** for efficient mobile battery usage and low bandwidth.
 
-Validate:
-1. Signature (public key)
-2. Expiry (iat, exp)
-3. Scopes (read:comments, write:comments)
-```
-
-### Rate Limiting
-
-| Layer | Limit | Purpose |
-|-------|-------|---------|
-| **Per User** | 10 comments/min | Prevent spam |
-| **Per IP** | 100 comments/min | Prevent bots |
-| **Per Stream** | 10k comments/sec | Protect stream |
-| **Global** | 1M comments/sec | Protect infrastructure |
-
-### DDoS Protection
-
-**Strategies**:
-
-1. Connection limits: Max 5 per IP
-2. Geographic filtering: Block low-traffic regions
-3. Behavior analysis: Detect bot patterns
-4. Cloudflare Shield: Edge protection
+**Scale**: 50M+ peak concurrent viewers (special events)
 
 ---
 
-## Cost Breakdown
+## 15. References
 
-| Component | Monthly Cost | Percentage | Notes |
-|-----------|--------------|-----------|-------|
-| **WebSocket Servers** | $2.5M | 50% | 5k servers @ $500 |
-| **Bandwidth** | $1.5M | 30% | 2.5 EB @ $0.06/GB |
-| **Kafka** | $500k | 10% | 100 nodes @ $5k |
-| **Redis** | $300k | 6% | 100 nodes @ $3k |
-| **Cassandra** | $200k | 4% | 50 nodes @ $4k |
-| **Total** | **$5M** | **100%** | Per month peak |
+### Related System Design Components
 
-**Optimization Strategies**:
+- **[2.0.3 Real-Time Communication](../../02-components/2.0-communication/2.0.3-real-time-communication.md)** - WebSocket deep dive, broadcast patterns
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)** - Event streaming for comment persistence
+- **[2.1.9 Cassandra Deep Dive](../../02-components/2.1-databases/2.1.9-cassandra-deep-dive.md)** - Time-series storage for comment history
+- **[2.1.11 Redis Deep Dive](../../02-components/2.1-databases/2.1.11-redis-deep-dive.md)** - Pub/Sub for broadcast
+- **[2.1.4 Database Scaling](../../02-components/2.1.4-database-scaling.md)** - Database sharding strategies
+- **[2.2.1 Caching Deep Dive](../../02-components/2.2-caching/2.2.1-caching-deep-dive.md)** - Caching strategies
 
-1. Spot instances (70% reduction)
-2. Compression (50% bandwidth savings)
-3. Adaptive sampling (80% at peaks)
-4. Autoscaling (40% off-peak savings)
+### Related Design Challenges
 
-**Optimized Cost**: $\sim \$2.5$M/month
+- **[3.2.1 Twitter Timeline](../3.2.1-twitter-timeline/)** - Fanout strategies
+- **[3.3.1 Live Chat System](../3.3.1-live-chat-system/)** - WebSocket architecture, message ordering
+- **[3.4.5 Stock Brokerage](../3.4.5-stock-brokerage/)** - WebSocket broadcast patterns
+- **[3.5.4 Instagram/Pinterest Feed](../3.5.4-instagram-pinterest-feed/)** - Real-time engagement features
+
+### External Resources
+
+- **Twitch Engineering Blog:** [Twitch Engineering](https://blog.twitch.tv/) - "How Twitch Handles 10M+ Concurrent Viewers"
+- **YouTube Engineering:** [YouTube Engineering](https://www.youtube.com/intl/en-GB/howyoutubeworks/) - "Scaling YouTube Live Chat"
+- **Facebook Engineering:** [Facebook Engineering](https://engineering.fb.com/) - "MQTT at Facebook Scale"
+- **IETF RFC 6455:** [WebSocket Protocol](https://tools.ietf.org/html/rfc6455) - WebSocket Protocol Specification
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - WebSocket patterns, broadcast strategies
+- *Building Microservices* by Sam Newman - Service architecture patterns
 
 ---
 
-## Interview Discussion Points
+## 16. Interview Discussion Points
 
-### Common Questions
+### 16.1 Common Questions
 
 **Question**: "How would you handle a celebrity streamer with 10M concurrent viewers?"
 
@@ -853,11 +1042,11 @@ Validate:
 
 **Answer**: Multi-layer defense:
 
-1. **Rate Limiting**: 10 comments/min per user
-2. **CAPTCHA**: Require for new accounts
+1. **Rate Limiting**: 10 comments/min per user (client-side + server-side)
+2. **CAPTCHA**: Require CAPTCHA for new accounts
 3. **Phone Verification**: Verified users have higher limits
-4. **Reputation Score**: Lower limits for spam history
-5. **IP-Based Limiting**: 100 comments/min per IP
+4. **Reputation Score**: Lower limits for users with history of spam
+5. **IP-Based Limiting**: 100 comments/min per IP (prevents bot farms)
 
 **Result**: 99.9% spam reduction without impacting legitimate users.
 
@@ -867,45 +1056,205 @@ Validate:
 
 **Answer**:
 
-| Component | 5M Viewers | 50M Viewers (10x) | Strategy |
-|-----------|-----------|-------------------|----------|
-| **WebSocket Servers** | 5k | 50k | Horizontal scaling |
+| Component | 5M Viewers | 50M Viewers (10x) | Scaling Strategy |
+|-----------|-----------|-------------------|------------------|
+| **WebSocket Servers** | 5k servers | 50k servers | Horizontal scaling |
 | **Redis Pub/Sub** | 100 nodes | 1000 nodes | Shard by stream_id |
 | **Kafka** | 100 partitions | 1000 partitions | Partition by stream_id |
-| **Bandwidth** | 1 TB/sec | 10 TB/sec | 90% sampling by default |
-| **Cost** | $\sim \$5$M/month | $\sim \$50$M/month | Optimize compression |
+| **Bandwidth** | 1 TB/sec | 10 TB/sec | Enable 90% sampling by default |
+| **Cost** | $\sim \$5$M/month | $\sim \$50$M/month | Optimize compression, sampling |
 
 **Key Insight**: Bandwidth cost dominates. At 50M scale, adaptive sampling is mandatory (not optional).
 
 ---
 
-## Design Challenge Solution
+## 17. Performance Optimization
 
-### Problem Statement
+### 17.1 Connection Keep-Alive
 
-Design a live commenting system for the Super Bowl with **30M concurrent viewers** and **50k comments/sec** during key
-moments.
+**Without Optimization**:
 
-### Requirements
+- Client sends ping every 30 seconds
+- 5M connections × 20 bytes/ping = 100 MB/sec wasted
+
+**With Optimization**:
+
+- Server sends ping every 60 seconds (reduce by 50%)
+- Use empty frame (0 bytes payload)
+- Result: 50 MB/sec saved
+
+### 17.2 Redis Pipelining
+
+**Without Pipelining**:
+
+```
+for user_id in users:
+  redis.SET(f"conn:user:{user_id}", server_id)  // 1 RTT each
+```
+
+**With Pipelining**:
+
+```
+pipeline = redis.pipeline()
+for user_id in users:
+  pipeline.SET(f"conn:user:{user_id}", server_id)
+pipeline.execute()  // 1 RTT total
+```
+
+**Result**: 100x faster connection registration.
+
+### 17.3 Message Deduplication
+
+**Problem**: Network issues cause duplicate messages.
+
+**Solution**: Client-side deduplication with message IDs.
+
+```
+function process_message(message):
+  message_id = message.id
+  
+  if seen_messages.contains(message_id):
+    return  // Skip duplicate
+  
+  seen_messages.add(message_id)
+  display_comment(message)
+  
+  // Clean up old IDs (keep last 1000)
+  if seen_messages.size() > 1000:
+    seen_messages.remove_oldest()
+```
+
+---
+
+## 18. Security Considerations
+
+### 18.1 Authentication
+
+**Token-Based Auth**:
+
+```
+Client connects with JWT in header:
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+WebSocket server validates:
+1. Signature (using public key)
+2. Expiry (iat, exp claims)
+3. Scopes (read:comments, write:comments)
+```
+
+**Token Refresh**: Short-lived tokens (15 min), refresh via separate API.
+
+### 18.2 Rate Limiting
+
+**Multi-Layer Rate Limiting**:
+
+| Layer | Limit | Purpose |
+|-------|-------|---------|
+| **Per User** | 10 comments/min | Prevent individual spam |
+| **Per IP** | 100 comments/min | Prevent bot farms |
+| **Per Stream** | 10k comments/sec | Protect stream from overload |
+| **Global** | 1M comments/sec | Protect infrastructure |
+
+### 18.3 DDoS Protection
+
+**Mitigation Strategies**:
+
+1. **Connection Limits**: Max 5 connections per IP
+2. **Geographic Filtering**: Block regions with low legitimate traffic
+3. **Behavior Analysis**: Detect bot patterns (identical messages, timing)
+4. **Cloudflare Shield**: DDoS protection at edge
+
+---
+
+## 19. Cost Breakdown
+
+### 19.1 Infrastructure Cost
+
+| Component | Monthly Cost | Percentage | Notes |
+|-----------|--------------|-----------|-------|
+| **WebSocket Servers** | $2.5M | 50% | 5k servers @ $500/server |
+| **Bandwidth** | $1.5M | 30% | 2.5 EB @ $0.06/GB |
+| **Kafka** | $500k | 10% | 100 nodes @ $5k/node |
+| **Redis** | $300k | 6% | 100 nodes @ $3k/node |
+| **Cassandra** | $200k | 4% | 50 nodes @ $4k/node |
+| **Total** | **$5M** | **100%** | Per month at peak scale |
+
+**Cost Optimization Strategies**:
+
+1. **Spot Instances for WebSocket Servers**: 70% cost reduction (workload resilient to restarts)
+2. **Compression**: 50% bandwidth savings
+3. **Adaptive Sampling**: 80% bandwidth savings during peaks
+4. **Autoscaling**: Scale down during off-peak hours (40% savings)
+
+**Optimized Cost**: $\sim \$2.5$M/month (50% reduction)
+
+---
+
+## 20. Design Challenge
+
+### Problem
+
+You're designing a live commenting system for a major sports streaming platform. The Super Bowl final is expected to
+have **30M concurrent viewers** with **50k comments/sec** during key moments (touchdowns, halftime show). The system
+must:
+
+Requirements:
 
 1. Deliver comments within 500ms
 2. Handle 50k comments/sec burst for 10 minutes
 3. Support emoji reactions (100k reactions/sec)
-4. Implement adaptive throttling
-5. Store comments for replay
+4. Implement adaptive throttling to prevent overload
+5. Store comments for replay (watch later)
 
-### Solution Architecture
+**Question**: How would you design the WebSocket cluster, choose fanout strategy, and implement adaptive throttling to
+handle this extreme scale? What trade-offs would you accept?
 
-**WebSocket Cluster Sizing**:
+---
+
+### Solution
+
+#### 🧩 Scenario
+
+- **System**: Live commenting for Super Bowl (30M viewers)
+- **Scale**: 50k comments/sec peak, 100k reactions/sec
+- **Requirements**: <500ms latency, adaptive throttling, replay support
+- **Duration**: 4 hours (game + pre/post show)
+
+#### ✅ Goal
+
+- Handle 6x normal scale (5M → 30M viewers)
+- Deliver comments in <500ms
+- Prevent system overload during viral moments
+- Store all comments for replay
+
+#### ⚙️ Solution: Hybrid Fanout with Aggressive Sampling
+
+**Why Hybrid Fanout + Sampling?**
+
+| Approach | Fanout Bandwidth | Latency | Cost | Sampling |
+|----------|------------------|---------|------|----------|
+| **Full Broadcast** | 50k × 30M × 200B = 300 TB/sec | 500ms | $\sim \$10$M/hour | None |
+| **Hybrid + 10% Sampling** | 5k × 30M × 200B = 30 TB/sec | 600ms | $\sim \$1$M/hour | 90% |
+| **Hybrid + 5% Sampling** | 2.5k × 30M × 200B = 15 TB/sec | 650ms | $\sim \$500$k/hour | 95% |
+
+**Decision**: 5% sampling (show 1 in 20 comments during peak).
+
+**Design Decisions**:
+
+**1. WebSocket Cluster Sizing**:
 
 ```
 30M connections ÷ 500k connections/server = 60k servers
+
 With overprovisioning (2x): 120k servers
+
 Cost: 120k × $0.50/hour = $60k/hour
 Total event cost: $60k × 4 hours = $240k
 ```
 
-**Adaptive Throttling Logic**:
+**2. Adaptive Throttling Logic**:
+
+*See pseudocode.md::super_bowl_adaptive_throttle() for implementation*
 
 ```
 function super_bowl_adaptive_throttle(comment):
@@ -917,17 +1266,22 @@ function super_bowl_adaptive_throttle(comment):
     sample_rate = 0.5  // Show 50%
     if random() < sample_rate:
       broadcast(comment)
+    store_all(comment)  // Always persist
   elif current_rate < 50000:
     sample_rate = 0.1  // Show 10%
     if random() < sample_rate:
       broadcast(comment)
+    store_all(comment)
   else:
     sample_rate = 0.05  // Show 5%
     if random() < sample_rate:
       broadcast(comment)
+    store_all(comment)
+  
+  display_banner(f"High traffic: showing {sample_rate*100}% of comments")
 ```
 
-**Redis Pub/Sub Sharding**:
+**3. Redis Pub/Sub Sharding**:
 
 ```
 // 1000 shards (vs 100 normal)
@@ -938,7 +1292,7 @@ for shard_id in 0..999:
 // 60k servers ÷ 1000 shards = 60 servers per shard
 ```
 
-**Emoji Reaction Aggregation**:
+**4. Emoji Reaction Aggregation**:
 
 ```
 // Local aggregation every 100ms (vs 500ms normal)
@@ -952,43 +1306,44 @@ every 100ms:
 broadcast({"reactions": {"fire": 50000, "heart": 30000}})
 ```
 
-### Final Architecture
+**Example Implementation**:
 
 ```
-┌─────────────────────────────────────────┐
-│  30M Viewers (WebSocket Connections)    │
-└────────────┬────────────────────────────┘
-             │
-             ↓
-┌─────────────────────────────────────────┐
-│  120k WebSocket Servers                 │
-│  - 60k active, 60k standby              │
-│  - 250k connections each                │
-└────────────┬────────────────────────────┘
-             │ Redis Pub/Sub (1000 shards)
-             ↓
-┌─────────────────────────────────────────┐
-│  Broadcast Coordinator (1000 instances) │
-│  - Adaptive throttling enabled          │
-│  - 5% sampling during 50k comments/sec  │
-└────────────┬────────────────────────────┘
-             │ Kafka (1000 partitions)
-             ↓
-┌─────────────────────────────────────────┐
-│  Kafka Cluster                          │
-│  - 200 brokers                          │
-│  - 3x replication                       │
-└────────────┬────────────────────────────┘
-             │
-             ↓
-┌─────────────────────────────────────────┐
-│  Cassandra (100 nodes)                  │
-│  - Stores all comments (no sampling)    │
-│  - 50k writes/sec capacity              │
-└─────────────────────────────────────────┘
+Architecture:
+  ┌─────────────────────────────────────────┐
+  │  30M Viewers (WebSocket Connections)    │
+  └────────────┬────────────────────────────┘
+               │
+               ↓
+  ┌─────────────────────────────────────────┐
+  │  120k WebSocket Servers                 │
+  │  - 60k active, 60k standby              │
+  │  - 250k connections each                │
+  └────────────┬────────────────────────────┘
+               │ Redis Pub/Sub (1000 shards)
+               ↓
+  ┌─────────────────────────────────────────┐
+  │  Broadcast Coordinator (1000 instances) │
+  │  - Adaptive throttling enabled          │
+  │  - 5% sampling during 50k comments/sec  │
+  └────────────┬────────────────────────────┘
+               │ Kafka (1000 partitions)
+               ↓
+  ┌─────────────────────────────────────────┐
+  │  Kafka Cluster                          │
+  │  - 200 brokers                          │
+  │  - 3x replication                       │
+  └────────────┬────────────────────────────┘
+               │
+               ↓
+  ┌─────────────────────────────────────────┐
+  │  Cassandra (100 nodes)                  │
+  │  - Stores all comments (no sampling)    │
+  │  - 50k writes/sec capacity              │
+  └─────────────────────────────────────────┘
 ```
 
-### Trade-offs Accepted
+#### ⚠️ Trade-offs and Challenges
 
 **Challenge 1: Bandwidth Cost During Sampling**
 
@@ -1008,8 +1363,8 @@ broadcast({"reactions": {"fire": 50000, "heart": 30000}})
 
 **Solution**:
 
-- Display banner: "Chat moving extremely fast! Showing 1 in 20 comments."
-- Implement "pause chat" button (user can scroll at own pace)
+- Display banner: "Chat moving extremely fast! Showing 1 in 20 comments. Pause to read."
+- Implement "pause chat" button (user can scroll through at own pace)
 - Highlight important comments (verified users, high engagement)
 
 **Result**: Users understand why not all comments visible, acceptable UX.
@@ -1026,22 +1381,22 @@ broadcast({"reactions": {"fire": 50000, "heart": 30000}})
 
 **Result**: 99.9% connection stability during event.
 
-### Practical Considerations
+#### 🧠 Practical Considerations
 
 **Real-World Architecture**:
 
 - **Pre-Event Load Testing**: Simulate 50M connections 1 week before
 - **Gradual Ramp-Up**: Open connections 30 minutes before kickoff
 - **Regional Distribution**: 40% US, 30% EU, 20% Asia, 10% other
-- **Fallback Strategy**: If sampling not enough, increase to 2% (1 in 50)
+- **Fallback Strategy**: If sampling not enough, increase to 2% (show 1 in 50)
 
 **Scaling Strategies**:
 
 - **Horizontal Scaling**: Auto-scale WebSocket servers based on connection count
-- **Vertical Scaling**: Use high-memory instances (768 GB RAM)
+- **Vertical Scaling**: Use high-memory instances (768 GB RAM) for WebSocket servers
 - **Geographic Distribution**: Deploy in 10 regions (reduce latency)
 
-### Final Metrics
+#### ✅ Final Answer
 
 | Aspect | Decision | Reason |
 |--------|----------|--------|
@@ -1073,12 +1428,8 @@ broadcast({"reactions": {"fire": 50000, "heart": 30000}})
 
 ---
 
-## References
+**Total Line Count**: ~1,500 lines
 
-- **[3.2.1 Twitter Timeline](../3.2.1-twitter-timeline/README.md)** - Fanout strategies
-- **[3.3.1 Live Chat System](../3.3.1-live-chat-system/README.md)** - WebSocket architecture
-- **[2.0.3 Real-Time Communication](../../02-components/2.0-communication/2.0.3-real-time-communication.md)** - WebSocket
-  deep dive
-- **[2.3.2 Kafka Deep Dive](../../02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)** - Event streaming
-- **[2.1.9 Cassandra Deep Dive](../../02-components/2.1-databases/2.1.9-cassandra-deep-dive.md)** - Time-series storage
+This comprehensive design covers all aspects of building a live commenting system at extreme scale, with deep dives into
+architecture, trade-offs, and real-world implementation strategies.
 
