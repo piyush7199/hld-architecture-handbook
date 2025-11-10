@@ -27,10 +27,10 @@ service mesh, and DNS.
 - **[2.0.7 DNS Deep Dive](./2.0-communication/2.0.7-dns-deep-dive.md)** — DNS resolution, record types, caching, load
   balancing, geographic routing, failover
 
-### 🗄️ [2.1-databases](./2.1-databases/) — Database Systems (19 files)
+### 🗄️ [2.1-databases](./2.1-databases/) — Database Systems (20 files)
 
 Comprehensive coverage of SQL, NoSQL, specialized databases, object storage, time series databases, vector databases,
-and distributed SQL databases with practical design challenges.
+distributed SQL databases, and CQRS with practical design challenges.
 
 #### Core Concepts (6 files)
 
@@ -68,6 +68,8 @@ and distributed SQL databases with practical design challenges.
   Milvus, FAISS, semantic search, embeddings
 - **[2.1.19 Distributed SQL Databases Deep Dive](./2.1-databases/2.1.19-distributed-sql-databases-deep-dive.md)** —
   CockroachDB, TiDB, Google Spanner, YugabyteDB, Raft consensus, multi-region
+- **[2.1.20 CQRS Deep Dive](./2.1-databases/2.1.20-cqrs-deep-dive.md)** — Command-Query Responsibility Segregation,
+  read/write separation, eventual consistency, multiple read models
 
 ### ⚡ [2.2-caching](./2.2-caching/) — Caching Systems (4 files)
 
@@ -79,7 +81,7 @@ Caching strategies, distributed caching, consistency, and content delivery netwo
 - **[2.2.4 CDN Deep Dive](./2.2-caching/2.2.4-cdn-deep-dive.md)** — Content Delivery Networks, edge caching, cache
   invalidation, global distribution
 
-### 📨 [2.3-messaging-streaming](./2.3-messaging-streaming/) — Messaging & Stream Processing (8 files)
+### 📨 [2.3-messaging-streaming](./2.3-messaging-streaming/) — Messaging & Stream Processing (9 files)
 
 Message queues, event streaming, and big data processing frameworks.
 
@@ -98,10 +100,12 @@ Message queues, event streaming, and big data processing frameworks.
 - **[2.3.7 Apache Spark Deep Dive](./2.3-messaging-streaming/2.3.7-apache-spark-deep-dive.md)** — Unified analytics
   engine
 - **[2.3.8 Apache Flink Deep Dive](./2.3-messaging-streaming/2.3.8-apache-flink-deep-dive.md)** — True streaming, CEP
+- **[2.3.9 Event Sourcing Deep Dive](./2.3-messaging-streaming/2.3.9-event-sourcing-deep-dive.md)** — Immutable event
+  logs, state reconstruction, snapshots, event store design, time travel
 
-### 🔒 [2.4-security-observability](./2.4-security-observability/) — Security & Monitoring (5 files)
+### 🔒 [2.4-security-observability](./2.4-security-observability/) — Security & Monitoring (6 files)
 
-Security fundamentals, authentication, monitoring, and logging.
+Security fundamentals, authentication, monitoring, logging, and distributed tracing.
 
 - **[2.4.1 Security Fundamentals](./2.4-security-observability/2.4.1-security-fundamentals.md)** — Auth, TLS, XSS/CSRF
 - **[2.4.2 Observability](./2.4-security-observability/2.4.2-observability.md)** — Logging, Metrics, Tracing
@@ -111,6 +115,8 @@ Security fundamentals, authentication, monitoring, and logging.
   JWT structure, token management, refresh tokens, OIDC
 - **[2.4.5 ELK Stack & Logging Deep Dive](./2.4-security-observability/2.4.5-elk-stack-logging-deep-dive.md)** —
   Elasticsearch, Logstash, Kibana, Beats, log parsing, retention, correlation
+- **[2.4.6 Distributed Tracing Deep Dive](./2.4-security-observability/2.4.6-distributed-tracing-deep-dive.md)** —
+  Jaeger, Zipkin, OpenTelemetry, span propagation, sampling strategies, trace correlation
 
 ### 🧮 [2.5-algorithms](./2.5-algorithms/) — Distributed Algorithms (4 files)
 

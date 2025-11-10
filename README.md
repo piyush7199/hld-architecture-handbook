@@ -78,10 +78,11 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 > **📁 Organized into 7 logical categories for easier navigation:**
 > - 🌐 **Communication** (Protocols, APIs, Real-time, Load Balancers, API Gateway, Service Mesh, DNS)
-> - 🗄️ **Databases** (19 database deep dives including Object Storage, Time Series, Vector DBs & Distributed SQL!)
+> - 🗄️ **Databases** (20 database deep dives including Object Storage, Time Series, Vector DBs, Distributed SQL & CQRS!)
 > - ⚡ **Caching** (Redis, Memcached, Consistent Hashing, CDN)
-> - 📨 **Messaging & Streaming** (Kafka, Spark, Flink, Message Queues)
-> - 🔒 **Security & Observability** (Auth, OAuth/JWT, Monitoring, Prometheus/Grafana, Logging, ELK Stack)
+> - 📨 **Messaging & Streaming** (Kafka, Spark, Flink, Message Queues, Event Sourcing)
+> - 🔒 **Security & Observability** (Auth, OAuth/JWT, Monitoring, Prometheus/Grafana, Logging, ELK Stack, Distributed
+    Tracing)
 > - 🧮 **Algorithms** (Rate Limiting, Consensus, Locking, Bloom Filters)
 > - 🏗️ **Infrastructure** (Kubernetes, Docker, Configuration Management, Infrastructure as Code)
 
@@ -97,7 +98,7 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 2.0.6    | [Service Mesh Deep Dive](02-components/2.0-communication/2.0.6-service-mesh-deep-dive.md)                             | Sidecar pattern, mTLS, retries, circuit breakers, traffic management, distributed tracing.                |
 | 2.0.7    | [DNS Deep Dive](02-components/2.0-communication/2.0.7-dns-deep-dive.md)                                               | DNS resolution, record types, caching, load balancing, geographic routing, failover, DNSSEC.              |
 
-### 2.1 Databases (Folder: [2.1-databases](./02-components/2.1-databases)) — 19 Deep Dives
+### 2.1 Databases (Folder: [2.1-databases](./02-components/2.1-databases)) — 20 Deep Dives
 
 #### Core Database Concepts
 
@@ -128,15 +129,16 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 #### Specialized Databases
 
-| Topic ID | Concept                                                                                                          | Focus                                                                                                |
-|----------|------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
-| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)                         | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM.       |
-| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)                       | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.                 |
-| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md)                    | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                      |
-| 2.1.16   | [Object Storage Deep Dive](02-components/2.1-databases/2.1.16-object-storage-deep-dive.md)                       | S3, GCS, Azure Blob, multipart uploads, lifecycle policies, storage classes, CDN integration.        |
-| 2.1.17   | [Time Series Databases Deep Dive](02-components/2.1-databases/2.1.17-time-series-databases-deep-dive.md)         | InfluxDB, TimescaleDB, Prometheus, compression, retention policies, downsampling, IoT data.          |
-| 2.1.18   | [Vector Databases Deep Dive](02-components/2.1-databases/2.1.18-vector-databases-deep-dive.md)                   | Pinecone, Weaviate, Milvus, FAISS, semantic search, embeddings, k-NN algorithms, AI/ML applications. |
-| 2.1.19   | [Distributed SQL Databases Deep Dive](02-components/2.1-databases/2.1.19-distributed-sql-databases-deep-dive.md) | CockroachDB, TiDB, Google Spanner, YugabyteDB, Raft consensus, multi-region, ACID at scale.          |
+| Topic ID | Concept                                                                                                          | Focus                                                                                                                                    |
+|----------|------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)                         | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM.                                           |
+| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)                       | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.                                                     |
+| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md)                    | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                                                          |
+| 2.1.16   | [Object Storage Deep Dive](02-components/2.1-databases/2.1.16-object-storage-deep-dive.md)                       | S3, GCS, Azure Blob, multipart uploads, lifecycle policies, storage classes, CDN integration.                                            |
+| 2.1.17   | [Time Series Databases Deep Dive](02-components/2.1-databases/2.1.17-time-series-databases-deep-dive.md)         | InfluxDB, TimescaleDB, Prometheus, compression, retention policies, downsampling, IoT data.                                              |
+| 2.1.18   | [Vector Databases Deep Dive](02-components/2.1-databases/2.1.18-vector-databases-deep-dive.md)                   | Pinecone, Weaviate, Milvus, FAISS, semantic search, embeddings, k-NN algorithms, AI/ML applications.                                     |
+| 2.1.19   | [Distributed SQL Databases Deep Dive](02-components/2.1-databases/2.1.19-distributed-sql-databases-deep-dive.md) | CockroachDB, TiDB, Google Spanner, YugabyteDB, Raft consensus, multi-region, ACID at scale.                                              |
+| 2.1.20   | [CQRS Deep Dive](02-components/2.1-databases/2.1.20-cqrs-deep-dive.md)                                           | Command-Query Responsibility Segregation, read/write separation, eventual consistency, multiple read models, synchronization strategies. |
 
 ### 2.2 Caching (Folder: [2.2-caching](./02-components/2.2-caching))
 
@@ -149,26 +151,28 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 ### 2.3 Messaging & Streaming (Folder: [2.3-messaging-streaming](./02-components/2.3-messaging-streaming))
 
-| Topic ID | Concept                                                                                                                           | Focus                                                                                             |
-|----------|-----------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
-| 2.3.1    | [Asynchronous Communication](02-components/2.3-messaging-streaming/2.3.1-asynchronous-communication.md)                           | Queues vs. Streams, Pub/Sub Models, Backpressure.                                                 |
-| 2.3.2    | [Kafka Deep Dive](02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)                                                 | Broker, Producer, Consumer Group, Partitions, Offset Management, Log Compaction.                  |
-| 2.3.3    | [Advanced Message Queues (RabbitMQ, SQS, SNS)](02-components/2.3-messaging-streaming/2.3.3-advanced-message-queues.md)            | Comparison of broker-based vs. managed queues, Dead-Letter Queues (DLQs).                         |
-| 2.3.4    | [Distributed Transactions & Idempotency](02-components/2.3-messaging-streaming/2.3.4-distributed-transactions-and-idempotency.md) | Two-Phase Commit (2PC), Sagas, ensuring atomic operations.                                        |
-| 2.3.5    | [Batch vs Stream Processing](02-components/2.3-messaging-streaming/2.3.5-batch-vs-stream-processing.md)                           | Detailed look at the Lambda and Kappa Architectures, latency vs. completeness trade-offs.         |
-| 2.3.6    | [Push vs Pull Data Flow](02-components/2.3-messaging-streaming/2.3.6-push-vs-pull-data-flow.md)                                   | Architectural choices in messaging systems (e.g., Kafka (Pull) vs. RabbitMQ (Push)).              |
-| 2.3.7    | [Apache Spark Deep Dive](02-components/2.3-messaging-streaming/2.3.7-apache-spark-deep-dive.md)                                   | Unified Analytics Engine, RDD/DataFrame API, In-Memory Computing, MLlib, Batch & Stream.          |
-| 2.3.8    | [Apache Flink Deep Dive](02-components/2.3-messaging-streaming/2.3.8-apache-flink-deep-dive.md)                                   | True Stream Processing, Event-by-Event, Stateful Operators, Exactly-Once, CEP, Ultra-Low Latency. |
+| Topic ID | Concept                                                                                                                           | Focus                                                                                                |
+|----------|-----------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| 2.3.1    | [Asynchronous Communication](02-components/2.3-messaging-streaming/2.3.1-asynchronous-communication.md)                           | Queues vs. Streams, Pub/Sub Models, Backpressure.                                                    |
+| 2.3.2    | [Kafka Deep Dive](02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)                                                 | Broker, Producer, Consumer Group, Partitions, Offset Management, Log Compaction.                     |
+| 2.3.3    | [Advanced Message Queues (RabbitMQ, SQS, SNS)](02-components/2.3-messaging-streaming/2.3.3-advanced-message-queues.md)            | Comparison of broker-based vs. managed queues, Dead-Letter Queues (DLQs).                            |
+| 2.3.4    | [Distributed Transactions & Idempotency](02-components/2.3-messaging-streaming/2.3.4-distributed-transactions-and-idempotency.md) | Two-Phase Commit (2PC), Sagas, ensuring atomic operations.                                           |
+| 2.3.5    | [Batch vs Stream Processing](02-components/2.3-messaging-streaming/2.3.5-batch-vs-stream-processing.md)                           | Detailed look at the Lambda and Kappa Architectures, latency vs. completeness trade-offs.            |
+| 2.3.6    | [Push vs Pull Data Flow](02-components/2.3-messaging-streaming/2.3.6-push-vs-pull-data-flow.md)                                   | Architectural choices in messaging systems (e.g., Kafka (Pull) vs. RabbitMQ (Push)).                 |
+| 2.3.7    | [Apache Spark Deep Dive](02-components/2.3-messaging-streaming/2.3.7-apache-spark-deep-dive.md)                                   | Unified Analytics Engine, RDD/DataFrame API, In-Memory Computing, MLlib, Batch & Stream.             |
+| 2.3.8    | [Apache Flink Deep Dive](02-components/2.3-messaging-streaming/2.3.8-apache-flink-deep-dive.md)                                   | True Stream Processing, Event-by-Event, Stateful Operators, Exactly-Once, CEP, Ultra-Low Latency.    |
+| 2.3.9    | [Event Sourcing Deep Dive](02-components/2.3-messaging-streaming/2.3.9-event-sourcing-deep-dive.md)                               | Immutable event logs, state reconstruction, snapshots, event store design, time travel, audit trail. |
 
 ### 2.4 Security & Observability (Folder: [2.4-security-observability](./02-components/2.4-security-observability))
 
-| Topic ID | Concept                                                                                                          | Focus                                                                                            |
-|----------|------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| 2.4.1    | [Security Fundamentals](02-components/2.4-security-observability/2.4.1-security-fundamentals.md)                 | Authn/Authz (JWT), TLS/Encryption, Cross-Site Scripting (XSS) & CSRF.                            |
-| 2.4.2    | [Observability](02-components/2.4-security-observability/2.4.2-observability.md)                                 | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting.                    |
-| 2.4.3    | [Prometheus & Grafana Deep Dive](02-components/2.4-security-observability/2.4.3-prometheus-grafana-deep-dive.md) | Metrics collection, time-series storage, PromQL, dashboards, alerting, service discovery.        |
-| 2.4.4    | [OAuth 2.0 & JWT Deep Dive](02-components/2.4-security-observability/2.4.4-oauth-jwt-deep-dive.md)               | OAuth 2.0 flows, JWT structure, token management, refresh tokens, OIDC, security best practices. |
-| 2.4.5    | [ELK Stack & Logging Deep Dive](02-components/2.4-security-observability/2.4.5-elk-stack-logging-deep-dive.md)   | Elasticsearch, Logstash, Kibana, Beats, log parsing, retention, correlation, full-text search.   |
+| Topic ID | Concept                                                                                                          | Focus                                                                                                              |
+|----------|------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| 2.4.1    | [Security Fundamentals](02-components/2.4-security-observability/2.4.1-security-fundamentals.md)                 | Authn/Authz (JWT), TLS/Encryption, Cross-Site Scripting (XSS) & CSRF.                                              |
+| 2.4.2    | [Observability](02-components/2.4-security-observability/2.4.2-observability.md)                                 | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting.                                      |
+| 2.4.3    | [Prometheus & Grafana Deep Dive](02-components/2.4-security-observability/2.4.3-prometheus-grafana-deep-dive.md) | Metrics collection, time-series storage, PromQL, dashboards, alerting, service discovery.                          |
+| 2.4.4    | [OAuth 2.0 & JWT Deep Dive](02-components/2.4-security-observability/2.4.4-oauth-jwt-deep-dive.md)               | OAuth 2.0 flows, JWT structure, token management, refresh tokens, OIDC, security best practices.                   |
+| 2.4.5    | [ELK Stack & Logging Deep Dive](02-components/2.4-security-observability/2.4.5-elk-stack-logging-deep-dive.md)   | Elasticsearch, Logstash, Kibana, Beats, log parsing, retention, correlation, full-text search.                     |
+| 2.4.6    | [Distributed Tracing Deep Dive](02-components/2.4-security-observability/2.4.6-distributed-tracing-deep-dive.md) | Jaeger, Zipkin, OpenTelemetry, span propagation, sampling strategies, trace correlation, performance optimization. |
 
 ### 2.5 Distributed Algorithms (Folder: [2.5-algorithms](./02-components/2.5-algorithms))
 
