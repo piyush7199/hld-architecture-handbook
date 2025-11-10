@@ -65,24 +65,25 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 1.1.5    | [Back-of-the-Envelope Calculations](01-principles/1.1.5-back-of-envelope-calculations.md) |
 | 1.1.6    | [Failure Modes and Fault Tolerance](01-principles/1.1.6-failure-modes-fault-tolerance.md) |
 | 1.1.7    | [Idempotency](01-principles/1.1.7-idempotency.md)                                         |
-| 1.1.8    | [Data Partitioning and Sharding](01-principles/1.1.8-data-partitioning-sharding.md)        |
-| 1.1.9    | [Replication Strategies](01-principles/1.1.9-replication-strategies.md)                  |
-| 1.1.10   | [Message Delivery Guarantees](01-principles/1.1.10-message-delivery-guarantees.md)       |
+| 1.1.8    | [Data Partitioning and Sharding](01-principles/1.1.8-data-partitioning-sharding.md)       |
+| 1.1.9    | [Replication Strategies](01-principles/1.1.9-replication-strategies.md)                   |
+| 1.1.10   | [Message Delivery Guarantees](01-principles/1.1.10-message-delivery-guarantees.md)        |
 | 1.2.1    | [System Architecture Styles](01-principles/1.2.1-system-architecture-styles.md)           |
 | 1.2.2    | [Networking Components](01-principles/1.2.2-networking-components.md)                     |
 | 1.2.3    | [API Gateway and Service Mesh](01-principles/1.2.3-api-gateway-servicemesh.md)            |
 | 1.2.4    | [Domain-Driven Design (DDD) Basics](01-principles/1.2.4-domain-driven-design.md)          |
-| 1.2.5    | [Service Discovery](01-principles/1.2.5-service-discovery.md)                           |
+| 1.2.5    | [Service Discovery](01-principles/1.2.5-service-discovery.md)                             |
 
 ## Category 2: Components Deep Dive (Folder: [02-components](./02-components))
 
-> **📁 Organized into 6 logical categories for easier navigation:**
-> - 🌐 **Communication** (Protocols, APIs, Real-time)
-> - 🗄️ **Databases** (15 database deep dives!)
-> - ⚡ **Caching** (Redis, Memcached, Consistent Hashing)
+> **📁 Organized into 7 logical categories for easier navigation:**
+> - 🌐 **Communication** (Protocols, APIs, Real-time, Load Balancers, API Gateway, Service Mesh)
+> - 🗄️ **Databases** (18 database deep dives including Object Storage, Time Series & Vector DBs!)
+> - ⚡ **Caching** (Redis, Memcached, Consistent Hashing, CDN)
 > - 📨 **Messaging & Streaming** (Kafka, Spark, Flink, Message Queues)
 > - 🔒 **Security & Observability** (Auth, Monitoring, Tracing)
 > - 🧮 **Algorithms** (Rate Limiting, Consensus, Locking, Bloom Filters)
+> - 🏗️ **Infrastructure** (Kubernetes, Docker, Configuration Management, Infrastructure as Code)
 
 ### 2.0 Communication (Folder: [2.0-communication](./02-components/2.0-communication))
 
@@ -91,8 +92,11 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 2.0.1    | [Foundational Communication Protocols](02-components/2.0-communication/2.0.1-foundational-communication-protocols.md) | TCP vs. UDP, HTTP/S, WebSockets, WebRTC, DASH.                                                            |
 | 2.0.2    | [API Communication Styles](02-components/2.0-communication/2.0.2-api-communication-styles.md)                         | REST, gRPC, SOAP, GraphQL (Pros, Cons, and Use Cases).                                                    |
 | 2.0.3    | [Real-Time Communication](02-components/2.0-communication/2.0.3-real-time-communication.md)                           | Comparison of techniques for maintaining persistent or near-persistent connections for real-time updates. |
+| 2.0.4    | [Load Balancers Deep Dive](02-components/2.0-communication/2.0.4-load-balancers-deep-dive.md)                         | Layer 4 vs Layer 7, algorithms, health checks, SSL termination, sticky sessions.                          |
+| 2.0.5    | [API Gateway Deep Dive](02-components/2.0-communication/2.0.5-api-gateway-deep-dive.md)                             | Request routing, authentication, rate limiting, protocol translation, BFF pattern, service aggregation. |
+| 2.0.6    | [Service Mesh Deep Dive](02-components/2.0-communication/2.0.6-service-mesh-deep-dive.md)                           | Sidecar pattern, mTLS, retries, circuit breakers, traffic management, distributed tracing.              |
 
-### 2.1 Databases (Folder: [2.1-databases](./02-components/2.1-databases)) — 15 Deep Dives
+### 2.1 Databases (Folder: [2.1-databases](./02-components/2.1-databases)) — 18 Deep Dives
 
 #### Core Database Concepts
 
@@ -123,19 +127,23 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 #### Specialized Databases
 
-| Topic ID | Concept                                                                                       | Focus                                                                                          |
-|----------|-----------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
-| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)      | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM. |
-| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)    | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.           |
-| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md) | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                |
+| Topic ID | Concept                                                                                                  | Focus                                                                                          |
+|----------|----------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
+| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)                 | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM. |
+| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)               | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.           |
+| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md)            | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                |
+| 2.1.16   | [Object Storage Deep Dive](02-components/2.1-databases/2.1.16-object-storage-deep-dive.md)               | S3, GCS, Azure Blob, multipart uploads, lifecycle policies, storage classes, CDN integration.  |
+| 2.1.17   | [Time Series Databases Deep Dive](02-components/2.1-databases/2.1.17-time-series-databases-deep-dive.md) | InfluxDB, TimescaleDB, Prometheus, compression, retention policies, downsampling, IoT data.    |
+| 2.1.18   | [Vector Databases Deep Dive](02-components/2.1-databases/2.1.18-vector-databases-deep-dive.md)            | Pinecone, Weaviate, Milvus, FAISS, semantic search, embeddings, k-NN algorithms, AI/ML applications. |
 
 ### 2.2 Caching (Folder: [2.2-caching](./02-components/2.2-caching))
 
-| Topic ID | Concept                                                                       | Focus                                                                      |
-|----------|-------------------------------------------------------------------------------|----------------------------------------------------------------------------|
-| 2.2.1    | [Caching Deep Dive](02-components/2.2-caching/2.2.1-caching-deep-dive.md)     | Cache-Aside, Write-Through, CDN vs. App-Level Cache.                       |
-| 2.2.2    | [Consistent Hashing](02-components/2.2-caching/2.2.2-consistent-hashing.md)   | Algorithm mechanics, Ring implementation, how it minimizes data movement.  |
-| 2.2.3    | [Memcached Deep Dive](02-components/2.2-caching/2.2.3-memcached-deep-dive.md) | In-Memory Key-Value Cache, Slab Allocation, LRU Eviction, Multi-Threading. |
+| Topic ID | Concept                                                                       | Focus                                                                                           |
+|----------|-------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| 2.2.1    | [Caching Deep Dive](02-components/2.2-caching/2.2.1-caching-deep-dive.md)     | Cache-Aside, Write-Through, CDN vs. App-Level Cache.                                            |
+| 2.2.2    | [Consistent Hashing](02-components/2.2-caching/2.2.2-consistent-hashing.md)   | Algorithm mechanics, Ring implementation, how it minimizes data movement.                       |
+| 2.2.3    | [Memcached Deep Dive](02-components/2.2-caching/2.2.3-memcached-deep-dive.md) | In-Memory Key-Value Cache, Slab Allocation, LRU Eviction, Multi-Threading.                      |
+| 2.2.4    | [CDN Deep Dive](02-components/2.2-caching/2.2.4-cdn-deep-dive.md)             | Content Delivery Networks, edge caching, cache invalidation, push vs pull, global distribution. |
 
 ### 2.3 Messaging & Streaming (Folder: [2.3-messaging-streaming](./02-components/2.3-messaging-streaming))
 
@@ -165,6 +173,14 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 2.5.2    | [Consensus Algorithms](02-components/2.5-algorithms/2.5.2-consensus-algorithms.md)         | Paxos / Raft, Distributed Locks (ZooKeeper/etcd), solving the concurrency problem. |
 | 2.5.3    | [Distributed Locking](02-components/2.5-algorithms/2.5.3-distributed-locking.md)           | $\text{Redis}$ locks, $\text{TTL}$, Fencing Tokens, ensuring mutual exclusion.     |
 | 2.5.4    | [Bloom Filters](02-components/2.5-algorithms/2.5.4-bloom-filters.md)                       | Intuition, Hash Functions, False Positives, use cases (e.g., CDN cache lookups).   |
+
+### 2.6 Infrastructure (Folder: [2.6-infrastructure](./02-components/2.6-infrastructure))
+
+| Topic ID | Concept                                                                                                  | Focus                                                                                  |
+|----------|----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------|
+| 2.6.1    | [Kubernetes and Docker Deep Dive](02-components/2.6-infrastructure/2.6.1-kubernetes-docker-deep-dive.md) | Container orchestration, pods, services, deployments, auto-scaling, service discovery. |
+| 2.6.2    | [Configuration Management Deep Dive](02-components/2.6-infrastructure/2.6.2-configuration-management-deep-dive.md) | etcd, Consul, Vault, service discovery, leader election, secrets management, watch API. |
+| 2.6.3    | [Infrastructure as Code Deep Dive](02-components/2.6-infrastructure/2.6.3-infrastructure-as-code-deep-dive.md) | Terraform, CloudFormation, Pulumi, state management, modules, multi-environment, CI/CD. |
 
 ## 🗺️ Design Challenges Roadmap (Category 3)
 
@@ -292,7 +308,8 @@ When adding a new design challenge to `03-challenges/`, create a folder `3.x.y-p
 └── pseudocode.md                    # Algorithm implementations
 ```
 
-**⚠️ IMPORTANT:** The main design file (`3.x.y-design-problem-name.md`) should NOT exist in the final structure. Its content should be moved to `README.md`, and a `quick-overview.md` file should be created for quick revision purposes.
+**⚠️ IMPORTANT:** The main design file (`3.x.y-design-problem-name.md`) should NOT exist in the final structure. Its
+content should be moved to `README.md`, and a `quick-overview.md` file should be created for quick revision purposes.
 
 #### Main File Template (README.md):
 
@@ -446,7 +463,8 @@ result = function_name(arg1, arg2)
     4. Section numbering starts at "## 1. Problem Statement"
     5. Continue with "## 2. Requirements...", "## 3. High-Level Architecture", etc.
 - **README.md**: NO programming language code, NO detailed pseudocode (describe in words, reference pseudocode.md)
-- **quick-overview.md**: Concise revision guide (300-600 lines) with core concepts, architecture flows, key design decisions, bottlenecks, anti-patterns, trade-offs, real-world examples, and key takeaways
+- **quick-overview.md**: Concise revision guide (300-600 lines) with core concepts, architecture flows, key design
+  decisions, bottlenecks, anti-patterns, trade-offs, real-world examples, and key takeaways
 - All diagrams MUST have flow explanations (steps, benefits, trade-offs)
 - this-over-that.md: 5-10 major decisions with detailed analysis
 - pseudocode.md: 10-20 functions with complexity analysis
