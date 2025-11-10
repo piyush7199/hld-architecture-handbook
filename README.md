@@ -93,8 +93,8 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 2.0.2    | [API Communication Styles](02-components/2.0-communication/2.0.2-api-communication-styles.md)                         | REST, gRPC, SOAP, GraphQL (Pros, Cons, and Use Cases).                                                    |
 | 2.0.3    | [Real-Time Communication](02-components/2.0-communication/2.0.3-real-time-communication.md)                           | Comparison of techniques for maintaining persistent or near-persistent connections for real-time updates. |
 | 2.0.4    | [Load Balancers Deep Dive](02-components/2.0-communication/2.0.4-load-balancers-deep-dive.md)                         | Layer 4 vs Layer 7, algorithms, health checks, SSL termination, sticky sessions.                          |
-| 2.0.5    | [API Gateway Deep Dive](02-components/2.0-communication/2.0.5-api-gateway-deep-dive.md)                             | Request routing, authentication, rate limiting, protocol translation, BFF pattern, service aggregation. |
-| 2.0.6    | [Service Mesh Deep Dive](02-components/2.0-communication/2.0.6-service-mesh-deep-dive.md)                           | Sidecar pattern, mTLS, retries, circuit breakers, traffic management, distributed tracing.              |
+| 2.0.5    | [API Gateway Deep Dive](02-components/2.0-communication/2.0.5-api-gateway-deep-dive.md)                               | Request routing, authentication, rate limiting, protocol translation, BFF pattern, service aggregation.   |
+| 2.0.6    | [Service Mesh Deep Dive](02-components/2.0-communication/2.0.6-service-mesh-deep-dive.md)                             | Sidecar pattern, mTLS, retries, circuit breakers, traffic management, distributed tracing.                |
 
 ### 2.1 Databases (Folder: [2.1-databases](./02-components/2.1-databases)) — 18 Deep Dives
 
@@ -127,14 +127,14 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 #### Specialized Databases
 
-| Topic ID | Concept                                                                                                  | Focus                                                                                          |
-|----------|----------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
-| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)                 | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM. |
-| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)               | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.           |
-| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md)            | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                |
-| 2.1.16   | [Object Storage Deep Dive](02-components/2.1-databases/2.1.16-object-storage-deep-dive.md)               | S3, GCS, Azure Blob, multipart uploads, lifecycle policies, storage classes, CDN integration.  |
-| 2.1.17   | [Time Series Databases Deep Dive](02-components/2.1-databases/2.1.17-time-series-databases-deep-dive.md) | InfluxDB, TimescaleDB, Prometheus, compression, retention policies, downsampling, IoT data.    |
-| 2.1.18   | [Vector Databases Deep Dive](02-components/2.1-databases/2.1.18-vector-databases-deep-dive.md)            | Pinecone, Weaviate, Milvus, FAISS, semantic search, embeddings, k-NN algorithms, AI/ML applications. |
+| Topic ID | Concept                                                                                                  | Focus                                                                                                |
+|----------|----------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)                 | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM.       |
+| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)               | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.                 |
+| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md)            | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                      |
+| 2.1.16   | [Object Storage Deep Dive](02-components/2.1-databases/2.1.16-object-storage-deep-dive.md)               | S3, GCS, Azure Blob, multipart uploads, lifecycle policies, storage classes, CDN integration.        |
+| 2.1.17   | [Time Series Databases Deep Dive](02-components/2.1-databases/2.1.17-time-series-databases-deep-dive.md) | InfluxDB, TimescaleDB, Prometheus, compression, retention policies, downsampling, IoT data.          |
+| 2.1.18   | [Vector Databases Deep Dive](02-components/2.1-databases/2.1.18-vector-databases-deep-dive.md)           | Pinecone, Weaviate, Milvus, FAISS, semantic search, embeddings, k-NN algorithms, AI/ML applications. |
 
 ### 2.2 Caching (Folder: [2.2-caching](./02-components/2.2-caching))
 
@@ -176,11 +176,11 @@ We will cover the following topics in sequence before moving to the Design Chall
 
 ### 2.6 Infrastructure (Folder: [2.6-infrastructure](./02-components/2.6-infrastructure))
 
-| Topic ID | Concept                                                                                                  | Focus                                                                                  |
-|----------|----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------|
-| 2.6.1    | [Kubernetes and Docker Deep Dive](02-components/2.6-infrastructure/2.6.1-kubernetes-docker-deep-dive.md) | Container orchestration, pods, services, deployments, auto-scaling, service discovery. |
+| Topic ID | Concept                                                                                                            | Focus                                                                                   |
+|----------|--------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+| 2.6.1    | [Kubernetes and Docker Deep Dive](02-components/2.6-infrastructure/2.6.1-kubernetes-docker-deep-dive.md)           | Container orchestration, pods, services, deployments, auto-scaling, service discovery.  |
 | 2.6.2    | [Configuration Management Deep Dive](02-components/2.6-infrastructure/2.6.2-configuration-management-deep-dive.md) | etcd, Consul, Vault, service discovery, leader election, secrets management, watch API. |
-| 2.6.3    | [Infrastructure as Code Deep Dive](02-components/2.6-infrastructure/2.6.3-infrastructure-as-code-deep-dive.md) | Terraform, CloudFormation, Pulumi, state management, modules, multi-environment, CI/CD. |
+| 2.6.3    | [Infrastructure as Code Deep Dive](02-components/2.6-infrastructure/2.6.3-infrastructure-as-code-deep-dive.md)     | Terraform, CloudFormation, Pulumi, state management, modules, multi-environment, CI/CD. |
 
 ## 🗺️ Design Challenges Roadmap (Category 3)
 

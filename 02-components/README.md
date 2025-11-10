@@ -9,7 +9,8 @@ Components are organized into **7 logical categories** for easier navigation:
 
 ### 🌐 [2.0-communication](./2.0-communication/) — Communication Protocols & APIs (6 files)
 
-Foundational communication concepts, API design styles, real-time communication patterns, load balancing, API gateways, and service mesh.
+Foundational communication concepts, API design styles, real-time communication patterns, load balancing, API gateways,
+and service mesh.
 
 - **[2.0.1 Foundational Communication Protocols](./2.0-communication/2.0.1-foundational-communication-protocols.md)** —
   TCP/UDP, HTTP/S, WebSockets, WebRTC
@@ -19,12 +20,15 @@ Foundational communication concepts, API design styles, real-time communication 
   WebSockets
 - **[2.0.4 Load Balancers Deep Dive](./2.0-communication/2.0.4-load-balancers-deep-dive.md)** — Layer 4/7, algorithms,
   health checks, SSL termination
-- **[2.0.5 API Gateway Deep Dive](./2.0-communication/2.0.5-api-gateway-deep-dive.md)** — Request routing, authentication, rate limiting, protocol translation, BFF pattern
-- **[2.0.6 Service Mesh Deep Dive](./2.0-communication/2.0.6-service-mesh-deep-dive.md)** — Sidecar pattern, mTLS, retries, circuit breakers, traffic management
+- **[2.0.5 API Gateway Deep Dive](./2.0-communication/2.0.5-api-gateway-deep-dive.md)** — Request routing,
+  authentication, rate limiting, protocol translation, BFF pattern
+- **[2.0.6 Service Mesh Deep Dive](./2.0-communication/2.0.6-service-mesh-deep-dive.md)** — Sidecar pattern, mTLS,
+  retries, circuit breakers, traffic management
 
 ### 🗄️ [2.1-databases](./2.1-databases/) — Database Systems (18 files)
 
-Comprehensive coverage of SQL, NoSQL, specialized databases, object storage, time series databases, and vector databases with practical
+Comprehensive coverage of SQL, NoSQL, specialized databases, object storage, time series databases, and vector databases
+with practical
 design challenges.
 
 #### Core Concepts (6 files)
@@ -59,7 +63,8 @@ design challenges.
   multipart uploads, lifecycle policies
 - **[2.1.17 Time Series Databases Deep Dive](./2.1-databases/2.1.17-time-series-databases-deep-dive.md)** — InfluxDB,
   TimescaleDB, Prometheus, compression, retention
-- **[2.1.18 Vector Databases Deep Dive](./2.1-databases/2.1.18-vector-databases-deep-dive.md)** — Pinecone, Weaviate, Milvus, FAISS, semantic search, embeddings
+- **[2.1.18 Vector Databases Deep Dive](./2.1-databases/2.1.18-vector-databases-deep-dive.md)** — Pinecone, Weaviate,
+  Milvus, FAISS, semantic search, embeddings
 
 ### ⚡ [2.2-caching](./2.2-caching/) — Caching Systems (4 files)
 
@@ -79,9 +84,10 @@ Message queues, event streaming, and big data processing frameworks.
   Streams
 - **[2.3.2 Kafka Deep Dive](./2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)** — Distributed streaming
 - **[2.3.3 Advanced Message Queues](./2.3-messaging-streaming/2.3.3-advanced-message-queues.md)** — RabbitMQ, SQS, SNS
-- *
-  *[2.3.4 Distributed Transactions & Idempotency](./2.3-messaging-streaming/2.3.4-distributed-transactions-and-idempotency.md)
-  ** — 2PC, Sagas
+-
+    *
+*[2.3.4 Distributed Transactions & Idempotency](./2.3-messaging-streaming/2.3.4-distributed-transactions-and-idempotency.md)
+** — 2PC, Sagas
 - **[2.3.5 Batch vs Stream Processing](./2.3-messaging-streaming/2.3.5-batch-vs-stream-processing.md)** — Lambda/Kappa
 - **[2.3.6 Push vs Pull Data Flow](./2.3-messaging-streaming/2.3.6-push-vs-pull-data-flow.md)** — Design patterns
 - **[2.3.7 Apache Spark Deep Dive](./2.3-messaging-streaming/2.3.7-apache-spark-deep-dive.md)** — Unified analytics
@@ -110,8 +116,10 @@ Container orchestration, configuration management, and infrastructure automation
 
 - **[2.6.1 Kubernetes and Docker Deep Dive](./2.6-infrastructure/2.6.1-kubernetes-docker-deep-dive.md)** — Container
   orchestration, pods, services, deployments, auto-scaling
-- **[2.6.2 Configuration Management Deep Dive](./2.6-infrastructure/2.6.2-configuration-management-deep-dive.md)** — etcd, Consul, Vault, service discovery, leader election, secrets
-- **[2.6.3 Infrastructure as Code Deep Dive](./2.6-infrastructure/2.6.3-infrastructure-as-code-deep-dive.md)** — Terraform, CloudFormation, Pulumi, state management, modules, CI/CD
+- **[2.6.2 Configuration Management Deep Dive](./2.6-infrastructure/2.6.2-configuration-management-deep-dive.md)** —
+  etcd, Consul, Vault, service discovery, leader election, secrets
+- **[2.6.3 Infrastructure as Code Deep Dive](./2.6-infrastructure/2.6.3-infrastructure-as-code-deep-dive.md)** —
+  Terraform, CloudFormation, Pulumi, state management, modules, CI/CD
 
 ---
 
