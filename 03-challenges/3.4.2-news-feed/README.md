@@ -13,185 +13,225 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
-Design a global news aggregation and personalization platform that ingests 100 million articles per day from millions of
-sources, deduplicates stories across publishers, provides personalized feeds for 100 million daily active users, and
-enables <50ms full-text search across billions of documents.
+Design a global news aggregation platform that:
 
-**Real-World Context:**
+- **Ingests 100M articles/day** from millions of sources (RSS feeds, APIs, web scraping)
+- **Deduplicates stories** across different publishers (same event, different wording)
+- **Personalizes feeds** for 100M daily active users based on reading history
+- **Provides <50ms search** across billions of documents
+- **Detects trending topics** in real-time
 
-- **Google News:** 100B articles indexed, 1B+ users globally, <50ms latency
-- **Flipboard:** 34M feeds aggregated, 145M users, ML-powered curation
-- **Apple News:** 125M users, 2000+ publishers integrated
-- **SmartNews:** 20M DAU, personalized with machine learning
+**Real-World Examples:**
 
-**Core Technical Challenges:**
+- **Google News:** 100B articles indexed, 1B+ users, <50ms latency
+- **Flipboard:** 34M feeds, 145M users, personalized content curation
+- **Apple News:** 125M users, aggregates from 2000+ publishers
+- **SmartNews:** 20M DAU, ML-powered personalization
 
-1. **Massive ingestion:** 100M articles/day = 1,157 writes/sec continuous throughput
-2. **Near-duplicate detection:** Same story from 10K sources with different wording
-3. **Full-text search:** Billions of documents with <50ms query latency
+**The Core Challenge:**
+
+Traditional databases cannot handle:
+
+1. **Massive write throughput:** 100M articles/day = 1,157 writes/sec
+2. **Full-text search:** Billions of documents with <50ms latency
+3. **Near-duplicate detection:** "Apple releases iPhone 15" from 10K sources
 4. **Real-time personalization:** User reads article → feed updates instantly
-5. **NLP at scale:** Keyword extraction, entity recognition, embeddings for 1,157 articles/sec
 
 ---
 
-## Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
 ### Functional Requirements
 
-**Content Management:**
+**Article Management:**
 
-- Ingest articles from RSS feeds, APIs, web scraping
-- Detect and merge near-duplicate stories (LSH similarity)
-- Auto-categorize content (Technology, Sports, Politics, etc.)
-- Extract keywords, entities, and generate embeddings
+1. **Ingestion:** Crawl RSS feeds, APIs, web scraping (100M articles/day)
+2. **Deduplication:** Group articles about same story from different sources
+3. **Categorization:** Auto-categorize (Technology, Sports, Politics, etc.)
+4. **Ranking:** Quality scoring (source reputation, freshness, engagement)
 
 **User Experience:**
 
-- Personalized feed based on reading history and interests
-- Full-text search across all articles (<50ms)
-- Trending topics in real-time (1-minute updates)
-- Multi-language support (50+ languages)
+1. **Personalized Feed:** Ranked by user interests and reading history
+2. **Full-Text Search:** Keyword search across all articles (<50ms)
+3. **Trending Topics:** Real-time detection of viral stories
+4. **Multi-Language:** Support 50+ languages (translation, indexing)
 
 ### Non-Functional Requirements
 
-| Requirement                | Target           | Industry Benchmark                  |
-|----------------------------|------------------|-------------------------------------|
-| **Feed Latency (p99)**     | <50ms            | Google News: ~30ms                  |
-| **Search Latency (p99)**   | <50ms            | Elasticsearch: 20-50ms              |
-| **Ingestion Throughput**   | 1,157 writes/sec | 100M articles/day                   |
-| **Read QPS**               | 300K QPS peak    | 100M DAU × 3 loads/day              |
-| **Availability**           | 99.9%            | AP system (eventual consistency OK) |
-| **Deduplication Accuracy** | 95%              | Industry standard: 90-98%           |
-| **Personalization Lag**    | <1 hour          | Batch: 24h, Real-time: <1h          |
+| Requirement                | Target           | Rationale                                   |
+|----------------------------|------------------|---------------------------------------------|
+| **Feed Latency**           | <50ms (p99)      | User experience (fast page load)            |
+| **Search Latency**         | <50ms (p99)      | Competitive with Google Search              |
+| **Ingestion Throughput**   | 1,157 writes/sec | 100M articles/day                           |
+| **Read QPS**               | 300,000 QPS      | 100M DAU × 3 feed loads/day                 |
+| **Availability**           | 99.9%            | AP system (eventual consistency acceptable) |
+| **Personalization Lag**    | <1 hour          | Real-time feature updates                   |
+| **Deduplication Accuracy** | 95%              | Minimize duplicate stories                  |
 
 ### Scale Estimation
 
-| Metric                  | Calculation                                  | Result                                 |
-|-------------------------|----------------------------------------------|----------------------------------------|
-| **Articles/Day**        | 100M articles                                | 1,157 writes/sec                       |
-| **Storage (5 years)**   | 100M × 365 × 5 × 10 KB                       | 180 TB raw + 360 TB index = **540 TB** |
-| **Read QPS (peak)**     | 100M DAU × 3 feeds/day ÷ 28800 sec (8h peak) | **300,000 QPS**                        |
-| **Deduplication**       | 1,157 articles/sec × 10K comparisons         | 11.57M comparisons/sec                 |
-| **NLP Workers**         | 1,157 articles/sec × 500ms processing        | 578 parallel workers                   |
-| **Elasticsearch Nodes** | 540 TB ÷ 5 TB/node                           | 100 nodes (3× replication)             |
+| Metric                   | Calculation                        | Result                                 |
+|--------------------------|------------------------------------|----------------------------------------|
+| **Articles Ingested**    | 100M articles/day                  | 1,157 writes/sec                       |
+| **Storage (5 years)**    | 100M/day × 365 × 5 × 10 KB         | 180 TB (raw) + 360 TB (index) = 540 TB |
+| **Read QPS**             | 100M DAU × 3 feeds/day ÷ 86400 sec | 3,472 QPS avg, 300K QPS peak           |
+| **Deduplication Checks** | 1,157 writes/sec × 10K comparisons | 11.57M comparisons/sec                 |
+| **NLP Processing**       | 1,157 articles/sec × 500ms NLP     | 578 parallel NLP workers               |
+| **Trending Topics**      | 1,157 articles/sec × 100 topics    | 115K topic updates/sec                 |
 
-**Latency Budget:**
+**Latency Budget Breakdown:**
 
 ```
 Target: 50ms feed load
 
-API Gateway:            5ms  (10%)
-Personalization:       15ms  (30%)  ← Critical path
-Elasticsearch Query:   20ms  (40%)  ← Largest component
-CDN (Article Fetch):    5ms  (10%)
-Network Overhead:       5ms  (10%)
-Total:                 50ms
+User Request → API Gateway:     5ms  (10%)
+Personalization Service:       15ms  (30%)  ← Biggest component
+Elasticsearch Query:           20ms  (40%)
+Article Content Fetch (CDN):    5ms  (10%)
+Network + Rendering:            5ms  (10%)
+Total:                         50ms
 ```
 
 ---
 
-## High-Level Architecture
+## 3. High-Level Architecture
 
-### System Components
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
+
+### Component Overview
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│          INGESTION LAYER (1,157 writes/sec)             │
-│                                                          │
-│  RSS Crawlers → API Connectors → Web Scrapers          │
-│  (10K sources)   (1K publishers)   (Newspaper3k)        │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼ Raw Articles (JSON)
-          ┌──────────────────────┐
-          │   KAFKA INGESTION    │
-          │   100 partitions     │
-          │   7-day retention    │
-          └────────┬─────────────┘
-                   │
-         ┌─────────┴─────────┐
-         ▼                   ▼
-    ┌────────┐         ┌─────────────┐
-    │ BLOOM  │         │ POSTGRESQL  │
-    │ FILTER │         │ (Metadata)  │
-    │ 1B URLs│         │ Sharded 100×│
-    └───┬────┘         └─────────────┘
-        │
-        ▼ Not Seen
-    ┌──────────────────────────┐
-    │  DEDUPLICATION SERVICE   │
-    │  - LSH (MinHash)         │
-    │  - Jaccard similarity    │
-    │  - 95% accuracy          │
-    └──────────┬───────────────┘
+INGESTION LAYER (100M articles/day)
+┌────────────────────────────────────────────┐
+│  RSS Crawlers (10K sources)                │
+│  API Connectors (1K publishers)            │
+│  Web Scrapers (Newspaper3k, Scrapy)        │
+└──────────────┬─────────────────────────────┘
                │
-               ▼ Unique Articles
-    ┌──────────────────────────┐
-    │  KAFKA PROCESSING TOPIC  │
-    └──────────┬───────────────┘
-               │
-               ▼
-    ┌──────────────────────────┐
-    │    NLP PROCESSING        │
-    │  - spaCy (keywords)      │
-    │  - BERT (embeddings)     │
-    │  - TextRank (summary)    │
-    │  - Category ML model     │
-    └──────────┬───────────────┘
+               ▼ Raw Articles (JSON)
+┌────────────────────────────────────────────┐
+│         KAFKA INGESTION TOPIC              │
+│  (100 partitions, 7-day retention)         │
+└──────────────┬─────────────────────────────┘
                │
         ┌──────┴──────┐
+        │             │
         ▼             ▼
-   ┌─────────┐   ┌─────────┐
-   │ELASTIC  │   │ REDIS   │
-   │ SEARCH  │   │ CACHE   │
-   │ 180 TB  │   │ Hot 24h │
-   └─────────┘   └─────────┘
+┌──────────────┐  ┌──────────────┐
+│ BLOOM FILTER │  │  POSTGRES    │
+│ (Seen URLs)  │  │ (Metadata)   │
+│ 1B URLs      │  │ Sharded 100x │
+│ 0.01% FP     │  │              │
+└──────┬───────┘  └──────────────┘
+       │
+       ▼ Not Seen
+┌────────────────────────────────────────────┐
+│       DEDUPLICATION SERVICE                │
+│  - LSH (Locality-Sensitive Hashing)        │
+│  - MinHash signatures (128 bits)           │
+│  - Jaccard similarity (>0.85 = duplicate)  │
+└──────────────┬─────────────────────────────┘
+               │
+               ▼ Unique Articles
+┌────────────────────────────────────────────┐
+│         KAFKA PROCESSING TOPIC             │
+└──────────────┬─────────────────────────────┘
+               │
+               ▼
+┌────────────────────────────────────────────┐
+│            NLP PROCESSING                  │
+│  - spaCy (keyword extraction)              │
+│  - BERT (embeddings for similarity)        │
+│  - TextRank (summarization)                │
+│  - Sentiment analysis (positive/negative)  │
+│  - Language detection (langdetect)         │
+│  - Category classification (ML model)      │
+└──────────────┬─────────────────────────────┘
+               │
+        ┌──────┴──────┐
+        │             │
+        ▼             ▼
+┌──────────────┐  ┌──────────────┐
+│ ELASTICSEARCH│  │  REDIS CACHE │
+│ (Search Index│  │ (Hot Articles│
+│  180 TB)     │  │  Last 24h)   │
+│ 100 nodes    │  │              │
+└──────────────┘  └──────────────┘
 
-┌─────────────────────────────────────────────────────────┐
-│           SERVING LAYER (300K QPS)                      │
-│                                                          │
-│  User Profile Store (DynamoDB)                          │
-│         ↓                                                │
-│  Personalization Service (ML ranking)                   │
-│         ↓                                                │
-│  Feed Serving (CDN + Redis + Elasticsearch)            │
-└─────────────────────────────────────────────────────────┘
+SERVING LAYER (300K QPS)
+┌────────────────────────────────────────────┐
+│         USER PROFILE STORE                 │
+│  - Reading history (last 30 days)          │
+│  - Explicit interests (selected topics)    │
+│  - Implicit interests (ML model)           │
+│  - DynamoDB (user_id → profile)            │
+└──────────────┬─────────────────────────────┘
+               │
+               ▼
+┌────────────────────────────────────────────┐
+│       PERSONALIZATION SERVICE              │
+│  - Fetch user profile                      │
+│  - Build Elasticsearch query (boosted)     │
+│  - Apply recency decay (exponential)       │
+│  - Diversity filter (max 2 from same src)  │
+└──────────────┬─────────────────────────────┘
+               │
+               ▼
+┌────────────────────────────────────────────┐
+│         FEED SERVING SERVICE               │
+│  - CDN cache (CloudFront)                  │
+│  - Redis cache (article metadata)          │
+│  - Elasticsearch query (top 100 articles)  │
+└────────────────────────────────────────────┘
 ```
 
-**Data Flow:**
+**Data Flow Summary:**
 
-1. **Crawlers** → Kafka (1,157 articles/sec)
-2. **Bloom Filter** → Deduplicate URLs
-3. **LSH** → Detect near-duplicates (content similarity)
-4. **NLP** → Extract keywords, embeddings, category
-5. **Elasticsearch** → Index for full-text search
-6. **Personalization** → Rank articles by user interests
-7. **Serve** → CDN + Redis cache (hot data)
+1. **Ingestion:** Crawlers → Kafka (1,157 articles/sec)
+2. **Deduplication:** Bloom Filter → LSH → Unique articles
+3. **NLP Processing:** Keyword extraction → Embeddings → Categorization
+4. **Indexing:** Elasticsearch (full-text search) + Redis (cache)
+5. **Personalization:** User profile → Ranked query → Feed
+6. **Serving:** CDN (static) + Redis (hot data) + Elasticsearch (search)
 
 ---
 
-## Data Model
+## 4. Data Model
 
-### Article Schema
+### 4.1 Article Schema (PostgreSQL + Elasticsearch)
 
-**PostgreSQL (Metadata):**
+**PostgreSQL (Metadata Only):**
 
 ```sql
 CREATE TABLE articles (
     article_id BIGINT PRIMARY KEY,
     url TEXT UNIQUE NOT NULL,
-    source_id INT,
-    title TEXT,
-    published_at TIMESTAMP,
+    source_id INT NOT NULL,
+    title TEXT NOT NULL,
+    author TEXT,
+    published_at TIMESTAMP NOT NULL,
     category VARCHAR(50),
-    quality_score FLOAT,
-    INDEX idx_published (published_at DESC)
+    language CHAR(2),
+    quality_score FLOAT,  -- 0.0 to 1.0
+    created_at TIMESTAMP DEFAULT NOW(),
+    INDEX idx_published_at (published_at DESC),
+    INDEX idx_source_category (source_id, category)
+);
+
+CREATE TABLE sources (
+    source_id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    domain VARCHAR(255) UNIQUE,
+    reputation_score FLOAT,  -- 0.0 to 1.0
+    rss_url TEXT,
+    crawl_frequency INT  -- minutes
 );
 ```
 
-**Elasticsearch (Full Content + Search):**
+**Elasticsearch (Full-Text Search):**
 
 ```json
 {
@@ -205,18 +245,31 @@ CREATE TABLE articles (
         "analyzer": "english"
       },
       "content": {
+        "type": "text",
+        "analyzer": "english"
+      },
+      "summary": {
         "type": "text"
       },
       "keywords": {
         "type": "keyword"
       },
+      "entities": {
+        "type": "keyword"
+      },
       "category": {
+        "type": "keyword"
+      },
+      "language": {
         "type": "keyword"
       },
       "published_at": {
         "type": "date"
       },
       "quality_score": {
+        "type": "float"
+      },
+      "engagement_score": {
         "type": "float"
       },
       "embedding_vector": {
@@ -230,14 +283,12 @@ CREATE TABLE articles (
 
 **Why Elasticsearch?**
 
-- Inverted index for O(log N) full-text search
-- Aggregations for trending topics (bucketing)
-- BM25 scoring for relevance ranking
-- 100-node cluster handles 540 TB index
+- **Inverted index:** Full-text search in O(log N) time
+- **Aggregations:** Real-time trending topics (bucketing by keyword)
+- **Scoring:** BM25 algorithm for relevance ranking
+- **Geo-search:** Location-based news (nearby events)
 
-### User Profile Schema
-
-**DynamoDB:**
+### 4.2 User Profile Schema (DynamoDB)
 
 ```json
 {
@@ -248,105 +299,179 @@ CREATE TABLE articles (
   ],
   "interests_implicit": {
     "Technology": 0.85,
-    "Politics": 0.45
+    "Politics": 0.45,
+    "Entertainment": 0.30
   },
   "reading_history": [
     {
-      "article_id": "123",
+      "article_id": "123456789",
       "timestamp": 1640000000,
-      "dwell_time": 45
+      "dwell_time": 45,
+      "engaged": true
     }
-  ]
+  ],
+  "last_updated": 1640000000
 }
 ```
 
 **Why DynamoDB?**
 
-- Single-digit ms reads (low latency)
-- Auto-scaling (100M users)
-- Schema-less (flexible user profiles)
+- **Low latency:** Single-digit millisecond reads (user_id → profile)
+- **Scalability:** Auto-scales for 100M users
+- **No schema:** User profiles vary (different interests, history lengths)
 
 ---
 
-## Ingestion and Deduplication
+## 5. Ingestion Pipeline
 
-### RSS Crawling Strategy
+### 5.1 Crawling Strategy
+
+**RSS Feeds (90% of sources):**
+
+```python
+# Pseudocode for RSS crawler
+for source in sources:
+  if current_time >= source.next_crawl_time:
+    articles = fetch_rss(source.rss_url)
+    for article in articles:
+      publish_to_kafka(article)
+    
+    source.next_crawl_time = current_time + source.crawl_frequency
+```
 
 **Crawl Frequency:**
 
-- High-frequency: Every 5 min (Reuters, AP, Bloomberg)
-- Medium-frequency: Every 30 min (local newspapers)
-- Low-frequency: Every 2 hours (blogs, niche sites)
+- **High-frequency sources:** Every 5 minutes (Reuters, AP, Bloomberg)
+- **Medium-frequency sources:** Every 30 minutes (local newspapers)
+- **Low-frequency sources:** Every 2 hours (blogs, niche sites)
 
 **Politeness:**
 
-- Max 1 req/sec per domain (avoid overload)
-- Respect robots.txt
-- Identify as legitimate crawler
+- **Rate limiting:** Max 1 req/sec per domain (avoid overload)
+- **robots.txt:** Respect crawler directives
+- **User-Agent:** Identify as legitimate crawler (avoid blocking)
 
-*Implementation: [pseudocode.md::crawl_rss_feed()](pseudocode.md)*
+*See [pseudocode.md::crawl_rss_feed()](pseudocode.md) for implementation.*
 
-### Stage 1: Bloom Filter (URL Exact Match)
+### 5.2 Kafka Ingestion Topic
 
 **Configuration:**
 
-- Capacity: 1 billion URLs (1 year of data)
-- False positive rate: 0.01% (1 in 10,000)
-- Memory: ~1.2 GB
-- Hash functions: 7 (optimal)
+- **Topic:** `article-ingestion`
+- **Partitions:** 100 (shard by source_id for ordering)
+- **Retention:** 7 days (replay capability)
+- **Replication:** 3× (durability)
+
+**Message Format:**
+
+```json
+{
+  "article_id": "123456789",
+  "url": "https://example.com/article",
+  "source_id": 42,
+  "title": "Breaking News: Event Happened",
+  "content": "Full article text...",
+  "author": "John Doe",
+  "published_at": "2024-01-01T12:00:00Z",
+  "ingested_at": "2024-01-01T12:00:01Z"
+}
+```
+
+---
+
+## 6. Deduplication (Bloom Filters + LSH)
+
+### 6.1 Stage 1: Bloom Filter (URL Exact Match)
+
+**Purpose:** Fast O(1) check if URL has been seen before.
+
+**Configuration:**
+
+- **Capacity:** 1 billion URLs (1 year of data)
+- **False positive rate:** 0.01% (1 in 10,000)
+- **Memory:** ~1.2 GB (using 10 bits per element)
+- **Hash functions:** 7 (optimal for 0.01% FP rate)
 
 **Flow:**
 
 ```
-1. Article arrives → Check URL in Bloom Filter
-2. If Yes → Probably seen (skip or update metadata)
-3. If No → Definitely new (add to Bloom Filter, continue to LSH)
+1. Article arrives from Kafka
+2. Check: URL in Bloom Filter?
+   - Yes → Probably seen before (skip or update metadata)
+   - No → Definitely new (add to Bloom Filter, continue to LSH)
+3. Add URL to Bloom Filter (irreversible)
 ```
 
-*Implementation: [pseudocode.md::bloom_filter_check()](pseudocode.md)*
+*See [pseudocode.md::bloom_filter_check()](pseudocode.md) for implementation.*
 
-### Stage 2: LSH (Content Similarity)
+### 6.2 Stage 2: LSH (Content Similarity)
 
-**Problem:** Same story, different wording:
+**Problem:** Same story from different sources:
 
-- Reuters: "Apple announces iPhone 15 with new features"
-- TechCrunch: "iPhone 15 unveiled: What's new"
-- The Verge: "Apple's iPhone 15: Everything you need to know"
+- **Reuters:** "Apple announces iPhone 15 with new features"
+- **TechCrunch:** "iPhone 15 unveiled: What's new in Apple's latest phone"
+- **The Verge:** "Apple's iPhone 15: Everything you need to know"
 
 **Solution: MinHash + LSH**
 
-1. **MinHash Signature:**
-    - Tokenize article into 3-word shingles
-    - Generate 128-hash signature (compact representation)
+**MinHash Signature:**
 
-2. **LSH Bucketing:**
-    - Split signature into 16 bands × 8 rows
-    - Hash each band → Bucket ID
-    - Articles in same bucket → Likely similar
+```
+1. Tokenize article (shingles: 3-word sequences)
+   - "Apple announces iPhone" → Hash1
+   - "announces iPhone 15" → Hash2
+   - "iPhone 15 with" → Hash3
 
-3. **Jaccard Similarity:**
-    - Compute exact similarity for candidate pairs
-    - If > 0.85 → Duplicate (merge into same story)
+2. Generate MinHash signature (128 hashes)
+   - signature[i] = min(hash(shingle) for all shingles)
+
+3. Result: 128-integer signature (compact representation)
+```
+
+**LSH Bucketing:**
+
+```
+1. Split signature into 16 bands × 8 rows
+2. Hash each band → Bucket ID
+3. Articles in same bucket → Candidate pairs (likely similar)
+4. Compute Jaccard similarity (exact):
+   - Jaccard = |intersection| / |union|
+   - If > 0.85 → Duplicate (merge into same story)
+```
 
 **Performance:**
 
-- MinHash: 50ms per article
-- LSH lookup: 5ms
-- Jaccard: 10ms per pair (avg 3 pairs)
-- **Total: 75ms deduplication overhead**
+- **MinHash computation:** 50ms per article
+- **LSH lookup:** 5ms per article
+- **Jaccard computation:** 10ms per candidate pair (avg 3 pairs)
+- **Total:** 75ms deduplication overhead
 
-*Implementation: [pseudocode.md::minhash_signature()](pseudocode.md), [pseudocode.md::lsh_find_similar()](pseudocode.md)*
+*See [pseudocode.md::minhash_signature()](pseudocode.md) and [pseudocode.md::lsh_find_similar()](pseudocode.md) for
+implementation.*
+
+**Storage:**
+
+```
+Redis:
+  - Key: minhash:signature:{article_id}
+  - Value: [h1, h2, ..., h128] (128-integer array)
+  - TTL: 30 days (old articles not compared)
+
+  - Key: lsh:bucket:{band_id}:{hash}
+  - Value: [article_id1, article_id2, ...]
+  - TTL: 30 days
+```
 
 ---
 
-## NLP Processing
+## 7. NLP Processing
 
-### Keyword Extraction (TextRank)
+### 7.1 Keyword Extraction (TextRank + TF-IDF)
 
-**Algorithm:**
+**TextRank Algorithm:**
 
 ```
-1. Build word co-occurrence graph (2-word window)
+1. Build word graph (co-occurrence within 2-word window)
 2. Run PageRank on graph (importance = incoming edges)
 3. Top 10 words = Keywords
 
@@ -355,68 +480,92 @@ Example:
   Keywords: ["iPhone", "Apple", "camera", "announces", "features"]
 ```
 
-*Implementation: [pseudocode.md::extract_keywords()](pseudocode.md)*
+**TF-IDF (Term Frequency-Inverse Document Frequency):**
 
-### Named Entity Recognition (NER)
+```
+TF-IDF(word) = TF(word) × IDF(word)
 
-**spaCy NER:**
+TF(word) = count(word) / total_words
+IDF(word) = log(total_articles / articles_containing_word)
+
+Why? Downweight common words ("the", "is", "of")
+```
+
+*See [pseudocode.md::extract_keywords()](pseudocode.md) for implementation.*
+
+### 7.2 Named Entity Recognition (NER)
+
+**spaCy NER Model:**
 
 ```python
 import spacy
 nlp = spacy.load("en_core_web_lg")
+
 doc = nlp("Apple announces iPhone 15 in Cupertino")
 
-Entities:
-  ORG: ["Apple"]
-  PRODUCT: ["iPhone 15"]
-  GPE: ["Cupertino"]
+entities = {
+  "ORG": ["Apple"],
+  "PRODUCT": ["iPhone 15"],
+  "GPE": ["Cupertino"]
+}
 ```
 
 **Use Cases:**
 
-- Story clustering (articles mentioning "Elon Musk")
-- Personalization (user interested in "Tesla")
-- Trending entities ("iPhone 15" mentions spike)
+- **Story clustering:** Articles mentioning "Elon Musk" grouped together
+- **Personalization:** User interested in "Tesla" → Show articles with "Tesla" entity
+- **Trending entities:** Track "iPhone 15" mentions (viral detection)
 
-### Embeddings (BERT)
+### 7.3 Embeddings (BERT for Semantic Similarity)
 
-**BERT (768-dimensional vectors):**
+**BERT (Bidirectional Encoder Representations from Transformers):**
 
 ```
-Input: "Apple releases iPhone 15" (truncated to 512 tokens)
-Model: bert-base-uncased (110M parameters)
-Output: [0.23, -0.45, 0.67, ..., 0.12]
+1. Input: Article text (truncated to 512 tokens)
+2. BERT model: bert-base-uncased (110M parameters)
+3. Output: 768-dimensional embedding vector
 
-Use Cases:
-  - Semantic deduplication (cosine similarity)
-  - Recommendation ("similar articles")
-  - Semantic search (query embedding vs article embeddings)
-
-Performance:
-  - 200ms per article (GPU: NVIDIA T4)
-  - 500 GPUs → 1,157 articles/sec throughput
+Example:
+  "Apple releases iPhone 15" → [0.23, -0.45, 0.67, ..., 0.12]
+  "New iPhone announced by Apple" → [0.25, -0.43, 0.65, ..., 0.14]
+  
+  Cosine similarity: 0.92 (very similar!)
 ```
+
+**Use Cases:**
+
+- **Semantic deduplication:** Catch paraphrased duplicates (LSH misses)
+- **Recommendation:** "Articles similar to this one" (cosine similarity)
+- **Search:** Semantic search (query embedding vs article embeddings)
+
+**Performance:**
+
+- **BERT inference:** 200ms per article (GPU: NVIDIA T4)
+- **Parallelization:** 500 GPUs → 1,157 articles/sec throughput
 
 ---
 
-## Elasticsearch Indexing and Search
+## 8. Elasticsearch Indexing
 
-### Time-Based Indices (Hot/Warm/Cold)
+### 8.1 Index Strategy
+
+**Time-Based Indices (Hot/Warm/Cold):**
 
 ```
-articles-2024-01-01  (Hot: <1 day, NVMe SSD, 10 shards)
+articles-2024-01-01  (Hot: <1 day old, NVMe SSD, 10 shards)
 articles-2024-01-02  (Hot)
-articles-2024-12-31  (Warm: 1-30 days, HDD, 5 shards)
-articles-2023-*      (Cold: >30 days, S3, 1 shard)
+...
+articles-2024-12-31  (Warm: 1-30 days old, HDD, 5 shards)
+articles-2023-*      (Cold: >30 days old, S3, 1 shard)
 ```
 
 **Why Time-Based?**
 
-- Efficient writes (today's index only)
-- Fast deletes (drop entire index)
-- Index Lifecycle Management (ILM: auto-migrate)
+- **Efficient writes:** New articles always go to today's index
+- **Fast deletes:** Drop entire index (old articles) without reindexing
+- **Index Lifecycle Management (ILM):** Auto-migrate to cold storage
 
-### Personalized Feed Query
+### 8.2 Query Example (Personalized Feed)
 
 **Elasticsearch Query DSL:**
 
@@ -447,7 +596,7 @@ articles-2023-*      (Cold: >30 days, S3, 1 shard)
             {
               "match": {
                 "keywords": {
-                  "query": "AI ML",
+                  "query": "AI Machine Learning",
                   "boost": 2
                 }
               }
@@ -463,15 +612,18 @@ articles-2023-*      (Cold: >30 days, S3, 1 shard)
               "scale": "1d",
               "decay": 0.5
             }
-          }
+          },
+          "weight": 1.5
         },
         {
           "field_value_factor": {
             "field": "quality_score",
-            "factor": 1.2
+            "factor": 1.2,
+            "modifier": "sqrt"
           }
         }
-      ]
+      ],
+      "score_mode": "multiply"
     }
   },
   "size": 100
@@ -480,19 +632,19 @@ articles-2023-*      (Cold: >30 days, S3, 1 shard)
 
 **Query Breakdown:**
 
-1. Filter: Categories [Technology, Sports], published last 7 days
-2. Boost: Keywords match user interests (2× weight)
-3. Recency decay: Exponential (half-life = 1 day)
-4. Quality boost: Higher quality sources ranked higher
-5. Return: Top 100 articles
+1. **Filter:** Category in [Technology, Sports], published in last 7 days
+2. **Boost:** Keywords match user interests (2× weight)
+3. **Recency decay:** Exponential decay (half-life = 1 day)
+4. **Quality boost:** Higher quality sources ranked higher
+5. **Return:** Top 100 articles
 
-**Latency:** 20ms (80% queries cached)
+**Latency:** 20ms (80% of queries cached)
 
 ---
 
-## Personalization and Ranking
+## 9. Personalization and Ranking
 
-### User Interest Model
+### 9.1 User Interest Model
 
 **Explicit Interests (User-Selected):**
 
@@ -521,41 +673,45 @@ Model: Collaborative Filtering (Matrix Factorization)
   - Prediction: dot_product(user_embedding, article_embedding)
 
 Output:
-  - Interest scores: {"Technology": 0.85, "Politics": 0.45}
-
-Training:
-  - Daily batch job (Spark)
-  - 1B records (100M users × 10 articles/user)
-  - 1000 CPU cores × 2 hours
-  - Cost: $100/day
+  - Interest scores for each category
+  - Example: {"Technology": 0.85, "Politics": 0.45}
 ```
 
-### Ranking Formula
+**Training:**
+
+- **Frequency:** Daily batch job (Spark)
+- **Data:** Last 30 days of user activity (100M users × 10 articles/user = 1B records)
+- **Compute:** 1000 CPU cores × 2 hours = 2000 CPU-hours
+- **Cost:** $100/day (AWS EMR)
+
+### 9.2 Ranking Formula
+
+**Final Score:**
 
 ```
-final_score = (relevance × 0.4) + 
-              (recency × 0.3) + 
-              (quality × 0.2) + 
-              (engagement × 0.1)
+score = (relevance_score × 0.4) + 
+        (recency_score × 0.3) + 
+        (quality_score × 0.2) + 
+        (engagement_score × 0.1)
 
 Where:
-  relevance = Elasticsearch BM25 score
-  recency = exp(-age_hours / 24)
-  quality = source.reputation_score
-  engagement = clicks / impressions
+  relevance_score = Elasticsearch BM25 score
+  recency_score = exp(-age_hours / 24)
+  quality_score = source.reputation_score
+  engagement_score = clicks / impressions
 ```
 
-*Implementation: [pseudocode.md::calculate_article_score()](pseudocode.md)*
+*See [pseudocode.md::calculate_article_score()](pseudocode.md) for implementation.*
 
-### Real-Time Feature Store
+### 9.3 Real-Time Feature Store
 
-**Problem:** User reads article → Feed should update instantly.
+**Problem:** User reads article → Feed should update instantly (not wait 24 hours).
 
-**Solution: Redis Feature Store**
+**Solution: Feature Store (Redis)**
 
 ```redis
-Key: user:67890:recent_categories
-Value: {"Technology": 3, "Sports": 1}  (last 1 hour)
+Key: user:{user_id}:recent_categories
+Value: { "Technology": 3, "Sports": 1 }  (counts from last 1 hour)
 TTL: 1 hour
 ```
 
@@ -563,26 +719,26 @@ TTL: 1 hour
 
 ```
 1. User reads article (category = "Technology")
-2. Event → Kafka (user-activity topic)
-3. Consumer → Increment Redis counter
-4. Next feed load → Boost "Technology" category
+2. Async event → Kafka topic (user-activity)
+3. Kafka consumer → Increment Redis counter
+4. Next feed request → Boost "Technology" category
 ```
 
-**Latency:** <100ms (Redis read + Elasticsearch boost)
+**Latency:** <100ms (Redis read + Elasticsearch query boost)
 
 ---
 
-## Trending Topics
+## 10. Trending Topics
 
-### Real-Time Detection (Sliding Window)
+### 10.1 Real-Time Detection (Sliding Window)
 
 **Algorithm:**
 
 ```
-1. Extract keywords from articles (NLP)
-2. Count mentions in last 1 hour (sliding window)
-3. Compare to baseline (avg mentions/hour)
-4. Trending score = current / baseline
+1. Extract keywords from incoming articles (NLP)
+2. Count keyword mentions in last 1 hour (sliding window)
+3. Compare to baseline (average mentions/hour for that keyword)
+4. Trending score = (current_count / baseline_count)
 5. If score > 5× → Trending!
 
 Example:
@@ -595,19 +751,22 @@ Example:
 **Implementation: Redis Sorted Sets**
 
 ```redis
-Key: trending:keywords:2024-01-01-12
-Value: Sorted Set {"Earthquake": 500, "iPhone": 250}
+Key: trending:keywords:{timestamp_hour}
+Value: Sorted Set { "Earthquake": 500, "iPhone": 250, ... }
 TTL: 24 hours
+```
 
-Query Top 10:
+**Top 10 Trending:**
+
+```redis
 ZREVRANGE trending:keywords:2024-01-01-12 0 9 WITHSCORES
 ```
 
-*Implementation: [pseudocode.md::update_trending_topics()](pseudocode.md)*
+*See [pseudocode.md::update_trending_topics()](pseudocode.md) for implementation.*
 
-### Elasticsearch Aggregation
+### 10.2 Aggregation (Elasticsearch)
 
-**Query:**
+**Elasticsearch Aggregation Query:**
 
 ```json
 {
@@ -636,46 +795,48 @@ ZREVRANGE trending:keywords:2024-01-01-12 0 9 WITHSCORES
 }
 ```
 
-**Result:** Top 100 keywords in last 1 hour, sorted by frequency.
+**Result:** Top 100 keywords mentioned in last 1 hour, sorted by frequency.
 
 ---
 
-## Bottlenecks and Scaling
+## 11. Bottlenecks and Scaling Strategies
 
 ### Bottleneck 1: LSH Deduplication (75ms per article)
 
-**Problem:** 1,157 articles/sec × 75ms = 86 parallel workers.
+**Problem:** 1,157 articles/sec × 75ms = 86 parallel workers needed.
 
 **Solution 1: Approximate LSH**
 
-- Reduce bands: 16 → 8 bands
+- Reduce LSH bands: 16 bands → 8 bands
 - Trade-off: 95% accuracy → 90% accuracy
 - Speedup: 75ms → 40ms (1.8× faster)
 
-**Solution 2: Source Clustering**
+**Solution 2: Pre-filter by Source Clusters**
 
-- High-quality sources (Reuters, AP) → Skip LSH (assume unique)
-- Medium-quality → Full LSH
-- Low-quality → Aggressive LSH
+```
+High-quality sources (Reuters, AP) → Skip LSH (assume unique)
+Medium-quality sources → Full LSH
+Low-quality sources → Aggressive LSH
+```
 
-**Result:** 80% skip LSH → 86 workers → 20 workers.
+**Result:** 80% of articles skip LSH → 86 workers → 20 workers.
 
 ### Bottleneck 2: Elasticsearch Write Throughput
 
 **Problem:** 1,157 writes/sec × 100 indices = 115,700 index ops/sec.
 
-**Solution: Bulk Indexing with Buffer**
+**Solution: Bulk Indexing with Write Buffer**
 
 ```
-1. Articles → Redis Stream (buffer)
-2. Bulk indexer (Flink) → Batch 1000 articles every 5 sec
+1. Incoming articles → Redis Stream (buffer)
+2. Bulk indexer (Flink) → Batch 1000 articles every 5 seconds
 3. Elasticsearch Bulk API → 200 articles/request
 4. Result: 1,157 writes/sec → 6 bulk requests/sec (200× reduction)
 ```
 
-**Trade-off:** 5-second indexing delay (acceptable).
+**Trade-off:** Articles appear in search with 5-second delay (acceptable).
 
-### Bottleneck 3: Personalization Lag
+### Bottleneck 3: Personalization Lag (24-hour batch training)
 
 **Problem:** User reads "AI" articles today, but model trained yesterday.
 
@@ -683,41 +844,45 @@ ZREVRANGE trending:keywords:2024-01-01-12 0 9 WITHSCORES
 
 ```
 Batch Model (Collaborative Filtering):
-  - Daily training on 30-day history
-  - Long-term interests
+  - Trained daily on 30-day history
+  - Captures long-term interests
 
 Real-Time Features (Redis):
-  - Last 1 hour activity
-  - Boost recent categories
+  - Last 1 hour of activity
+  - Boost categories/keywords from recent reads
 
-Combined: 0.7 × batch_score + 0.3 × realtime_score
+Combined Score = 0.7 × batch_score + 0.3 × realtime_score
 ```
 
-**Result:** Lag: 24 hours → <1 hour.
+**Result:** Personalization lag: 24 hours → <1 hour.
 
 ---
 
-## Common Anti-Patterns
+## 12. Common Anti-Patterns
 
-### ❌ Anti-Pattern 1: Storing Full Content in PostgreSQL
+### ❌ Anti-Pattern 1: Storing Full Article Text in PostgreSQL
 
 **Problem:**
 
 ```sql
 CREATE TABLE articles (
   article_id BIGINT,
-  content TEXT  -- ❌ 10 KB per article!
+  title TEXT,
+  content TEXT,  -- ❌ 10 KB per article!
+  ...
 );
+
 -- 100M articles × 10 KB = 1 TB in PostgreSQL
--- Full-text search: LIKE '%keyword%' → 10+ sec!
+-- Full-text search: SELECT * WHERE content LIKE '%keyword%'
+-- Latency: 10+ seconds (full table scan!)
 ```
 
-**✅ Best Practice:** Elasticsearch for full-text search.
+**✅ Best Practice:** Use Elasticsearch for full-text search.
 
 ```
-PostgreSQL: Metadata only
+PostgreSQL: Metadata only (title, URL, published_at)
 Elasticsearch: Full content + inverted index
-Redis: Hot data (24 hours)
+Redis: Hot data (last 24 hours)
 ```
 
 ---
@@ -727,241 +892,259 @@ Redis: Hot data (24 hours)
 **Problem:**
 
 ```python
-def ingest(article):
+def ingest_article(article):
   save_to_db(article)
   keywords = extract_keywords(article)  # 50ms
-  embedding = bert_embed(article)       # 200ms
-  category = classify(article)          # 100ms
+  embedding = bert_embed(article)        # 200ms
+  category = classify(article)           # 100ms
+  index_to_elasticsearch(article)
   # Total: 350ms per article!
-  # 1,157 articles/sec × 350ms = 405 workers!
 ```
+
+**Impact:** 1,157 articles/sec × 350ms = 405 parallel workers (expensive!).
 
 **✅ Best Practice:** Async pipeline with Kafka.
 
 ```python
-def ingest(article):
+def ingest_article(article):
   publish_to_kafka(article)  # 1ms (async)
-  return
-# Separate workers consume and process
+  return  # Immediately return
+
+# Separate workers consume Kafka and process NLP
 ```
 
 ---
 
 ### ❌ Anti-Pattern 3: No Deduplication
 
-**Problem:** 10K sources publish "Apple releases iPhone 15" → User sees same story 10K times.
+**Problem:**
 
-**✅ Best Practice:** LSH deduplication + story clustering.
+```
+10K sources publish "Apple releases iPhone 15"
+All 10K articles indexed → User sees same story 10K times
+```
+
+**Impact:** Poor user experience, wasted storage.
+
+**✅ Best Practice:** LSH deduplication + Story clustering.
 
 ```
 1. Detect duplicates via LSH
 2. Create story_id (group duplicates)
-3. Show 1 article per story_id
-4. "10K sources covering this story"
+3. Show only 1 article per story_id
+4. Optionally: Show "10K sources covering this story"
 ```
 
 ---
 
-## Alternative Approaches
+## 13. Alternative Approaches
 
 ### Alternative 1: Algolia (Managed Search)
 
-| Factor            | Elasticsearch (Chosen) | Algolia                |
-|-------------------|------------------------|------------------------|
-| **Cost**          | ✅ $50K/month           | ❌ $500K/month (180 TB) |
-| **Customization** | ✅ Full control         | ❌ Limited              |
-| **Scale**         | ✅ 180 TB               | ⚠️ Expensive           |
+**Why NOT Chosen:**
 
-**When to Use Algolia:** Smaller index (<10 TB), managed service preferred.
+| Factor            | Elasticsearch (Chosen)        | Algolia                        |
+|-------------------|-------------------------------|--------------------------------|
+| **Cost**          | ✅ $50K/month (self-hosted)    | ❌ $500K/month (180 TB index)   |
+| **Customization** | ✅ Full control (NLP, ranking) | ❌ Limited (predefined ranking) |
+| **Scale**         | ✅ 180 TB index                | ⚠️ Expensive at scale          |
 
----
+**When to Use Algolia:**
 
-### Alternative 2: Apache Solr
-
-| Factor        | Elasticsearch (Chosen) | Solr          |
-|---------------|------------------------|---------------|
-| **Community** | ✅ Larger               | ⚠️ Smaller    |
-| **Ecosystem** | ✅ Kibana, Beats        | ⚠️ Limited    |
-| **Cloud**     | ✅ Elastic Cloud        | ❌ No official |
-
-**When to Use Solr:** Already invested in Solr, specific features needed.
+- Smaller index (<10 TB)
+- Don't want to manage Elasticsearch cluster
+- Willing to pay premium for simplicity
 
 ---
 
-## Monitoring and Observability
+### Alternative 2: Apache Solr (Search Engine)
 
-| Metric                          | Target           | Alert           |
-|---------------------------------|------------------|-----------------|
-| **Ingestion Rate**              | 1,157 writes/sec | <500 writes/sec |
-| **Deduplication Accuracy**      | 95%              | <90%            |
-| **NLP Lag**                     | <5 min           | >30 min         |
-| **Elasticsearch Latency (p99)** | <50ms            | >100ms          |
-| **Feed Load Latency (p99)**     | <50ms            | >100ms          |
+**Why NOT Chosen:**
 
-**Tracing Example:**
+| Factor            | Elasticsearch (Chosen)    | Solr                 |
+|-------------------|---------------------------|----------------------|
+| **Community**     | ✅ Larger community        | ⚠️ Smaller community |
+| **Ecosystem**     | ✅ Kibana, Beats, Logstash | ⚠️ Limited tooling   |
+| **Cloud Support** | ✅ Elastic Cloud           | ❌ No official cloud  |
+
+**When to Use Solr:**
+
+- Already invested in Solr infrastructure
+- Need specific Solr features (e.g., faceting)
+
+---
+
+## 14. Monitoring and Observability
+
+| Metric                                | Target           | Alert           |
+|---------------------------------------|------------------|-----------------|
+| **Ingestion Rate**                    | 1,157 writes/sec | <500 writes/sec |
+| **Deduplication Accuracy**            | 95%              | <90%            |
+| **NLP Processing Lag**                | <5 min           | >30 min         |
+| **Elasticsearch Query Latency (p99)** | <50ms            | >100ms          |
+| **Feed Load Latency (p99)**           | <50ms            | >100ms          |
+| **Trending Topics Update Lag**        | <1 min           | >5 min          |
+
+**Tracing:**
 
 ```
 Article ID: 123456789
   0ms:    Crawled from RSS
   10ms:   Published to Kafka
-  100ms:  Bloom Filter (not seen)
+  100ms:  Bloom Filter check (not seen)
   175ms:  LSH deduplication (unique)
-  375ms:  NLP processing
-  400ms:  Elasticsearch indexed
-  500ms:  Visible in feed
+  375ms:  NLP processing (keywords, embedding, category)
+  400ms:  Indexed to Elasticsearch
+  500ms:  Visible in user feed
 
-Total: 500ms ingestion-to-visibility
+Total: 500ms ingestion-to-visibility latency
 ```
 
 ---
 
-## Cost Analysis
-
-### Hardware (Monthly)
-
-| Component         | Spec                          | Quantity | Cost            |
-|-------------------|-------------------------------|----------|-----------------|
-| **Elasticsearch** | r5.4xlarge (128 GB, 1 TB SSD) | 100      | $100K           |
-| **Kafka**         | m5.2xlarge (32 GB)            | 20       | $10K            |
-| **NLP GPU**       | p3.2xlarge (V100)             | 50       | $75K            |
-| **Redis**         | r5.large (16 GB)              | 50       | $8K             |
-| **PostgreSQL**    | db.r5.4xlarge                 | 10       | $15K            |
-| **Total**         |                               |          | **$208K/month** |
-
-### Operational (Annual)
-
-| Item                             | Cost           |
-|----------------------------------|----------------|
-| Infrastructure                   | $2.5M/year     |
-| Bandwidth (100 TB egress/month)  | $1M/year       |
-| Personnel (20 engineers @ $150K) | $3M/year       |
-| **Total**                        | **$6.5M/year** |
-
-**Revenue:**
-
-- Advertising: $0.01/impression
-- 100M DAU × 10 impressions/day = $10M/day = **$3.65B/year**
-
-**Profit:** $3.65B - $6.5M = **$3.64B/year** (99.8% margin)
-
----
-
-## Real-World Examples
+## 15. Real-World Examples
 
 ### Google News
 
-- Scale: 100B articles, 1B+ users
-- Latency: <50ms feed load
-- Deduplication: Proprietary (LSH-based)
-- Personalization: Search history integration
+- **Scale:** 100B articles indexed, 1B+ users
+- **Latency:** <50ms feed load
+- **Deduplication:** Proprietary algorithm (likely LSH-based)
+- **Personalization:** Google Search history integration
 
 ### Flipboard
 
-- Scale: 34M feeds, 145M users
-- Architecture: Microservices (AWS)
-- Personalization: ML content curation
-- UI: Magazine-style visual design
+- **Scale:** 34M feeds, 145M users
+- **Architecture:** Microservices on AWS
+- **Personalization:** ML-powered content curation
+- **Unique:** Magazine-style UI (visual curation)
 
 ### Apple News
 
-- Scale: 125M users, 2000+ publishers
-- Architecture: iCloud infrastructure
-- Monetization: Apple News+ ($9.99/month)
+- **Scale:** 125M users, 2000+ publishers
+- **Architecture:** iCloud infrastructure
+- **Monetization:** Apple News+ subscription ($9.99/month)
 
 ---
 
-## Interview Discussion Points
+## 16. Interview Discussion Points
 
-### Q1: How detect breaking news in real-time?
+### Q1: How would you detect a breaking news story in real-time?
 
 **Answer:**
 
-**Spike Detection:**
+**Spike Detection Algorithm:**
 
 ```
-1. Count keyword mentions (last 5 min)
-2. Compare to baseline (avg/hour)
-3. If spike > 10× → Breaking news!
+1. Count keyword mentions in last 5 minutes (sliding window)
+2. Compare to baseline (average mentions/hour)
+3. If spike > 10× baseline → Breaking news!
 
 Example:
-  "Earthquake": 10 mentions/hour baseline
-  Spike: 500 mentions in 5 min → 6000/hour projected
-  Ratio: 6000 / 10 = 600× → ALERT
+  Keyword: "Earthquake"
+  Baseline: 10 mentions/hour
+  Spike: 500 mentions in 5 minutes → 6000 mentions/hour projected
+  Ratio: 6000 / 10 = 600× → BREAKING NEWS ALERT
 ```
 
-**Implementation:** Redis Sorted Sets, Kafka Streams.
+**Implementation:**
+
+- Redis Sorted Sets (time-series data)
+- Kafka Streams (real-time aggregation)
+- Alert system (push notifications to users)
 
 ---
 
-### Q2: Handle malicious source (1M fake articles)?
+### Q2: How would you handle a malicious source publishing 1M fake articles?
 
 **Answer:**
 
-**Reputation System:**
+**Source Reputation System:**
 
 ```
-1. Track source metrics:
+1. Track source_id metrics:
    - Article count (spike detection)
    - Duplicate rate (LSH matches)
-   - Engagement (low = low quality)
+   - User engagement (low engagement = low quality)
 
-2. If anomaly:
-   - Quarantine source
-   - Block new articles
+2. If anomaly detected:
+   - Quarantine source (manual review)
+   - Block new articles from source
    - Remove indexed articles
 
 3. Reputation score:
    - Historical accuracy
-   - User reports
-   - Fact-checking (Snopes, PolitiFact)
+   - User reports (spam, misinformation)
+   - Third-party fact-checking (Snopes, PolitiFact)
 ```
 
-**Rate Limiting:** Max 1000 articles/day per source.
+**Rate Limiting:**
+
+- Max 1000 articles/day per source
+- If exceeded → Auto-quarantine
 
 ---
 
-## Trade-offs Summary
+## 17. Trade-offs Summary
 
-| Gain                        | Sacrifice                     |
-|-----------------------------|-------------------------------|
-| ✅ Fast search (<50ms)       | ❌ High storage (540 TB)       |
-| ✅ Accurate dedup (95%)      | ⚠️ NLP cost ($75K/month GPUs) |
-| ✅ Personalization (ML)      | ❌ 24-hour lag (batch)         |
-| ✅ Real-time trending        | ⚠️ Eventual consistency       |
-| ✅ Scalability (1B articles) | ❌ Operational complexity      |
+| What We Gain                                | What We Sacrifice                                       |
+|---------------------------------------------|---------------------------------------------------------|
+| ✅ **Fast search** (Elasticsearch <50ms)     | ❌ **High storage cost** (540 TB for 5 years)            |
+| ✅ **Accurate deduplication** (LSH 95%)      | ⚠️ **NLP processing cost** ($75K/month GPUs)            |
+| ✅ **Personalization** (ML-powered)          | ❌ **24-hour lag** (batch training)                      |
+| ✅ **Real-time trending** (1-minute updates) | ⚠️ **Eventual consistency** (Elasticsearch indexing)    |
+| ✅ **Scalability** (1B articles indexed)     | ❌ **Operational complexity** (100+ Elasticsearch nodes) |
 
 **Best For:**
 
 - Global news aggregators (Google News, Flipboard)
-- Content curation (Pocket, Instapaper)
-- Enterprise monitoring (Meltwater, Factiva)
+- Content curation platforms (Pocket, Instapaper)
+- Enterprise news monitoring (Meltwater, Factiva)
 
 **NOT For:**
 
-- Small sites (<1M articles)
-- Real-time chat (different latency needs)
+- Small news sites (<1M articles)
+- Real-time chat/messaging (different latency requirements)
 
 ---
 
-## References
+## 18. References
 
-### Papers
+### Related System Design Components
 
-- [LSH for Near-Duplicate Detection](https://www.cs.princeton.edu/courses/archive/spring13/cos598C/broder97resemblance.pdf) -
-  Andrei Broder
-- [BERT](https://arxiv.org/abs/1810.04805) - Devlin et al.
-- [TextRank](https://web.eecs.umich.edu/~mihalcea/papers/mihalcea.emnlp04.pdf) - Mihalcea & Tarau
+- **[2.5.4 Bloom Filters](../../02-components/2.5-algorithms/2.5.4-bloom-filters.md)** - Probabilistic data structures
+  for URL deduplication
+- **[2.1.13 Elasticsearch Deep Dive](../../02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)** - Full-text
+  search and indexing
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)** - Stream processing
+  and ingestion pipeline
+- **[2.1.4 Database Scaling](../../02-components/2.1.4-database-scaling.md)** - PostgreSQL sharding strategies
+- **[2.2.1 Caching Deep Dive](../../02-components/2.2.1-caching-deep-dive.md)** - Redis caching for personalization
+- **[2.3.7 Apache Spark Deep Dive](../../02-components/2.3.7-apache-spark-deep-dive.md)** - Batch processing for
+  trending topics
 
-### Related Chapters
+### Related Design Challenges
 
-- [2.5.4 Bloom Filters](../../02-components/2.5-algorithms/2.5.4-bloom-filters.md)
-- [2.1.13 Elasticsearch](../../02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)
-- [2.3.2 Kafka](../../02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)
+- **[3.4.4 Recommendation System](../3.4.4-recommendation-system/)** - Personalization and ranking algorithms
+- **[3.2.1 Twitter Timeline](../3.2.1-twitter-timeline/)** - Feed generation and fanout strategies
+- **[3.2.3 Web Crawler](../3.2.3-web-crawler/)** - Web scraping and content extraction
 
-### Tools
+### External Resources
 
-- [spaCy](https://spacy.io/) - NLP library
-- [Hugging Face](https://huggingface.co/) - BERT models
-- [Newspaper3k](https://newspaper.readthedocs.io/) - Article extraction
-- [datasketch](https://github.com/ekzhu/datasketch) - MinHash, LSH
+- **LSH Paper:
+  ** [LSH for Near-Duplicate Detection](https://www.cs.princeton.edu/courses/archive/spring13/cos598C/broder97resemblance.pdf) -
+  Andrei Broder (1997)
+- **BERT Paper:** [BERT: Pre-training of Deep Bidirectional Transformers](https://arxiv.org/abs/1810.04805) - Devlin et
+  al. (2018)
+- **TextRank Paper:
+  ** [TextRank: Graph-Based Ranking for Keyword Extraction](https://web.eecs.umich.edu/~mihalcea/papers/mihalcea.emnlp04.pdf) -
+  Mihalcea & Tarau (2004)
+- **spaCy:** [Industrial-strength NLP](https://spacy.io/) - Python NLP library
+- **Hugging Face:** [Transformers Library](https://huggingface.co/transformers/) - BERT, GPT models
+- **Newspaper3k:** [Article Extraction](https://newspaper.readthedocs.io/) - Web scraping library
+- **datasketch:** [MinHash, LSH Implementation](https://github.com/ekzhu/datasketch) - Similarity search
+
+### Books
+
+- *Information Retrieval* by Manning, Raghavan, Schütze - Search algorithms and ranking
+- *Mining of Massive Datasets* by Leskovec, Rajaraman, Ullman - LSH, similarity search, clustering
 

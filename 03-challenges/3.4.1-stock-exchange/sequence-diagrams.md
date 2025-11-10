@@ -57,29 +57,20 @@ sequenceDiagram
     participant AuditLog
     participant MarketData
     participant Ledger
-
-    Client->>Gateway: Limit Order BUY 100 at 100.50<br/>FIX Protocol TCP<br/>0 microseconds
-    Gateway->>Gateway: DPDK Receive Packet<br/>Validate JWT Cached<br/>5 microseconds
-    Gateway->>Gateway: Validate Order<br/>Size Price Account<br/>10 microseconds
-    Gateway->>RingBuffer: Enqueue Order<br/>Lock-Free CAS<br/>15 microseconds
-    
-    RingBuffer->>MatchingEngine: Dequeue Order<br/>Poll Mode<br/>20 microseconds
-    
-    MatchingEngine->>OrderBook: Check Best Ask 100.52<br/>No Match Passive Order<br/>30 microseconds
-    MatchingEngine->>OrderBook: Insert at Price 100.50<br/>Red-Black Tree Log N<br/>Append to Linked List<br/>50 microseconds
-    
-    MatchingEngine->>AuditLog: Async Write Log Entry<br/>Non-Blocking<br/>55 microseconds
-    
-    MatchingEngine->>Gateway: Order Accepted ACK<br/>Order ID 12345<br/>60 microseconds
-    Gateway->>Client: Confirmation<br/>60 microseconds Total
-    
-    MatchingEngine->>MarketData: Publish Top-of-Book Update<br/>Kafka<br/>80 microseconds
-    
-    MarketData->>Ledger: Async Update Balance<br/>PostgreSQL<br/>1 millisecond
-    
+    Client ->> Gateway: Limit Order BUY 100 at 100.50<br/>FIX Protocol TCP<br/>0 microseconds
+    Gateway ->> Gateway: DPDK Receive Packet<br/>Validate JWT Cached<br/>5 microseconds
+    Gateway ->> Gateway: Validate Order<br/>Size Price Account<br/>10 microseconds
+    Gateway ->> RingBuffer: Enqueue Order<br/>Lock-Free CAS<br/>15 microseconds
+    RingBuffer ->> MatchingEngine: Dequeue Order<br/>Poll Mode<br/>20 microseconds
+    MatchingEngine ->> OrderBook: Check Best Ask 100.52<br/>No Match Passive Order<br/>30 microseconds
+    MatchingEngine ->> OrderBook: Insert at Price 100.50<br/>Red-Black Tree Log N<br/>Append to Linked List<br/>50 microseconds
+    MatchingEngine ->> AuditLog: Async Write Log Entry<br/>Non-Blocking<br/>55 microseconds
+    MatchingEngine ->> Gateway: Order Accepted ACK<br/>Order ID 12345<br/>60 microseconds
+    Gateway ->> Client: Confirmation<br/>60 microseconds Total
+    MatchingEngine ->> MarketData: Publish Top-of-Book Update<br/>Kafka<br/>80 microseconds
+    MarketData ->> Ledger: Async Update Balance<br/>PostgreSQL<br/>1 millisecond
     Note over AuditLog: Background Thread<br/>Batch Flush to NVMe<br/>1 to 10 milliseconds
-    
-    Note over Client,Ledger: End-to-End 60 microseconds Client ACK<br/>Durability 1 to 10 milliseconds Audit Log
+    Note over Client, Ledger: End-to-End 60 microseconds Client ACK<br/>Durability 1 to 10 milliseconds Audit Log
 ```
 
 ---
@@ -122,29 +113,18 @@ sequenceDiagram
     participant AuditLog
     participant MarketData
     participant Ledger
-
-    Client->>Gateway: Market Order SELL 100<br/>Execute at Best Price<br/>0 microseconds
-    Gateway->>MatchingEngine: Enqueue to Ring Buffer<br/>10 microseconds
-    
-    MatchingEngine->>OrderBook: Lookup Best Bid O 1<br/>Best Bid 100.50 with 100 shares<br/>20 microseconds
-    
-    Note over MatchingEngine,OrderBook: Price-Time Priority<br/>Execute against highest bid
-    
-    MatchingEngine->>OrderBook: Execute Match<br/>Buyer Order ID 5678<br/>Seller Order ID 12345<br/>Price 100.50 Qty 100<br/>30 microseconds
-    
-    MatchingEngine->>OrderBook: Remove Filled Order<br/>Update Tree and HashMap<br/>35 microseconds
-    
-    MatchingEngine->>AuditLog: Log Market Order<br/>Log Execution Event<br/>Async 40 microseconds
-    
-    MatchingEngine->>Gateway: Execution Report Buyer<br/>Bought 100 at 100.50<br/>45 microseconds
-    MatchingEngine->>Gateway: Execution Report Seller<br/>Sold 100 at 100.50<br/>50 microseconds
-    
-    Gateway->>Client: Execution Confirmation<br/>50 microseconds Total
-    
-    MatchingEngine->>MarketData: Publish Trade<br/>AAPL 100.50 Volume 100<br/>New Best Bid 100.49<br/>60 microseconds
-    
-    MarketData->>Ledger: Credit Seller 10050 dollars<br/>Debit Buyer 10050 dollars<br/>ACID Transaction<br/>1 millisecond
-    
+    Client ->> Gateway: Market Order SELL 100<br/>Execute at Best Price<br/>0 microseconds
+    Gateway ->> MatchingEngine: Enqueue to Ring Buffer<br/>10 microseconds
+    MatchingEngine ->> OrderBook: Lookup Best Bid O 1<br/>Best Bid 100.50 with 100 shares<br/>20 microseconds
+    Note over MatchingEngine, OrderBook: Price-Time Priority<br/>Execute against highest bid
+    MatchingEngine ->> OrderBook: Execute Match<br/>Buyer Order ID 5678<br/>Seller Order ID 12345<br/>Price 100.50 Qty 100<br/>30 microseconds
+    MatchingEngine ->> OrderBook: Remove Filled Order<br/>Update Tree and HashMap<br/>35 microseconds
+    MatchingEngine ->> AuditLog: Log Market Order<br/>Log Execution Event<br/>Async 40 microseconds
+    MatchingEngine ->> Gateway: Execution Report Buyer<br/>Bought 100 at 100.50<br/>45 microseconds
+    MatchingEngine ->> Gateway: Execution Report Seller<br/>Sold 100 at 100.50<br/>50 microseconds
+    Gateway ->> Client: Execution Confirmation<br/>50 microseconds Total
+    MatchingEngine ->> MarketData: Publish Trade<br/>AAPL 100.50 Volume 100<br/>New Best Bid 100.49<br/>60 microseconds
+    MarketData ->> Ledger: Credit Seller 10050 dollars<br/>Debit Buyer 10050 dollars<br/>ACID Transaction<br/>1 millisecond
     Note over Ledger: PostgreSQL ensures<br/>no double-spending<br/>atomic balance update
 ```
 
@@ -185,32 +165,19 @@ sequenceDiagram
     participant OrderBook
     participant AuditLog
     participant MarketData
-
-    Client->>MatchingEngine: Limit Order SELL 500 at 100.48<br/>Aggressive crosses spread<br/>0 microseconds
-    
-    Note over MatchingEngine,OrderBook: Order Book State<br/>Bid 100.50 100 shares<br/>Bid 100.49 200 shares<br/>Bid 100.49 150 shares
-    
-    MatchingEngine->>OrderBook: Match 1 Best Bid 100.50<br/>Execute 100 shares<br/>Remaining 400<br/>20 microseconds
-    
-    OrderBook->>OrderBook: Remove Filled Order<br/>Bid 100.50 deleted<br/>25 microseconds
-    
-    MatchingEngine->>OrderBook: Match 2 Next Bid 100.49<br/>Execute 200 shares<br/>Remaining 200<br/>30 microseconds
-    
-    OrderBook->>OrderBook: Remove Filled Order<br/>Bid 100.49 deleted<br/>35 microseconds
-    
-    MatchingEngine->>OrderBook: Match 3 Next Bid 100.49<br/>Partial Execute 150 shares<br/>Buyer wants 150<br/>Seller needs 200<br/>Remaining 200<br/>40 microseconds
-    
-    OrderBook->>OrderBook: Update Partial Order<br/>Buyer fully filled removed<br/>45 microseconds
-    
-    MatchingEngine->>OrderBook: Insert Remainder<br/>Ask Side 100.48 with 200 shares<br/>Passive Order<br/>55 microseconds
-    
-    MatchingEngine->>AuditLog: Log 3 Executions<br/>Log Partial Fill<br/>60 microseconds
-    
-    MatchingEngine->>Client: Partial Fill Report<br/>Filled 300 of 500<br/>Status PARTIAL<br/>90 microseconds
-    
-    MatchingEngine->>MarketData: Publish 3 Trades<br/>100 at 100.50<br/>200 at 100.49<br/>100 at 100.49<br/>80 microseconds
-    
-    Note over Client,MarketData: Seller still has 200 shares<br/>in book at 100.48<br/>waiting for match
+    Client ->> MatchingEngine: Limit Order SELL 500 at 100.48<br/>Aggressive crosses spread<br/>0 microseconds
+    Note over MatchingEngine, OrderBook: Order Book State<br/>Bid 100.50 100 shares<br/>Bid 100.49 200 shares<br/>Bid 100.49 150 shares
+    MatchingEngine ->> OrderBook: Match 1 Best Bid 100.50<br/>Execute 100 shares<br/>Remaining 400<br/>20 microseconds
+    OrderBook ->> OrderBook: Remove Filled Order<br/>Bid 100.50 deleted<br/>25 microseconds
+    MatchingEngine ->> OrderBook: Match 2 Next Bid 100.49<br/>Execute 200 shares<br/>Remaining 200<br/>30 microseconds
+    OrderBook ->> OrderBook: Remove Filled Order<br/>Bid 100.49 deleted<br/>35 microseconds
+    MatchingEngine ->> OrderBook: Match 3 Next Bid 100.49<br/>Partial Execute 150 shares<br/>Buyer wants 150<br/>Seller needs 200<br/>Remaining 200<br/>40 microseconds
+    OrderBook ->> OrderBook: Update Partial Order<br/>Buyer fully filled removed<br/>45 microseconds
+    MatchingEngine ->> OrderBook: Insert Remainder<br/>Ask Side 100.48 with 200 shares<br/>Passive Order<br/>55 microseconds
+    MatchingEngine ->> AuditLog: Log 3 Executions<br/>Log Partial Fill<br/>60 microseconds
+    MatchingEngine ->> Client: Partial Fill Report<br/>Filled 300 of 500<br/>Status PARTIAL<br/>90 microseconds
+    MatchingEngine ->> MarketData: Publish 3 Trades<br/>100 at 100.50<br/>200 at 100.49<br/>100 at 100.49<br/>80 microseconds
+    Note over Client, MarketData: Seller still has 200 shares<br/>in book at 100.48<br/>waiting for match
 ```
 
 ---
@@ -251,29 +218,17 @@ sequenceDiagram
     participant OrderBook
     participant AuditLog
     participant MarketData
-
-    Client->>Gateway: Cancel Order<br/>Order ID 12345<br/>0 microseconds
-    
-    Gateway->>Gateway: Validate Ownership<br/>Client ID matches Order<br/>5 microseconds
-    
-    Gateway->>MatchingEngine: Cancel Request<br/>via Ring Buffer<br/>10 microseconds
-    
-    MatchingEngine->>OrderBook: Hash Map Lookup O 1<br/>Find Order ID 12345<br/>Price 100.50 Qty 100<br/>15 microseconds
-    
-    OrderBook->>OrderBook: Remove from Linked List<br/>O 1 Operation<br/>20 microseconds
-    
-    OrderBook->>OrderBook: Check Price Level Empty<br/>If empty update Red-Black Tree<br/>O Log N<br/>25 microseconds
-    
-    MatchingEngine->>OrderBook: Update Status<br/>CANCELLED<br/>30 microseconds
-    
-    MatchingEngine->>AuditLog: Log Cancellation<br/>Async Write<br/>35 microseconds
-    
-    MatchingEngine->>Gateway: Cancellation ACK<br/>Order ID 12345 Cancelled<br/>40 microseconds
-    
-    Gateway->>Client: Confirmation<br/>40 microseconds Total
-    
-    MatchingEngine->>MarketData: Publish if Best Bid Ask Changed<br/>50 microseconds
-    
+    Client ->> Gateway: Cancel Order<br/>Order ID 12345<br/>0 microseconds
+    Gateway ->> Gateway: Validate Ownership<br/>Client ID matches Order<br/>5 microseconds
+    Gateway ->> MatchingEngine: Cancel Request<br/>via Ring Buffer<br/>10 microseconds
+    MatchingEngine ->> OrderBook: Hash Map Lookup O 1<br/>Find Order ID 12345<br/>Price 100.50 Qty 100<br/>15 microseconds
+    OrderBook ->> OrderBook: Remove from Linked List<br/>O 1 Operation<br/>20 microseconds
+    OrderBook ->> OrderBook: Check Price Level Empty<br/>If empty update Red-Black Tree<br/>O Log N<br/>25 microseconds
+    MatchingEngine ->> OrderBook: Update Status<br/>CANCELLED<br/>30 microseconds
+    MatchingEngine ->> AuditLog: Log Cancellation<br/>Async Write<br/>35 microseconds
+    MatchingEngine ->> Gateway: Cancellation ACK<br/>Order ID 12345 Cancelled<br/>40 microseconds
+    Gateway ->> Client: Confirmation<br/>40 microseconds Total
+    MatchingEngine ->> MarketData: Publish if Best Bid Ask Changed<br/>50 microseconds
     Note over OrderBook: Order removed<br/>no longer in book<br/>balance released
 ```
 
@@ -317,49 +272,28 @@ sequenceDiagram
     participant CircuitBreaker
     participant Operator
     participant MarketData
-
     Note over MatchingEngine: Normal Trading<br/>AAPL 100.50<br/>VWAP 100.45<br/>0 seconds
-    
-    Client->>MatchingEngine: Series of Sell Orders<br/>Price drops to 95.00<br/>60 seconds
-    
-    Monitor->>Monitor: Check Price Movement<br/>Every 1 second<br/>Delta 5.5 percent drop<br/>120 seconds
-    
-    Monitor->>CircuitBreaker: Trigger Level 1 Warning<br/>5 to 10 percent drop<br/>121 seconds
-    
-    CircuitBreaker->>MatchingEngine: Enable Rate Limiting<br/>Slow Down Orders<br/>Continue Trading<br/>121 seconds
-    
-    CircuitBreaker->>MarketData: Broadcast Warning<br/>Level 1 Circuit Breaker<br/>122 seconds
-    
-    MarketData->>Client: Warning Notification<br/>Abnormal Market Conditions<br/>123 seconds
-    
-    Client->>MatchingEngine: More Sell Orders<br/>Price drops to 88.00<br/>180 seconds
-    
-    Monitor->>Monitor: Check Price Movement<br/>Delta 12.5 percent drop<br/>180 seconds
-    
-    Monitor->>CircuitBreaker: Trigger Level 2 Halt<br/>greater than 10 percent drop<br/>181 seconds
-    
-    CircuitBreaker->>MatchingEngine: HALT Trading<br/>Reject All New Orders<br/>181 seconds
-    
-    MatchingEngine->>MatchingEngine: Cancel Market Orders<br/>Cancel Aggressive Limits<br/>Preserve Passive Orders<br/>183 seconds
-    
-    CircuitBreaker->>MarketData: Broadcast Halt<br/>Trading Halted<br/>185 seconds
-    
-    MarketData->>Client: Halt Notification<br/>All Orders Rejected<br/>185 seconds
-    
-    Client->>MatchingEngine: New Order Attempt<br/>190 seconds
-    MatchingEngine->>Client: Reject Trading Halted<br/>190 seconds
-    
-    Operator->>CircuitBreaker: Manual Review<br/>Check Erroneous Trades<br/>5 minutes
-    
-    Operator->>CircuitBreaker: Resume Trading Command<br/>10 minutes
-    
-    CircuitBreaker->>MatchingEngine: Resume Normal Operation<br/>10 minutes
-    
-    MatchingEngine->>MarketData: Broadcast Resume<br/>10 minutes
-    
-    MarketData->>Client: Trading Resumed<br/>10 minutes
-    
-    Note over Client,MarketData: Total Halt Duration<br/>10 minutes<br/>market stabilized
+    Client ->> MatchingEngine: Series of Sell Orders<br/>Price drops to 95.00<br/>60 seconds
+    Monitor ->> Monitor: Check Price Movement<br/>Every 1 second<br/>Delta 5.5 percent drop<br/>120 seconds
+    Monitor ->> CircuitBreaker: Trigger Level 1 Warning<br/>5 to 10 percent drop<br/>121 seconds
+    CircuitBreaker ->> MatchingEngine: Enable Rate Limiting<br/>Slow Down Orders<br/>Continue Trading<br/>121 seconds
+    CircuitBreaker ->> MarketData: Broadcast Warning<br/>Level 1 Circuit Breaker<br/>122 seconds
+    MarketData ->> Client: Warning Notification<br/>Abnormal Market Conditions<br/>123 seconds
+    Client ->> MatchingEngine: More Sell Orders<br/>Price drops to 88.00<br/>180 seconds
+    Monitor ->> Monitor: Check Price Movement<br/>Delta 12.5 percent drop<br/>180 seconds
+    Monitor ->> CircuitBreaker: Trigger Level 2 Halt<br/>greater than 10 percent drop<br/>181 seconds
+    CircuitBreaker ->> MatchingEngine: HALT Trading<br/>Reject All New Orders<br/>181 seconds
+    MatchingEngine ->> MatchingEngine: Cancel Market Orders<br/>Cancel Aggressive Limits<br/>Preserve Passive Orders<br/>183 seconds
+    CircuitBreaker ->> MarketData: Broadcast Halt<br/>Trading Halted<br/>185 seconds
+    MarketData ->> Client: Halt Notification<br/>All Orders Rejected<br/>185 seconds
+    Client ->> MatchingEngine: New Order Attempt<br/>190 seconds
+    MatchingEngine ->> Client: Reject Trading Halted<br/>190 seconds
+    Operator ->> CircuitBreaker: Manual Review<br/>Check Erroneous Trades<br/>5 minutes
+    Operator ->> CircuitBreaker: Resume Trading Command<br/>10 minutes
+    CircuitBreaker ->> MatchingEngine: Resume Normal Operation<br/>10 minutes
+    MatchingEngine ->> MarketData: Broadcast Resume<br/>10 minutes
+    MarketData ->> Client: Trading Resumed<br/>10 minutes
+    Note over Client, MarketData: Total Halt Duration<br/>10 minutes<br/>market stabilized
 ```
 
 ---
@@ -386,6 +320,7 @@ Shows the crash recovery process with hot standby failover and audit log replay.
 **Cold Start Alternative:**
 
 If no hot standby, read audit log from disk, replay all events:
+
 - Read time: 90ms (272 MB at 3 GB/sec)
 - Replay time: 1 second (1M orders at 1μs each)
 - Total: ~1 second downtime
@@ -404,38 +339,23 @@ sequenceDiagram
     participant AuditLog
     participant Monitor
     participant Operator
-
-    Note over Primary,Standby: Normal Operation<br/>Primary processes orders<br/>Standby replicates<br/>0 seconds
-    
-    Primary->>AuditLog: Write Orders<br/>Write Trades<br/>Continuous
-    AuditLog->>Standby: Async Replication<br/>under 10 milliseconds lag<br/>Continuous
-    Standby->>Standby: Maintain Shadow Order Book<br/>Replay Events<br/>Continuous
-    
-    Primary->>Monitor: Heartbeat<br/>Every 1 second<br/>0 to 60 seconds
-    
+    Note over Primary, Standby: Normal Operation<br/>Primary processes orders<br/>Standby replicates<br/>0 seconds
+    Primary ->> AuditLog: Write Orders<br/>Write Trades<br/>Continuous
+    AuditLog ->> Standby: Async Replication<br/>under 10 milliseconds lag<br/>Continuous
+    Standby ->> Standby: Maintain Shadow Order Book<br/>Replay Events<br/>Continuous
+    Primary ->> Monitor: Heartbeat<br/>Every 1 second<br/>0 to 60 seconds
     Note over Primary: CRASH<br/>Hardware Failure<br/>60 seconds
-    
-    Monitor->>Monitor: Heartbeat Timeout<br/>No response for 1 second<br/>61 seconds
-    
-    Monitor->>Operator: Alert Primary Down<br/>Auto-Failover Initiated<br/>61 seconds
-    
-    Monitor->>Standby: Promote to Primary<br/>62 seconds
-    
-    Standby->>AuditLog: Check for Missing Entries<br/>Last 10 milliseconds gap<br/>63 seconds
-    
-    AuditLog->>Standby: Return Missing Entries<br/>Replay from Shared Storage<br/>64 seconds
-    
-    Standby->>Standby: Replay Missing Events<br/>Rebuild Order Book State<br/>65 seconds
-    
-    Standby->>Monitor: Ready to Accept Orders<br/>New Primary<br/>66 seconds
-    
-    Monitor->>Client: Failover Complete<br/>Reconnect to New Primary<br/>67 seconds
-    
-    Client->>Standby: Submit Order<br/>68 seconds
-    Standby->>Client: Order Accepted<br/>68 seconds
-    
-    Note over Client,Standby: Total Downtime 6 seconds<br/>Hot Standby Failover<br/>Zero Data Loss
-    
+    Monitor ->> Monitor: Heartbeat Timeout<br/>No response for 1 second<br/>61 seconds
+    Monitor ->> Operator: Alert Primary Down<br/>Auto-Failover Initiated<br/>61 seconds
+    Monitor ->> Standby: Promote to Primary<br/>62 seconds
+    Standby ->> AuditLog: Check for Missing Entries<br/>Last 10 milliseconds gap<br/>63 seconds
+    AuditLog ->> Standby: Return Missing Entries<br/>Replay from Shared Storage<br/>64 seconds
+    Standby ->> Standby: Replay Missing Events<br/>Rebuild Order Book State<br/>65 seconds
+    Standby ->> Monitor: Ready to Accept Orders<br/>New Primary<br/>66 seconds
+    Monitor ->> Client: Failover Complete<br/>Reconnect to New Primary<br/>67 seconds
+    Client ->> Standby: Submit Order<br/>68 seconds
+    Standby ->> Client: Order Accepted<br/>68 seconds
+    Note over Client, Standby: Total Downtime 6 seconds<br/>Hot Standby Failover<br/>Zero Data Loss
     Note over Primary: Cold Start Alternative<br/>Read Audit Log 90 milliseconds<br/>Replay 1 second<br/>Total 1 to 60 seconds
 ```
 
@@ -445,7 +365,8 @@ sequenceDiagram
 
 **Flow:**
 
-Shows a large market order that "walks the book" - executing at multiple price levels as it exhausts available liquidity.
+Shows a large market order that "walks the book" - executing at multiple price levels as it exhausts available
+liquidity.
 
 **Steps:**
 
@@ -475,34 +396,20 @@ sequenceDiagram
     participant MatchingEngine
     participant OrderBook
     participant MarketData
-
     Note over OrderBook: Initial Order Book<br/>Bid 100.50 100 shares<br/>Bid 100.49 300 shares<br/>Bid 100.48 200 shares<br/>Bid 100.47 400 shares<br/>Total Liquidity 1000 shares
-    
-    Client->>MatchingEngine: Market Order SELL 1000<br/>Execute at Best Prices<br/>0 microseconds
-    
-    MatchingEngine->>OrderBook: Match Level 1<br/>Price 100.50 Qty 100<br/>Remaining 900<br/>10 microseconds
-    
-    OrderBook->>OrderBook: Remove Price Level<br/>100.50 fully consumed<br/>15 microseconds
-    
-    MatchingEngine->>OrderBook: Match Level 2<br/>Price 100.49 Qty 300<br/>Remaining 600<br/>20 microseconds
-    
-    OrderBook->>OrderBook: Remove Price Level<br/>100.49 fully consumed<br/>25 microseconds
-    
-    MatchingEngine->>OrderBook: Match Level 3<br/>Price 100.48 Qty 200<br/>Remaining 400<br/>30 microseconds
-    
-    OrderBook->>OrderBook: Remove Price Level<br/>100.48 fully consumed<br/>35 microseconds
-    
-    MatchingEngine->>OrderBook: Match Level 4<br/>Price 100.47 Qty 400<br/>Remaining 0<br/>40 microseconds
-    
-    OrderBook->>OrderBook: Remove Price Level<br/>100.47 fully consumed<br/>45 microseconds
-    
-    MatchingEngine->>MatchingEngine: Calculate VWAP<br/>100 times 100.50 plus 300 times 100.49<br/>plus 200 times 100.48 plus 400 times 100.47<br/>divided by 1000 equals 100.478<br/>55 microseconds
-    
-    MatchingEngine->>Client: Execution Report<br/>Filled 1000 at Avg 100.478<br/>4 Executions<br/>60 microseconds
-    
-    MatchingEngine->>MarketData: Publish 4 Trades<br/>100 at 100.50<br/>300 at 100.49<br/>200 at 100.48<br/>400 at 100.47<br/>60 microseconds
-    
-    Note over Client,MarketData: Price Impact<br/>Seller got 100.478 avg<br/>vs 100.50 best bid<br/>0.022 dollar per share slippage
+    Client ->> MatchingEngine: Market Order SELL 1000<br/>Execute at Best Prices<br/>0 microseconds
+    MatchingEngine ->> OrderBook: Match Level 1<br/>Price 100.50 Qty 100<br/>Remaining 900<br/>10 microseconds
+    OrderBook ->> OrderBook: Remove Price Level<br/>100.50 fully consumed<br/>15 microseconds
+    MatchingEngine ->> OrderBook: Match Level 2<br/>Price 100.49 Qty 300<br/>Remaining 600<br/>20 microseconds
+    OrderBook ->> OrderBook: Remove Price Level<br/>100.49 fully consumed<br/>25 microseconds
+    MatchingEngine ->> OrderBook: Match Level 3<br/>Price 100.48 Qty 200<br/>Remaining 400<br/>30 microseconds
+    OrderBook ->> OrderBook: Remove Price Level<br/>100.48 fully consumed<br/>35 microseconds
+    MatchingEngine ->> OrderBook: Match Level 4<br/>Price 100.47 Qty 400<br/>Remaining 0<br/>40 microseconds
+    OrderBook ->> OrderBook: Remove Price Level<br/>100.47 fully consumed<br/>45 microseconds
+    MatchingEngine ->> MatchingEngine: Calculate VWAP<br/>100 times 100.50 plus 300 times 100.49<br/>plus 200 times 100.48 plus 400 times 100.47<br/>divided by 1000 equals 100.478<br/>55 microseconds
+    MatchingEngine ->> Client: Execution Report<br/>Filled 1000 at Avg 100.478<br/>4 Executions<br/>60 microseconds
+    MatchingEngine ->> MarketData: Publish 4 Trades<br/>100 at 100.50<br/>300 at 100.49<br/>200 at 100.48<br/>400 at 100.47<br/>60 microseconds
+    Note over Client, MarketData: Price Impact<br/>Seller got 100.478 avg<br/>vs 100.50 best bid<br/>0.022 dollar per share slippage
 ```
 
 ---
@@ -544,28 +451,17 @@ sequenceDiagram
     participant MatchingEngine
     participant OrderBook
     participant MarketData
-
     Note over OrderBook: Initial Order Book<br/>Bid 100.50 100 shares<br/>Bid 100.49 200 shares<br/>Total Available 300 shares
-    
-    Client->>MatchingEngine: IOC Order SELL 500 at 100.48<br/>Immediate-or-Cancel<br/>0 microseconds
-    
-    MatchingEngine->>OrderBook: Scan Available Liquidity<br/>at 100.48 or better<br/>10 microseconds
-    
-    OrderBook->>MatchingEngine: Return Available<br/>300 shares total<br/>100 at 100.50<br/>200 at 100.49<br/>15 microseconds
-    
-    MatchingEngine->>OrderBook: Execute Match 1<br/>100 shares at 100.50<br/>20 microseconds
-    
-    MatchingEngine->>OrderBook: Execute Match 2<br/>200 shares at 100.49<br/>25 microseconds
-    
-    MatchingEngine->>MatchingEngine: Check Remaining<br/>500 minus 300 equals 200 shares left<br/>Cannot fill immediately<br/>30 microseconds
-    
-    MatchingEngine->>MatchingEngine: Cancel Remainder<br/>200 shares cancelled<br/>IOC does NOT insert to book<br/>30 microseconds
-    
-    MatchingEngine->>Client: Execution Report<br/>Filled 300 of 500<br/>Cancelled 200<br/>Status PARTIAL IOC<br/>40 microseconds
-    
-    MatchingEngine->>MarketData: Publish 2 Trades<br/>100 at 100.50<br/>200 at 100.49<br/>No Order Book Update<br/>50 microseconds
-    
-    Note over Client,MarketData: Key Difference<br/>No passive order left in book<br/>Clean execution only
+    Client ->> MatchingEngine: IOC Order SELL 500 at 100.48<br/>Immediate-or-Cancel<br/>0 microseconds
+    MatchingEngine ->> OrderBook: Scan Available Liquidity<br/>at 100.48 or better<br/>10 microseconds
+    OrderBook ->> MatchingEngine: Return Available<br/>300 shares total<br/>100 at 100.50<br/>200 at 100.49<br/>15 microseconds
+    MatchingEngine ->> OrderBook: Execute Match 1<br/>100 shares at 100.50<br/>20 microseconds
+    MatchingEngine ->> OrderBook: Execute Match 2<br/>200 shares at 100.49<br/>25 microseconds
+    MatchingEngine ->> MatchingEngine: Check Remaining<br/>500 minus 300 equals 200 shares left<br/>Cannot fill immediately<br/>30 microseconds
+    MatchingEngine ->> MatchingEngine: Cancel Remainder<br/>200 shares cancelled<br/>IOC does NOT insert to book<br/>30 microseconds
+    MatchingEngine ->> Client: Execution Report<br/>Filled 300 of 500<br/>Cancelled 200<br/>Status PARTIAL IOC<br/>40 microseconds
+    MatchingEngine ->> MarketData: Publish 2 Trades<br/>100 at 100.50<br/>200 at 100.49<br/>No Order Book Update<br/>50 microseconds
+    Note over Client, MarketData: Key Difference<br/>No passive order left in book<br/>Clean execution only
 ```
 
 ---
@@ -609,31 +505,20 @@ sequenceDiagram
     participant WS2 as WebSocket Server N
     participant Client1 as Standard Client
     participant Client2 as HFT Client
-
-    MatchingEngine->>Kafka: Publish Trade<br/>AAPL 100 at 100.50<br/>Partition by Symbol<br/>100 microseconds
-    
-    Kafka->>Kafka: Persist to Disk<br/>3 Replicas<br/>200 microseconds
-    
-    Kafka->>MDS1: Consume Partition 1<br/>Filter AAPL Subscribers<br/>300 microseconds
-    Kafka->>MDS2: Consume Partition N<br/>Filter Other Symbols<br/>300 microseconds
-    
-    MDS1->>MDS1: Conflate Updates<br/>Last Price in 10 milliseconds Window<br/>10x Reduction<br/>400 microseconds
-    
-    MDS1->>MDS1: Encode Protocol Buffers<br/>16 bytes vs 48 bytes JSON<br/>3x Smaller<br/>500 microseconds
-    
-    MDS1->>WS1: Send to WebSocket Server<br/>10K Clients<br/>600 microseconds
-    MDS1->>WS2: Send to WebSocket Server<br/>10K Clients<br/>600 microseconds
-    
-    WS1->>Client1: WebSocket Push<br/>Trade Update<br/>1 millisecond Total Latency
-    WS2->>Client1: WebSocket Push<br/>1 millisecond
-    
-    Note over Kafka,Client1: Standard Path<br/>1 millisecond Latency<br/>For Retail Traders
-    
-    MatchingEngine->>Client2: Direct Feed<br/>Co-Located<br/>Bypass Kafka<br/>10 microseconds Total Latency
-    
-    Note over MatchingEngine,Client2: HFT Fast Path<br/>10 microseconds Latency<br/>Same Datacenter
-    
-    Note over MatchingEngine,Client2: Scalability<br/>100K updates per sec<br/>1M clients<br/>Hierarchical Fanout<br/>Conflation 10x Reduction
+    MatchingEngine ->> Kafka: Publish Trade<br/>AAPL 100 at 100.50<br/>Partition by Symbol<br/>100 microseconds
+    Kafka ->> Kafka: Persist to Disk<br/>3 Replicas<br/>200 microseconds
+    Kafka ->> MDS1: Consume Partition 1<br/>Filter AAPL Subscribers<br/>300 microseconds
+    Kafka ->> MDS2: Consume Partition N<br/>Filter Other Symbols<br/>300 microseconds
+    MDS1 ->> MDS1: Conflate Updates<br/>Last Price in 10 milliseconds Window<br/>10x Reduction<br/>400 microseconds
+    MDS1 ->> MDS1: Encode Protocol Buffers<br/>16 bytes vs 48 bytes JSON<br/>3x Smaller<br/>500 microseconds
+    MDS1 ->> WS1: Send to WebSocket Server<br/>10K Clients<br/>600 microseconds
+    MDS1 ->> WS2: Send to WebSocket Server<br/>10K Clients<br/>600 microseconds
+    WS1 ->> Client1: WebSocket Push<br/>Trade Update<br/>1 millisecond Total Latency
+    WS2 ->> Client1: WebSocket Push<br/>1 millisecond
+    Note over Kafka, Client1: Standard Path<br/>1 millisecond Latency<br/>For Retail Traders
+    MatchingEngine ->> Client2: Direct Feed<br/>Co-Located<br/>Bypass Kafka<br/>10 microseconds Total Latency
+    Note over MatchingEngine, Client2: HFT Fast Path<br/>10 microseconds Latency<br/>Same Datacenter
+    Note over MatchingEngine, Client2: Scalability<br/>100K updates per sec<br/>1M clients<br/>Hierarchical Fanout<br/>Conflation 10x Reduction
 ```
 
 ---
@@ -673,34 +558,25 @@ sequenceDiagram
     participant BackgroundThread
     participant BatchBuffer
     participant NVMeSSD
-
-    MatchingEngine->>MatchingEngine: Process Order<br/>Generate Log Entry<br/>272 bytes<br/>0 microseconds
-    
-    MatchingEngine->>RingBuffer: Copy to Ring Buffer<br/>Lock-Free Enqueue<br/>Shared Memory<br/>5 microseconds
-    
+    MatchingEngine ->> MatchingEngine: Process Order<br/>Generate Log Entry<br/>272 bytes<br/>0 microseconds
+    MatchingEngine ->> RingBuffer: Copy to Ring Buffer<br/>Lock-Free Enqueue<br/>Shared Memory<br/>5 microseconds
     Note over MatchingEngine: Non-Blocking Return<br/>Continue Processing<br/>Next Order<br/>10 microseconds
-    
+
     par Background Thread Async
         loop Every 1 millisecond
-            BackgroundThread->>RingBuffer: Consume Entries<br/>Dequeue Available
-            
-            RingBuffer->>BackgroundThread: Return Entry 1
-            RingBuffer->>BackgroundThread: Return Entry 2
-            RingBuffer->>BackgroundThread: Return Entry N
-            
-            BackgroundThread->>BatchBuffer: Accumulate 1000 Entries<br/>272 KB Total<br/>1 millisecond
-            
-            BackgroundThread->>NVMeSSD: Write Batch<br/>Single Syscall<br/>272 KB<br/>2 milliseconds
-            
-            NVMeSSD->>NVMeSSD: fsync Flush<br/>Force to Disk<br/>Durability Guaranteed<br/>3 milliseconds
+            BackgroundThread ->> RingBuffer: Consume Entries<br/>Dequeue Available
+            RingBuffer ->> BackgroundThread: Return Entry 1
+            RingBuffer ->> BackgroundThread: Return Entry 2
+            RingBuffer ->> BackgroundThread: Return Entry N
+            BackgroundThread ->> BatchBuffer: Accumulate 1000 Entries<br/>272 KB Total<br/>1 millisecond
+            BackgroundThread ->> NVMeSSD: Write Batch<br/>Single Syscall<br/>272 KB<br/>2 milliseconds
+            NVMeSSD ->> NVMeSSD: fsync Flush<br/>Force to Disk<br/>Durability Guaranteed<br/>3 milliseconds
         end
     end
-    
-    Note over BatchBuffer,NVMeSSD: Batch Write Benefits<br/>1000 entries per syscall<br/>1000x fewer system calls<br/>Amortize fsync overhead
-    
+
+    Note over BatchBuffer, NVMeSSD: Batch Write Benefits<br/>1000 entries per syscall<br/>1000x fewer system calls<br/>Amortize fsync overhead
     Note over NVMeSSD: Battery-Backed Cache<br/>Capacitor Backup<br/>Persists on Power Loss<br/>No Data Loss
-    
-    Note over MatchingEngine,NVMeSSD: Crash Window 1 to 10 milliseconds<br/>Mitigated by Battery Backup<br/>Trade-off Acceptable
+    Note over MatchingEngine, NVMeSSD: Crash Window 1 to 10 milliseconds<br/>Mitigated by Battery Backup<br/>Trade-off Acceptable
 ```
 
 ---
@@ -735,6 +611,7 @@ Shows the hot standby failover process for high availability with minimal downti
 **Alternative: Cold Start**
 
 If no hot standby available:
+
 - Read audit log: 90ms
 - Replay: 1 second
 - Total: 1-60 seconds downtime (acceptable for non-critical markets)
@@ -746,42 +623,30 @@ sequenceDiagram
     participant Standby
     participant Monitor
     participant Client
+    Note over Primary, Standby: Normal Operation<br/>Primary Active<br/>Standby Replicating<br/>0 seconds
 
-    Note over Primary,Standby: Normal Operation<br/>Primary Active<br/>Standby Replicating<br/>0 seconds
-    
     loop Continuous Replication
-        Primary->>AuditLog: Write Orders Trades<br/>Continuous
-        AuditLog->>Standby: Async Replication<br/>under 10 milliseconds Lag
-        Standby->>Standby: Replay Events<br/>Shadow Order Book<br/>Continuous
+        Primary ->> AuditLog: Write Orders Trades<br/>Continuous
+        AuditLog ->> Standby: Async Replication<br/>under 10 milliseconds Lag
+        Standby ->> Standby: Replay Events<br/>Shadow Order Book<br/>Continuous
     end
-    
+
     loop Heartbeat Monitoring
-        Primary->>Monitor: Heartbeat Alive<br/>Every 1 Second<br/>0 to 60 seconds
+        Primary ->> Monitor: Heartbeat Alive<br/>Every 1 Second<br/>0 to 60 seconds
     end
-    
+
     Note over Primary: PRIMARY CRASH<br/>Hardware Failure<br/>60 seconds
-    
-    Monitor->>Monitor: Heartbeat Timeout<br/>No Response 1 Second<br/>61 seconds
-    
-    Monitor->>Monitor: Trigger Failover<br/>Auto Promote Standby<br/>62 seconds
-    
-    Standby->>AuditLog: Check for Missing Entries<br/>Last 10 milliseconds Gap<br/>63 seconds
-    
-    AuditLog->>Standby: Return Gap Entries<br/>If Any<br/>63 seconds
-    
-    Standby->>Standby: Replay Missing Entries<br/>Ensure Consistency<br/>64 seconds
-    
-    Monitor->>Standby: Promote to Primary<br/>Start Accepting Orders<br/>65 seconds
-    
-    Standby->>Monitor: Ready ACK<br/>New Primary Online<br/>65 seconds
-    
-    Monitor->>Client: Failover Complete<br/>Reconnect to New Primary<br/>66 seconds
-    
-    Client->>Standby: Submit Order<br/>TCP Reconnect<br/>66 seconds
-    
-    Standby->>Client: Order Accepted<br/>Trading Resumed<br/>66 seconds
-    
-    Note over Primary,Client: Total Downtime 6 Seconds<br/>Zero Data Loss<br/>Hot Standby Failover
+    Monitor ->> Monitor: Heartbeat Timeout<br/>No Response 1 Second<br/>61 seconds
+    Monitor ->> Monitor: Trigger Failover<br/>Auto Promote Standby<br/>62 seconds
+    Standby ->> AuditLog: Check for Missing Entries<br/>Last 10 milliseconds Gap<br/>63 seconds
+    AuditLog ->> Standby: Return Gap Entries<br/>If Any<br/>63 seconds
+    Standby ->> Standby: Replay Missing Entries<br/>Ensure Consistency<br/>64 seconds
+    Monitor ->> Standby: Promote to Primary<br/>Start Accepting Orders<br/>65 seconds
+    Standby ->> Monitor: Ready ACK<br/>New Primary Online<br/>65 seconds
+    Monitor ->> Client: Failover Complete<br/>Reconnect to New Primary<br/>66 seconds
+    Client ->> Standby: Submit Order<br/>TCP Reconnect<br/>66 seconds
+    Standby ->> Client: Order Accepted<br/>Trading Resumed<br/>66 seconds
+    Note over Primary, Client: Total Downtime 6 Seconds<br/>Zero Data Loss<br/>Hot Standby Failover
 ```
 
 ---
@@ -832,27 +697,18 @@ sequenceDiagram
     participant PollThread as Poll Mode Thread
     participant Gateway as Gateway Application
     participant RingBuffer
-
     Note over NIC: Packet Arrives<br/>100 Gbps Link<br/>0 nanoseconds
-    
-    NIC->>DMA: Trigger DMA Transfer<br/>Direct Memory Access<br/>100 nanoseconds
-    
-    DMA->>AppMem: Write Packet<br/>Zero-Copy to App Memory<br/>Huge Pages 2 MB<br/>500 nanoseconds
-    
-    loop Poll Mode 100 percent CPU
-        PollThread->>NIC: Poll Descriptor Ring<br/>Check New Packets<br/>No Interrupts<br/>1000 nanoseconds
-    end
-    
-    PollThread->>AppMem: Read Packet Data<br/>Zero-Copy Direct Access<br/>No Kernel Copy<br/>1500 nanoseconds
-    
-    PollThread->>Gateway: FIX Protocol Parsing<br/>Extract Order Fields<br/>3000 nanoseconds
-    
-    Gateway->>Gateway: Validate Order<br/>JWT Cached in Memory<br/>Check Limits<br/>5000 nanoseconds
-    
-    Gateway->>RingBuffer: Enqueue to Matching Engine<br/>Lock-Free<br/>5500 nanoseconds
-    
-    Note over NIC,RingBuffer: Total Latency 5.5 microseconds<br/>DPDK Kernel Bypass<br/>Zero-Copy No Interrupts
-    
-    Note over NIC,RingBuffer: Traditional Stack Comparison<br/>Hardware Interrupt 1 microsecond<br/>Kernel Processing 10 microseconds<br/>Copy to User 15 microseconds<br/>Total 20 microseconds<br/>4x Slower
-```
+    NIC ->> DMA: Trigger DMA Transfer<br/>Direct Memory Access<br/>100 nanoseconds
+    DMA ->> AppMem: Write Packet<br/>Zero-Copy to App Memory<br/>Huge Pages 2 MB<br/>500 nanoseconds
 
+    loop Poll Mode 100 percent CPU
+        PollThread ->> NIC: Poll Descriptor Ring<br/>Check New Packets<br/>No Interrupts<br/>1000 nanoseconds
+    end
+
+    PollThread ->> AppMem: Read Packet Data<br/>Zero-Copy Direct Access<br/>No Kernel Copy<br/>1500 nanoseconds
+    PollThread ->> Gateway: FIX Protocol Parsing<br/>Extract Order Fields<br/>3000 nanoseconds
+    Gateway ->> Gateway: Validate Order<br/>JWT Cached in Memory<br/>Check Limits<br/>5000 nanoseconds
+    Gateway ->> RingBuffer: Enqueue to Matching Engine<br/>Lock-Free<br/>5500 nanoseconds
+    Note over NIC, RingBuffer: Total Latency 5.5 microseconds<br/>DPDK Kernel Bypass<br/>Zero-Copy No Interrupts
+    Note over NIC, RingBuffer: Traditional Stack Comparison<br/>Hardware Interrupt 1 microsecond<br/>Kernel Processing 10 microseconds<br/>Copy to User 15 microseconds<br/>Total 20 microseconds<br/>4x Slower
+```

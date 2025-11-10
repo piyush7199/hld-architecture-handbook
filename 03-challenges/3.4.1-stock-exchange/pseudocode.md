@@ -1,6 +1,7 @@
 # Stock Exchange Matching Engine - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the stock exchange matching engine system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the stock exchange matching engine system. The main
+challenge document references these functions.
 
 ---
 
@@ -26,10 +27,12 @@ This document contains detailed algorithm implementations for the stock exchange
 **Purpose:** Insert a new limit order into the order book at the specified price level, maintaining price-time priority.
 
 **Parameters:**
+
 - order_book (OrderBook): The order book instance
 - order (Order): The order to insert
 
 **Returns:**
+
 - bool: true if inserted successfully, false otherwise
 
 **Algorithm:**
@@ -96,10 +99,12 @@ success = insert_order(order_book, order)
 **Purpose:** Remove an order from the order book (for execution or cancellation).
 
 **Parameters:**
+
 - order_book (OrderBook): The order book instance
 - order_id (u64): The ID of the order to remove
 
 **Returns:**
+
 - Order: The removed order, or null if not found
 
 **Algorithm:**
@@ -163,10 +168,12 @@ if removed_order != null:
 **Purpose:** Match an incoming order against the opposite side of the order book, generating execution events.
 
 **Parameters:**
+
 - order_book (OrderBook): The order book instance
 - incoming_order (Order): The order to match
 
 **Returns:**
+
 - executions (List<Execution>): List of execution events generated
 
 **Algorithm:**
@@ -298,10 +305,12 @@ for exec in executions:
 **Purpose:** Enqueue an order to the lock-free ring buffer for inter-process communication (gateway → matching engine).
 
 **Parameters:**
+
 - ring_buffer (RingBuffer): The ring buffer instance
 - order (Order): The order to enqueue
 
 **Returns:**
+
 - bool: true if enqueued successfully, false if buffer is full
 
 **Algorithm:**
@@ -348,9 +357,11 @@ if not success:
 **Purpose:** Dequeue an order from the lock-free ring buffer (matching engine side).
 
 **Parameters:**
+
 - ring_buffer (RingBuffer): The ring buffer instance
 
 **Returns:**
+
 - Order: The dequeued order, or null if buffer is empty
 
 **Algorithm:**
@@ -400,11 +411,13 @@ while true:
 **Purpose:** Asynchronously write a log entry to the audit log (Write-Ahead Log for durability).
 
 **Parameters:**
+
 - audit_log (AuditLog): The audit log instance
 - event_type (u8): 0=ORDER, 1=EXECUTION, 2=CANCEL
 - payload (bytes): Serialized event data
 
 **Returns:**
+
 - bool: true if enqueued successfully
 
 **Algorithm:**
@@ -451,9 +464,11 @@ write_audit_log(audit_log, event_type=EXECUTION, payload=exec_payload)
 **Purpose:** Background thread that consumes the audit log queue and writes batches to disk.
 
 **Parameters:**
+
 - audit_log (AuditLog): The audit log instance
 
 **Returns:**
+
 - None (runs indefinitely)
 
 **Algorithm:**
@@ -507,11 +522,13 @@ spawn_thread(audit_log_background_thread, audit_log)
 **Purpose:** Insert a key-value pair into the Red-Black Tree, maintaining balance.
 
 **Parameters:**
+
 - tree (RBTree): The Red-Black Tree instance
 - key (Price): The price level
 - value (PriceLevel): The price level data
 
 **Returns:**
+
 - Node: The inserted node
 
 **Algorithm:**
@@ -571,10 +588,12 @@ rb_tree_insert(tree, key=10050, value=price_level)
 **Purpose:** Fix Red-Black Tree violations after insertion (recoloring and rotations).
 
 **Parameters:**
+
 - tree (RBTree): The Red-Black Tree instance
 - node (Node): The newly inserted node
 
 **Returns:**
+
 - None (modifies tree in-place)
 
 **Algorithm:**
@@ -638,9 +657,11 @@ function rb_tree_fix_insert(tree, node):
 **Purpose:** Get the best bid price (highest buy price) in O(1) time.
 
 **Parameters:**
+
 - order_book (OrderBook): The order book instance
 
 **Returns:**
+
 - Price: The best bid price, or null if no bids
 
 **Algorithm:**
@@ -660,9 +681,11 @@ function get_best_bid(order_book):
 **Purpose:** Get the best ask price (lowest sell price) in O(1) time.
 
 **Parameters:**
+
 - order_book (OrderBook): The order book instance
 
 **Returns:**
+
 - Price: The best ask price, or null if no asks
 
 **Algorithm:**
@@ -684,10 +707,12 @@ function get_best_ask(order_book):
 **Purpose:** Validate an incoming order before processing (price limits, quantity limits, balance check).
 
 **Parameters:**
+
 - order (Order): The order to validate
 - user_account (Account): The user's account
 
 **Returns:**
+
 - result (ValidationResult): success=true/false, error_message
 
 **Algorithm:**
@@ -756,12 +781,14 @@ if not result.success:
 **Purpose:** Publish market data update to Kafka for distribution to subscribers.
 
 **Parameters:**
+
 - kafka_producer (KafkaProducer): The Kafka producer instance
 - symbol (string): The stock symbol
 - event_type (string): "TRADE" or "TOP_OF_BOOK"
 - data (object): The event data
 
 **Returns:**
+
 - bool: true if published successfully
 
 **Algorithm:**
@@ -835,10 +862,12 @@ if best_bid_changed or best_ask_changed:
 **Purpose:** Replay the audit log to rebuild the order book state after a crash.
 
 **Parameters:**
+
 - audit_log_file (string): Path to the audit log file
 - order_book (OrderBook): The order book to rebuild
 
 **Returns:**
+
 - bool: true if replay successful
 
 **Algorithm:**
@@ -931,9 +960,11 @@ if success:
 **Purpose:** Allocate an Order object from the pre-allocated object pool (avoid malloc overhead).
 
 **Parameters:**
+
 - pool (ObjectPool): The object pool instance
 
 **Returns:**
+
 - Order: A pointer to the allocated Order object, or null if pool is empty
 
 **Algorithm:**
@@ -990,10 +1021,12 @@ if order == null:
 **Purpose:** Deallocate an Order object back to the object pool (return to free list).
 
 **Parameters:**
+
 - pool (ObjectPool): The object pool instance
 - order (Order): The order to deallocate
 
 **Returns:**
+
 - None
 
 **Algorithm:**
@@ -1023,9 +1056,11 @@ object_pool_deallocate(pool, order)
 **Purpose:** Initialize the object pool by pre-allocating all Order objects at startup.
 
 **Parameters:**
+
 - capacity (u32): The number of orders to pre-allocate
 
 **Returns:**
+
 - ObjectPool: The initialized object pool
 
 **Algorithm:**

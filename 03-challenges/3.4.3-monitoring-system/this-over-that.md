@@ -72,6 +72,7 @@ The monitoring system needs to store 100M data points/sec with:
     - InfluxDB: Requires rewriting queries (Influx
 
 QL/Flux)
+
 - Cassandra: Custom query language (steep learning curve)
 
 5. **Proven at Scale**

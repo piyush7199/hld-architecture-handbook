@@ -1,6 +1,7 @@
 # Distributed Monitoring System - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Distributed Monitoring System. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Distributed Monitoring System. The main challenge
+document references these functions.
 
 ---
 
@@ -24,13 +25,16 @@ This document contains detailed algorithm implementations for the Distributed Mo
 **Purpose:** Scrape metrics from a target endpoint (Prometheus-style pull model).
 
 **Parameters:**
+
 - endpoint (string): Target URL to scrape (e.g., "http://server-123:9090/metrics")
 - timeout (int): Scrape timeout in milliseconds (default: 10000)
 
 **Returns:**
+
 - metrics (array): Array of metric data points [{name, labels, value, timestamp}]
 
 **Algorithm:**
+
 ```
 function scrape_endpoint(endpoint, timeout=10000):
   try:
@@ -77,6 +81,7 @@ function scrape_endpoint(endpoint, timeout=10000):
 **Time Complexity:** O(n) where n = number of metric lines
 
 **Example Usage:**
+
 ```
 metrics = scrape_endpoint("http://app-server-1:9090/metrics", timeout=5000)
 // Returns: [
@@ -93,12 +98,15 @@ metrics = scrape_endpoint("http://app-server-1:9090/metrics", timeout=5000)
 **Purpose:** Parse a single Prometheus metric line into structured format.
 
 **Parameters:**
+
 - line (string): Metric line (e.g., 'http_requests_total{method="GET"} 1234 1698765432')
 
 **Returns:**
+
 - metric (object): Parsed metric {name, labels, value, timestamp} or null if invalid
 
 **Algorithm:**
+
 ```
 function parse_prometheus_metric(line):
   // Regex pattern for Prometheus metric format
@@ -138,6 +146,7 @@ function parse_prometheus_metric(line):
 **Time Complexity:** O(m) where m = length of line
 
 **Example Usage:**
+
 ```
 line = 'http_requests_total{method="GET",status="200"} 1234 1698765432'
 metric = parse_prometheus_metric(line)
@@ -156,12 +165,15 @@ metric = parse_prometheus_metric(line)
 **Purpose:** Parse Prometheus label string into key-value map.
 
 **Parameters:**
+
 - labels_str (string): Label string (e.g., 'method="GET",status="200"')
 
 **Returns:**
+
 - labels (object): Label map {key: value}
 
 **Algorithm:**
+
 ```
 function parse_labels(labels_str):
   labels = {}
@@ -191,6 +203,7 @@ function parse_labels(labels_str):
 **Time Complexity:** O(n) where n = number of labels
 
 **Example Usage:**
+
 ```
 labels_str = 'method="GET",status="200",path="/api/users"'
 labels = parse_labels(labels_str)
@@ -206,12 +219,15 @@ labels = parse_labels(labels_str)
 **Purpose:** Encode time-series data points using delta-of-delta encoding and compression.
 
 **Parameters:**
+
 - data_points (array): Array of data points [{timestamp, value}]
 
 **Returns:**
+
 - encoded_bytes (bytes): Compressed binary representation
 
 **Algorithm:**
+
 ```
 function encode_time_series(data_points):
   if len(data_points) == 0:
@@ -301,6 +317,7 @@ function encode_time_series(data_points):
 **Time Complexity:** O(n) where n = number of data points
 
 **Example Usage:**
+
 ```
 data_points = [
   {timestamp: 1698765432, value: 45.2},
@@ -323,14 +340,17 @@ encoded = encode_time_series(data_points)
 **Purpose:** Compute downsampled aggregates (rollups) from raw time-series data.
 
 **Parameters:**
+
 - data_points (array): Array of raw data points [{timestamp, value}]
 - rollup_interval (int): Rollup interval in seconds (e.g., 60 for 1-minute rollup)
 - aggregation_function (string): Aggregation function ("avg", "sum", "min", "max", "count")
 
 **Returns:**
+
 - rollup_data (array): Array of rolled-up data points [{timestamp, value}]
 
 **Algorithm:**
+
 ```
 function compute_rollup(data_points, rollup_interval, aggregation_function):
   if len(data_points) == 0:
@@ -383,6 +403,7 @@ function compute_rollup(data_points, rollup_interval, aggregation_function):
 **Time Complexity:** O(n log n) where n = number of data points (due to sorting)
 
 **Example Usage:**
+
 ```
 // Raw data (1-second resolution)
 raw_data = [
@@ -412,13 +433,16 @@ rollup_1min = compute_rollup(raw_data, rollup_interval=60, aggregation_function=
 **Purpose:** Evaluate an alert rule against incoming metrics in real-time.
 
 **Parameters:**
+
 - rule (object): Alert rule {name, condition, threshold, duration, labels}
 - metrics (array): Recent metric data points (sliding window)
 
 **Returns:**
+
 - alert (object): Alert object {firing: boolean, labels, annotations} or null
 
 **Algorithm:**
+
 ```
 function evaluate_alert_rule(rule, metrics):
   // Example rule:
@@ -481,6 +505,7 @@ function evaluate_alert_rule(rule, metrics):
 **Time Complexity:** O(n log n) where n = number of metrics in window
 
 **Example Usage:**
+
 ```
 rule = {
   name: "HighCPU",
@@ -518,13 +543,16 @@ alert = evaluate_alert_rule(rule, metrics)
 **Purpose:** Evaluate a simple condition expression against a value.
 
 **Parameters:**
+
 - condition (string): Condition expression (e.g., "cpu_usage > 80")
 - value (float): Current metric value
 
 **Returns:**
+
 - result (boolean): True if condition is met
 
 **Algorithm:**
+
 ```
 function evaluate_condition(condition, value):
   // Parse condition: "metric_name operator threshold"
@@ -559,6 +587,7 @@ function evaluate_condition(condition, value):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 result = evaluate_condition("cpu_usage > 80", 85.0)
 // Returns: true
@@ -576,15 +605,18 @@ result = evaluate_condition("latency_ms < 100", 150.0)
 **Purpose:** Execute a time-series range query with automatic rollup selection.
 
 **Parameters:**
+
 - metric_name (string): Metric to query
 - labels (object): Label filters {key: value}
 - start_time (int): Query start timestamp
 - end_time (int): Query end timestamp
 
 **Returns:**
+
 - result (array): Time-series data [{timestamp, value}]
 
 **Algorithm:**
+
 ```
 function execute_range_query(metric_name, labels, start_time, end_time):
   // Calculate time range
@@ -626,6 +658,7 @@ function execute_range_query(metric_name, labels, start_time, end_time):
 **Time Complexity:** O(log n) where n = total data points (due to time-based indexing)
 
 **Example Usage:**
+
 ```
 result = execute_range_query(
   metric_name="cpu_usage",
@@ -644,12 +677,15 @@ result = execute_range_query(
 **Purpose:** Select optimal rollup resolution based on query time range.
 
 **Parameters:**
+
 - time_range (int): Query time range in seconds
 
 **Returns:**
+
 - resolution (string): Selected resolution ("raw", "1min", "5min", "1hour", "1day")
 
 **Algorithm:**
+
 ```
 function select_rollup_resolution(time_range):
   // Optimization: Return ~2000-5000 data points for efficient visualization
@@ -674,6 +710,7 @@ function select_rollup_resolution(time_range):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 resolution = select_rollup_resolution(86400)  // 1 day
 // Returns: "1min"
@@ -691,13 +728,16 @@ resolution = select_rollup_resolution(2592000)  // 30 days
 **Purpose:** Estimate cardinality (number of unique time series) for a metric using HyperLogLog.
 
 **Parameters:**
+
 - metric_name (string): Metric to analyze
 - time_window (int): Time window in seconds (default: 3600 for last hour)
 
 **Returns:**
+
 - cardinality (int): Estimated number of unique time series
 
 **Algorithm:**
+
 ```
 function estimate_cardinality(metric_name, time_window=3600):
   // Use HyperLogLog for efficient cardinality estimation
@@ -737,6 +777,7 @@ function estimate_cardinality(metric_name, time_window=3600):
 **Time Complexity:** O(n) where n = number of time series
 
 **Example Usage:**
+
 ```
 cardinality = estimate_cardinality("http_requests_total", time_window=3600)
 // Returns: 125000 (estimated unique time series in last hour)
@@ -752,12 +793,15 @@ cardinality = estimate_cardinality("http_requests_total", time_window=3600)
 **Purpose:** Detect high-cardinality metrics that may cause performance issues.
 
 **Parameters:**
+
 - threshold (int): Cardinality threshold (default: 100000)
 
 **Returns:**
+
 - high_cardinality_metrics (array): List of metrics exceeding threshold
 
 **Algorithm:**
+
 ```
 function detect_high_cardinality(threshold=100000):
   high_cardinality_metrics = []
@@ -789,6 +833,7 @@ function detect_high_cardinality(threshold=100000):
 **Time Complexity:** O(m × n) where m = number of metrics, n = avg time series per metric
 
 **Example Usage:**
+
 ```
 high_card = detect_high_cardinality(threshold=100000)
 // Returns: [
@@ -811,12 +856,15 @@ high_card = detect_high_cardinality(threshold=100000)
 **Purpose:** Apply data retention policy to delete old data and rollups.
 
 **Parameters:**
+
 - retention_config (object): Retention configuration {raw: 7days, 1min: 30days, 1hour: 365days}
 
 **Returns:**
+
 - deleted_count (int): Number of data blocks deleted
 
 **Algorithm:**
+
 ```
 function apply_retention_policy(retention_config):
   current_time = now()
@@ -857,6 +905,7 @@ function apply_retention_policy(retention_config):
 **Time Complexity:** O(b) where b = number of blocks to delete
 
 **Example Usage:**
+
 ```
 retention_config = {
   "raw": 7,      // Keep raw data for 7 days
@@ -878,13 +927,16 @@ deleted_count = apply_retention_policy(retention_config)
 **Purpose:** Compute percentile (e.g., p50, p99) from a stream of values.
 
 **Parameters:**
+
 - values (array): Array of numeric values
 - percentile (float): Percentile to compute (e.g., 50.0 for p50, 99.0 for p99)
 
 **Returns:**
+
 - result (float): Computed percentile value
 
 **Algorithm:**
+
 ```
 function compute_percentile(values, percentile):
   if len(values) == 0:
@@ -920,6 +972,7 @@ function compute_percentile(values, percentile):
 **Time Complexity:** O(n log n) due to sorting
 
 **Example Usage:**
+
 ```
 latencies = [10, 15, 20, 25, 30, 35, 40, 50, 100, 500]
 
@@ -937,13 +990,16 @@ p99 = compute_percentile(latencies, 99.0)
 **Purpose:** Compute per-second rate of change for a counter metric.
 
 **Parameters:**
+
 - data_points (array): Array of counter data points [{timestamp, value}]
 - time_window (int): Time window for rate calculation (default: 60 seconds)
 
 **Returns:**
+
 - rate (float): Per-second rate
 
 **Algorithm:**
+
 ```
 function compute_rate(data_points, time_window=60):
   if len(data_points) < 2:
@@ -989,6 +1045,7 @@ function compute_rate(data_points, time_window=60):
 **Time Complexity:** O(n log n) due to sorting
 
 **Example Usage:**
+
 ```
 // Counter metric: http_requests_total
 data_points = [
@@ -1007,7 +1064,8 @@ rate = compute_rate(data_points, time_window=60)
 
 ## Summary
 
-This pseudocode document provides detailed algorithm implementations for all major components of the Distributed Monitoring System. Key algorithms include:
+This pseudocode document provides detailed algorithm implementations for all major components of the Distributed
+Monitoring System. Key algorithms include:
 
 1. **Metrics Collection:** Prometheus-style scraping and parsing
 2. **Time-Series Encoding:** Delta-of-delta and XOR encoding for compression
@@ -1018,5 +1076,6 @@ This pseudocode document provides detailed algorithm implementations for all maj
 7. **Data Retention:** Automated cleanup with configurable policies
 8. **Aggregation Functions:** Percentile and rate calculations
 
-All functions are optimized for the scale requirements: 1M writes/sec, 63 trillion data points over 2 years, with efficient compression (20:1 ratio) and query performance (<1 second for dashboard queries).
+All functions are optimized for the scale requirements: 1M writes/sec, 63 trillion data points over 2 years, with
+efficient compression (20:1 ratio) and query performance (<1 second for dashboard queries).
 

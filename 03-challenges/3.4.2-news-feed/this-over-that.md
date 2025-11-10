@@ -911,5 +911,3 @@ Fallback: US-East (if no regional match)
 | **5. ML Model**             | Hybrid (Collab + Content) | Pure Collaborative      | Cold start + diversity                 |
 | **6. Personalization**      | Batch + Real-Time         | Batch-Only              | Immediate feedback + trending topics   |
 | **7. Global Deployment**    | Multi-Region Replicas     | Single-Region + CDN     | Low latency (EU/AP) + GDPR             |
-
-

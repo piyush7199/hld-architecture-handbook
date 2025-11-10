@@ -1,6 +1,7 @@
 # Stock Exchange Matching Engine - Design Decisions (This Over That)
 
-This document provides in-depth analysis of all major architectural decisions made for the stock exchange matching engine design, including rationale, alternatives considered, and trade-offs.
+This document provides in-depth analysis of all major architectural decisions made for the stock exchange matching
+engine design, including rationale, alternatives considered, and trade-offs.
 
 ---
 
@@ -20,15 +21,16 @@ This document provides in-depth analysis of all major architectural decisions ma
 
 ### The Problem
 
-The matching engine must process 1M orders/sec with <100μs latency. Should we use a single-threaded design (sequential processing) or multi-threaded design (concurrent processing with locks)?
+The matching engine must process 1M orders/sec with <100μs latency. Should we use a single-threaded design (sequential
+processing) or multi-threaded design (concurrent processing with locks)?
 
 ### Options Considered
 
-| Design | Pros | Cons | Latency | Throughput |
-|--------|------|------|---------|------------|
-| **Single-Threaded** (Chosen) | ✅ No locks (no contention)<br/>✅ No cache coherency overhead<br/>✅ Predictable latency<br/>✅ Simple (no race conditions) | ❌ Single-core throughput limit (1-2M orders/sec)<br/>❌ Cannot utilize multi-core | <100μs (p99) | 1-2M orders/sec |
-| **Multi-Threaded + Locks** | ✅ Higher throughput (5-10M orders/sec)<br/>✅ Utilize multi-core CPUs | ❌ Lock contention (50-100μs per lock)<br/>❌ Cache line ping-pong<br/>❌ Non-deterministic latency<br/>❌ Complex (deadlocks, races) | 1-10ms (p99) | 5-10M orders/sec |
-| **Multi-Threaded + Lock-Free** | ✅ No locks (lock-free data structures)<br/>✅ Utilize multi-core | ❌ Complex implementation<br/>❌ CAS retry loops<br/>❌ Still has cache coherency overhead | 500μs-1ms (p99) | 3-5M orders/sec |
+| Design                         | Pros                                                                                                                     | Cons                                                                                                                              | Latency         | Throughput       |
+|--------------------------------|--------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|-----------------|------------------|
+| **Single-Threaded** (Chosen)   | ✅ No locks (no contention)<br/>✅ No cache coherency overhead<br/>✅ Predictable latency<br/>✅ Simple (no race conditions) | ❌ Single-core throughput limit (1-2M orders/sec)<br/>❌ Cannot utilize multi-core                                                  | <100μs (p99)    | 1-2M orders/sec  |
+| **Multi-Threaded + Locks**     | ✅ Higher throughput (5-10M orders/sec)<br/>✅ Utilize multi-core CPUs                                                     | ❌ Lock contention (50-100μs per lock)<br/>❌ Cache line ping-pong<br/>❌ Non-deterministic latency<br/>❌ Complex (deadlocks, races) | 1-10ms (p99)    | 5-10M orders/sec |
+| **Multi-Threaded + Lock-Free** | ✅ No locks (lock-free data structures)<br/>✅ Utilize multi-core                                                          | ❌ Complex implementation<br/>❌ CAS retry loops<br/>❌ Still has cache coherency overhead                                           | 500μs-1ms (p99) | 3-5M orders/sec  |
 
 ### Decision Made
 
@@ -37,9 +39,9 @@ The matching engine must process 1M orders/sec with <100μs latency. Should we u
 ### Rationale
 
 1. **Lock Overhead Too High:**
-   - Mutex acquire/release: 50-100 CPU cycles (17-33ns at 3 GHz)
-   - At 1M orders/sec, this adds 50-100μs per order (50-100% of latency budget!)
-   - Lock contention under high load pushes latency to milliseconds
+    - Mutex acquire/release: 50-100 CPU cycles (17-33ns at 3 GHz)
+    - At 1M orders/sec, this adds 50-100μs per order (50-100% of latency budget!)
+    - Lock contention under high load pushes latency to milliseconds
 
 2. **Cache Coherency Problem:**
    ```
@@ -50,14 +52,14 @@ The matching engine must process 1M orders/sec with <100μs latency. Should we u
    ```
 
 3. **Predictability > Throughput:**
-   - Financial systems value **predictable latency** over **raw throughput**
-   - Single-threaded: Latency variance <10μs (p99 - p50)
-   - Multi-threaded: Latency variance 1-10ms (unpredictable)
+    - Financial systems value **predictable latency** over **raw throughput**
+    - Single-threaded: Latency variance <10μs (p99 - p50)
+    - Multi-threaded: Latency variance 1-10ms (unpredictable)
 
 4. **Horizontal Scaling via Sharding:**
-   - Deploy 10K matching engines (one per symbol)
-   - Total capacity: 10K × 1M = **10B orders/sec**
-   - No need for multi-threaded complexity
+    - Deploy 10K matching engines (one per symbol)
+    - Total capacity: 10K × 1M = **10B orders/sec**
+    - No need for multi-threaded complexity
 
 ### Implementation Details
 
@@ -77,10 +79,10 @@ Key:
 
 ### Trade-offs Accepted
 
-| What We Gain | What We Sacrifice |
-|--------------|-------------------|
-| ✅ **Ultra-low latency** (<100μs consistently) | ❌ **Single-core throughput limit** (1-2M orders/sec) |
-| ✅ **Predictable performance** (no lock contention) | ⚠️ **Must shard by symbol** (deploy multiple engines) |
+| What We Gain                                           | What We Sacrifice                                         |
+|--------------------------------------------------------|-----------------------------------------------------------|
+| ✅ **Ultra-low latency** (<100μs consistently)          | ❌ **Single-core throughput limit** (1-2M orders/sec)      |
+| ✅ **Predictable performance** (no lock contention)     | ⚠️ **Must shard by symbol** (deploy multiple engines)     |
 | ✅ **Simple design** (no race conditions, no deadlocks) | ⚠️ **Higher operational complexity** (manage 10K engines) |
 
 ### When to Reconsider
@@ -104,6 +106,7 @@ Key:
 ### The Problem
 
 The order book must support:
+
 - **Insert order:** O(log N) acceptable
 - **Best bid/ask:** O(1) required (accessed every order)
 - **Match and remove:** O(log N) acceptable
@@ -111,14 +114,14 @@ The order book must support:
 
 ### Options Considered
 
-| Data Structure | Insert | Best Price | Delete | Memory | Cache Locality |
-|----------------|--------|------------|--------|--------|----------------|
-| **Red-Black Tree** (Chosen) | O(log N) | O(1) cached | O(log N) | ✅ 40 bytes/node | ✅ Good |
-| **AVL Tree** | O(log N) | O(1) cached | O(log N) | ⚠️ 48 bytes/node | ⚠️ Poor (more rotations) |
-| **B-Tree** | O(log N) | O(log N) | O(log N) | ❌ 100+ bytes/node | ✅ Excellent (disk-optimized) |
-| **Skip List** | O(log N) avg | O(1) | O(log N) avg | ⚠️ 50+ bytes/node | ❌ Poor (random pointers) |
-| **Sorted Array** | O(N) | O(1) | O(N) | ✅ 8 bytes/entry | ✅ Perfect |
-| **Hash Map** | O(1) | O(N) scan | O(1) | ✅ 16 bytes/entry | ❌ Poor (random access) |
+| Data Structure              | Insert       | Best Price  | Delete       | Memory            | Cache Locality               |
+|-----------------------------|--------------|-------------|--------------|-------------------|------------------------------|
+| **Red-Black Tree** (Chosen) | O(log N)     | O(1) cached | O(log N)     | ✅ 40 bytes/node   | ✅ Good                       |
+| **AVL Tree**                | O(log N)     | O(1) cached | O(log N)     | ⚠️ 48 bytes/node  | ⚠️ Poor (more rotations)     |
+| **B-Tree**                  | O(log N)     | O(log N)    | O(log N)     | ❌ 100+ bytes/node | ✅ Excellent (disk-optimized) |
+| **Skip List**               | O(log N) avg | O(1)        | O(log N) avg | ⚠️ 50+ bytes/node | ❌ Poor (random pointers)     |
+| **Sorted Array**            | O(N)         | O(1)        | O(N)         | ✅ 8 bytes/entry   | ✅ Perfect                    |
+| **Hash Map**                | O(1)         | O(N) scan   | O(1)         | ✅ 16 bytes/entry  | ❌ Poor (random access)       |
 
 ### Decision Made
 
@@ -131,27 +134,27 @@ The order book must support:
 ### Rationale
 
 1. **Why Red-Black Tree over AVL Tree?**
-   - **Fewer rotations:** RB tree rotations ~2× per insert, AVL ~3-4× (due to stricter balancing)
-   - **Better write performance:** Matching engine is write-heavy (insert/delete orders)
-   - **Cache-friendly:** Fewer tree modifications = fewer cache line invalidations
+    - **Fewer rotations:** RB tree rotations ~2× per insert, AVL ~3-4× (due to stricter balancing)
+    - **Better write performance:** Matching engine is write-heavy (insert/delete orders)
+    - **Cache-friendly:** Fewer tree modifications = fewer cache line invalidations
 
 2. **Why NOT B-Tree?**
-   - **Optimized for disk I/O:** B-tree minimizes disk seeks (we're in-memory!)
-   - **Larger nodes:** 100+ bytes per node (wastes memory for small key-value pairs)
-   - **Overkill for in-memory:** Red-Black tree has better L1/L2 cache utilization
+    - **Optimized for disk I/O:** B-tree minimizes disk seeks (we're in-memory!)
+    - **Larger nodes:** 100+ bytes per node (wastes memory for small key-value pairs)
+    - **Overkill for in-memory:** Red-Black tree has better L1/L2 cache utilization
 
 3. **Why NOT Skip List?**
-   - **Non-deterministic:** Randomized levels → unpredictable latency
-   - **Poor cache locality:** Random pointers across memory (cache thrashing)
-   - **Harder to implement:** Balancing logic complex
+    - **Non-deterministic:** Randomized levels → unpredictable latency
+    - **Poor cache locality:** Random pointers across memory (cache thrashing)
+    - **Harder to implement:** Balancing logic complex
 
 4. **Why NOT Sorted Array?**
-   - **O(N) insert/delete:** 10K orders × 1M orders/sec = impossible
-   - **Only works for read-heavy:** Stock exchange is write-heavy (orders constantly change)
+    - **O(N) insert/delete:** 10K orders × 1M orders/sec = impossible
+    - **Only works for read-heavy:** Stock exchange is write-heavy (orders constantly change)
 
 5. **Why Add Hash Map?**
-   - **Fast cancellation:** O(1) lookup by order_id (common operation)
-   - **Memory cost:** 16 bytes/order (acceptable for 10K orders = 160 KB)
+    - **Fast cancellation:** O(1) lookup by order_id (common operation)
+    - **Memory cost:** 16 bytes/order (acceptable for 10K orders = 160 KB)
 
 ### Implementation Details
 
@@ -182,11 +185,11 @@ PriceLevel:
 
 ### Trade-offs Accepted
 
-| What We Gain | What We Sacrifice |
-|--------------|-------------------|
+| What We Gain                                                  | What We Sacrifice                                       |
+|---------------------------------------------------------------|---------------------------------------------------------|
 | ✅ **O(log N) insert/delete** (sub-microsecond for 10K orders) | ❌ **Memory overhead** (40% overhead from tree pointers) |
-| ✅ **O(1) best bid/ask** (cached, no tree traversal) | ⚠️ **Rebalancing cost** (rotations add 10-20% overhead) |
-| ✅ **Cache-friendly** (10K orders fit in L2 cache) | - |
+| ✅ **O(1) best bid/ask** (cached, no tree traversal)           | ⚠️ **Rebalancing cost** (rotations add 10-20% overhead) |
+| ✅ **Cache-friendly** (10K orders fit in L2 cache)             | -                                                       |
 
 ### When to Reconsider
 
@@ -213,17 +216,18 @@ PriceLevel:
 ### The Problem
 
 Network latency is a significant bottleneck:
+
 - **Traditional stack:** 10-50μs (kernel processing, interrupts, context switches)
 - **Target:** <5μs gateway latency (to fit in 100μs total budget)
 
 ### Options Considered
 
-| Networking Stack | Latency | CPU Overhead | Complexity | Portability |
-|------------------|---------|--------------|------------|-------------|
-| **DPDK Kernel Bypass** (Chosen) | 1-5μs | 100% (dedicated cores) | High | Low (NIC-specific) |
-| **Traditional Linux Stack** | 10-50μs | 5-20% | Low | High |
-| **XDP (eBPF)** | 5-10μs | 20-40% | Medium | Medium |
-| **User-Space TCP Stack (mTCP)** | 5-15μs | 50-80% | High | Medium |
+| Networking Stack                | Latency | CPU Overhead           | Complexity | Portability        |
+|---------------------------------|---------|------------------------|------------|--------------------|
+| **DPDK Kernel Bypass** (Chosen) | 1-5μs   | 100% (dedicated cores) | High       | Low (NIC-specific) |
+| **Traditional Linux Stack**     | 10-50μs | 5-20%                  | Low        | High               |
+| **XDP (eBPF)**                  | 5-10μs  | 20-40%                 | Medium     | Medium             |
+| **User-Space TCP Stack (mTCP)** | 5-15μs  | 50-80%                 | High       | Medium             |
 
 ### Decision Made
 
@@ -243,19 +247,19 @@ Network latency is a significant bottleneck:
    ```
 
 2. **Eliminate Interrupt Overhead:**
-   - **Hardware interrupt:** 1000-10000 CPU cycles (context switch)
-   - **DPDK polling:** 0 interrupts (100% CPU polling NIC)
-   - **Result:** Predictable latency (no interrupt storms)
+    - **Hardware interrupt:** 1000-10000 CPU cycles (context switch)
+    - **DPDK polling:** 0 interrupts (100% CPU polling NIC)
+    - **Result:** Predictable latency (no interrupt storms)
 
 3. **Zero-Copy:**
-   - **Traditional:** NIC buffer → Kernel buffer → User buffer (2 copies)
-   - **DPDK:** NIC DMA → Application memory (0 copies)
-   - **Result:** 50% memory bandwidth savings
+    - **Traditional:** NIC buffer → Kernel buffer → User buffer (2 copies)
+    - **DPDK:** NIC DMA → Application memory (0 copies)
+    - **Result:** 50% memory bandwidth savings
 
 4. **Huge Pages:**
-   - **Traditional:** 4 KB pages (TLB thrashing with large buffers)
-   - **DPDK:** 2 MB pages (99% fewer TLB misses)
-   - **Result:** 10-20% performance improvement
+    - **Traditional:** 4 KB pages (TLB thrashing with large buffers)
+    - **DPDK:** 2 MB pages (99% fewer TLB misses)
+    - **Result:** 10-20% performance improvement
 
 ### Implementation Details
 
@@ -287,21 +291,21 @@ while (true) {
 
 **Latency Breakdown:**
 
-| Step | Traditional | DPDK | Improvement |
-|------|-------------|------|-------------|
-| **NIC → Memory** | 1μs (interrupt) | 0.5μs (DMA) | 2× |
-| **Kernel Processing** | 10μs | 0μs (userspace) | ∞ |
-| **Copy to User** | 2μs | 0μs (zero-copy) | ∞ |
-| **Total** | **13μs** | **0.5μs** | **26×** |
+| Step                  | Traditional     | DPDK            | Improvement |
+|-----------------------|-----------------|-----------------|-------------|
+| **NIC → Memory**      | 1μs (interrupt) | 0.5μs (DMA)     | 2×          |
+| **Kernel Processing** | 10μs            | 0μs (userspace) | ∞           |
+| **Copy to User**      | 2μs             | 0μs (zero-copy) | ∞           |
+| **Total**             | **13μs**        | **0.5μs**       | **26×**     |
 
 ### Trade-offs Accepted
 
-| What We Gain | What We Sacrifice |
-|--------------|-------------------|
-| ✅ **10× latency reduction** (50μs → 5μs) | ❌ **100% CPU overhead** (polling = 100% utilization) |
-| ✅ **Zero-copy** (50% memory bandwidth savings) | ❌ **NIC-specific** (Intel X710, Mellanox only) |
-| ✅ **Predictable latency** (no interrupts) | ❌ **Complex setup** (userspace TCP/IP stack required) |
-| ✅ **Huge pages** (10-20% performance gain) | ⚠️ **Cost** (dedicated cores = 4-8 cores for gateway) |
+| What We Gain                                   | What We Sacrifice                                     |
+|------------------------------------------------|-------------------------------------------------------|
+| ✅ **10× latency reduction** (50μs → 5μs)       | ❌ **100% CPU overhead** (polling = 100% utilization)  |
+| ✅ **Zero-copy** (50% memory bandwidth savings) | ❌ **NIC-specific** (Intel X710, Mellanox only)        |
+| ✅ **Predictable latency** (no interrupts)      | ❌ **Complex setup** (userspace TCP/IP stack required) |
+| ✅ **Huge pages** (10-20% performance gain)     | ⚠️ **Cost** (dedicated cores = 4-8 cores for gateway) |
 
 ### When to Reconsider
 
@@ -330,6 +334,7 @@ while (true) {
 ### The Problem
 
 All orders and trades must be persisted for:
+
 - **Audit compliance:** SEC regulations require 7-year retention
 - **Crash recovery:** Rebuild order book state after failure
 - **Durability:** No lost trades (financial correctness)
@@ -338,12 +343,12 @@ But synchronous disk writes add 10-50μs latency (50% of budget!).
 
 ### Options Considered
 
-| Write Strategy | Durability | Latency | Throughput | Crash Window |
-|----------------|------------|---------|------------|--------------|
-| **Async Writes** (Chosen) | ✅ 99.99% (with battery backup) | <1μs (non-blocking) | 272 MB/sec | 1-10ms |
-| **Sync Writes (fsync)** | ✅ 100% | 10-50μs (blocks engine) | 20 MB/sec | 0ms |
-| **Sync + WAL** | ✅ 100% | 20-100μs | 10 MB/sec | 0ms |
-| **No Durability** | ❌ 0% | 0μs | ∞ | ∞ |
+| Write Strategy            | Durability                     | Latency                 | Throughput | Crash Window |
+|---------------------------|--------------------------------|-------------------------|------------|--------------|
+| **Async Writes** (Chosen) | ✅ 99.99% (with battery backup) | <1μs (non-blocking)     | 272 MB/sec | 1-10ms       |
+| **Sync Writes (fsync)**   | ✅ 100%                         | 10-50μs (blocks engine) | 20 MB/sec  | 0ms          |
+| **Sync + WAL**            | ✅ 100%                         | 20-100μs                | 10 MB/sec  | 0ms          |
+| **No Durability**         | ❌ 0%                           | 0μs                     | ∞          | ∞            |
 
 ### Decision Made
 
@@ -363,18 +368,18 @@ But synchronous disk writes add 10-50μs latency (50% of budget!).
    ```
 
 2. **Batch Amortization:**
-   - **Sync:** 1M orders/sec × 1 fsync/order = 1M syscalls/sec (impossible!)
-   - **Async:** Batch 1000 orders → 1 fsync/batch = 1K syscalls/sec (manageable)
-   - **Result:** 1000× reduction in disk I/O overhead
+    - **Sync:** 1M orders/sec × 1 fsync/order = 1M syscalls/sec (impossible!)
+    - **Async:** Batch 1000 orders → 1 fsync/batch = 1K syscalls/sec (manageable)
+    - **Result:** 1000× reduction in disk I/O overhead
 
 3. **Throughput:**
-   - **Sync:** 1M orders/sec × 50μs = 50 seconds of disk I/O per second (impossible!)
-   - **Async:** 1M orders/sec × 272 bytes = 272 MB/sec (NVMe SSD: 3 GB/sec → no bottleneck)
+    - **Sync:** 1M orders/sec × 50μs = 50 seconds of disk I/O per second (impossible!)
+    - **Async:** 1M orders/sec × 272 bytes = 272 MB/sec (NVMe SSD: 3 GB/sec → no bottleneck)
 
 4. **Battery-Backed Cache:**
-   - **Problem:** Async writes at risk if crash before flush (1-10ms window)
-   - **Solution:** NVMe SSD with capacitor backup (persists on power loss)
-   - **Cost:** +$500 per drive (acceptable for financial system)
+    - **Problem:** Async writes at risk if crash before flush (1-10ms window)
+    - **Solution:** NVMe SSD with capacitor backup (persists on power loss)
+    - **Cost:** +$500 per drive (acceptable for financial system)
 
 ### Implementation Details
 
@@ -420,11 +425,11 @@ Total downtime: ~1 second
 
 ### Trade-offs Accepted
 
-| What We Gain | What We Sacrifice |
-|--------------|-------------------|
-| ✅ **Non-blocking writes** (matching engine latency unaffected) | ⚠️ **Crash window** (last 1-10ms at risk) |
-| ✅ **High throughput** (272 MB/sec sustainable) | ⚠️ **Cost** ($500 battery-backed cache per drive) |
-| ✅ **Batch amortization** (1000× fewer syscalls) | ❌ **Eventual durability** (not immediate like sync) |
+| What We Gain                                                   | What We Sacrifice                                   |
+|----------------------------------------------------------------|-----------------------------------------------------|
+| ✅ **Non-blocking writes** (matching engine latency unaffected) | ⚠️ **Crash window** (last 1-10ms at risk)           |
+| ✅ **High throughput** (272 MB/sec sustainable)                 | ⚠️ **Cost** ($500 battery-backed cache per drive)   |
+| ✅ **Batch amortization** (1000× fewer syscalls)                | ❌ **Eventual durability** (not immediate like sync) |
 
 ### When to Reconsider
 
@@ -451,15 +456,16 @@ Total downtime: ~1 second
 
 ### The Problem
 
-Financial systems must represent prices with **exact precision** (no rounding errors). Should we use floating-point (float64) or fixed-point integers?
+Financial systems must represent prices with **exact precision** (no rounding errors). Should we use floating-point (
+float64) or fixed-point integers?
 
 ### Options Considered
 
-| Representation | Precision | Performance | Complexity | Use Case |
-|----------------|-----------|-------------|------------|----------|
-| **Fixed-Point Integers** (Chosen) | ✅ Exact (no rounding) | ✅ Fast (integer ops) | ✅ Simple | Stock prices |
-| **Floating-Point (float64)** | ❌ Rounding errors | ⚠️ Slower (FPU ops) | ✅ Simple | Scientific computing |
-| **Decimal (BigDecimal)** | ✅ Exact | ❌ Slow (software emulation) | ❌ Complex | Banking (rare in HFT) |
+| Representation                    | Precision             | Performance                 | Complexity | Use Case              |
+|-----------------------------------|-----------------------|-----------------------------|------------|-----------------------|
+| **Fixed-Point Integers** (Chosen) | ✅ Exact (no rounding) | ✅ Fast (integer ops)        | ✅ Simple   | Stock prices          |
+| **Floating-Point (float64)**      | ❌ Rounding errors     | ⚠️ Slower (FPU ops)         | ✅ Simple   | Scientific computing  |
+| **Decimal (BigDecimal)**          | ✅ Exact               | ❌ Slow (software emulation) | ❌ Complex  | Banking (rare in HFT) |
 
 ### Decision Made
 
@@ -483,18 +489,18 @@ Financial systems must represent prices with **exact precision** (no rounding er
    ```
 
 2. **Performance:**
-   - **Integer multiply:** 1-3 CPU cycles
-   - **Float multiply:** 3-5 CPU cycles (FPU pipeline)
-   - **Result:** 2-3× faster for financial calculations
+    - **Integer multiply:** 1-3 CPU cycles
+    - **Float multiply:** 3-5 CPU cycles (FPU pipeline)
+    - **Result:** 2-3× faster for financial calculations
 
 3. **Regulatory Compliance:**
-   - SEC requires **exact** calculations (no rounding)
-   - Auditors check for floating-point errors in trading systems
-   - Fixed-point is **provably correct** (no rounding artifacts)
+    - SEC requires **exact** calculations (no rounding)
+    - Auditors check for floating-point errors in trading systems
+    - Fixed-point is **provably correct** (no rounding artifacts)
 
 4. **Simplicity:**
-   - **Fixed-point:** Simple integer operations (add, subtract, multiply, divide)
-   - **Decimal:** Complex software emulation (slow)
+    - **Fixed-point:** Simple integer operations (add, subtract, multiply, divide)
+    - **Decimal:** Complex software emulation (slow)
 
 ### Implementation Details
 
@@ -525,20 +531,20 @@ if (remainder >= quantity / 2) {
 
 **Price Increments:**
 
-| Asset Class | Tick Size (Minimum Increment) | Representation |
-|-------------|-------------------------------|----------------|
-| Stocks (US) | $0.01 (1 cent) | 1 unit |
-| Futures | $0.25 (quarter) | 25 units |
-| Options | $0.01 (penny) | 1 unit |
-| Forex | $0.0001 (pip) | 0.01 units (store as 10000ths) |
+| Asset Class | Tick Size (Minimum Increment) | Representation                 |
+|-------------|-------------------------------|--------------------------------|
+| Stocks (US) | $0.01 (1 cent)                | 1 unit                         |
+| Futures     | $0.25 (quarter)               | 25 units                       |
+| Options     | $0.01 (penny)                 | 1 unit                         |
+| Forex       | $0.0001 (pip)                 | 0.01 units (store as 10000ths) |
 
 ### Trade-offs Accepted
 
-| What We Gain | What We Sacrifice |
-|--------------|-------------------|
-| ✅ **Exact precision** (no rounding errors) | ❌ **Manual scaling** (must convert cents ↔ dollars) |
-| ✅ **Faster** (2-3× faster than float) | ⚠️ **Overflow risk** (must use u64, not u32) |
-| ✅ **Regulatory compliance** (provably correct) | ❌ **Division complexity** (must handle rounding) |
+| What We Gain                                   | What We Sacrifice                                   |
+|------------------------------------------------|-----------------------------------------------------|
+| ✅ **Exact precision** (no rounding errors)     | ❌ **Manual scaling** (must convert cents ↔ dollars) |
+| ✅ **Faster** (2-3× faster than float)          | ⚠️ **Overflow risk** (must use u64, not u32)        |
+| ✅ **Regulatory compliance** (provably correct) | ❌ **Division complexity** (must handle rounding)    |
 
 ### When to Reconsider
 
@@ -570,13 +576,13 @@ Gateway and matching engine run in separate processes (for fault isolation). How
 
 ### Options Considered
 
-| IPC Mechanism | Latency | Throughput | Complexity | Ordering |
-|---------------|---------|------------|------------|----------|
-| **Ring Buffer (Shared Memory)** (Chosen) | <100ns | 10M msg/sec | Medium | FIFO |
-| **Unix Domain Socket** | 1-5μs | 1M msg/sec | Low | FIFO |
-| **TCP Loopback** | 10-50μs | 500K msg/sec | Low | FIFO (with TCP overhead) |
-| **Kafka / RabbitMQ** | 1-10ms | 100K msg/sec | Low | FIFO (with persistence overhead) |
-| **Shared Memory (Custom)** | <100ns | 10M msg/sec | High | Manual |
+| IPC Mechanism                            | Latency | Throughput   | Complexity | Ordering                         |
+|------------------------------------------|---------|--------------|------------|----------------------------------|
+| **Ring Buffer (Shared Memory)** (Chosen) | <100ns  | 10M msg/sec  | Medium     | FIFO                             |
+| **Unix Domain Socket**                   | 1-5μs   | 1M msg/sec   | Low        | FIFO                             |
+| **TCP Loopback**                         | 10-50μs | 500K msg/sec | Low        | FIFO (with TCP overhead)         |
+| **Kafka / RabbitMQ**                     | 1-10ms  | 100K msg/sec | Low        | FIFO (with persistence overhead) |
+| **Shared Memory (Custom)**               | <100ns  | 10M msg/sec  | High       | Manual                           |
 
 ### Decision Made
 
@@ -585,14 +591,14 @@ Gateway and matching engine run in separate processes (for fault isolation). How
 ### Rationale
 
 1. **100× Faster than Unix Socket:**
-   - **Ring buffer:** <100ns (just memory copy + atomic CAS)
-   - **Unix socket:** 1-5μs (kernel syscall overhead)
-   - **Result:** 100× latency reduction
+    - **Ring buffer:** <100ns (just memory copy + atomic CAS)
+    - **Unix socket:** 1-5μs (kernel syscall overhead)
+    - **Result:** 100× latency reduction
 
 2. **Lock-Free (Single Producer, Single Consumer):**
-   - **No CAS retry loops:** Write index and read index independent
-   - **No contention:** Only one writer, one reader
-   - **Result:** Predictable latency (no lock contention spikes)
+    - **No CAS retry loops:** Write index and read index independent
+    - **No contention:** Only one writer, one reader
+    - **Result:** Predictable latency (no lock contention spikes)
 
 3. **Cache-Line Aligned:**
    ```
@@ -604,8 +610,8 @@ Gateway and matching engine run in separate processes (for fault isolation). How
    ```
 
 4. **Pre-Allocated:**
-   - **Allocate 1M slots at startup** (no dynamic allocation)
-   - **No malloc/free overhead** (5-10ns vs 50-500ns)
+    - **Allocate 1M slots at startup** (no dynamic allocation)
+    - **No malloc/free overhead** (5-10ns vs 50-500ns)
 
 ### Implementation Details
 
@@ -648,11 +654,11 @@ Address 0x10C0:  Slot 1 (64 bytes)
 
 ### Trade-offs Accepted
 
-| What We Gain | What We Sacrifice |
-|--------------|-------------------|
-| ✅ **Ultra-low latency** (<100ns) | ❌ **Fixed size** (must pre-allocate, cannot grow) |
+| What We Gain                        | What We Sacrifice                                                  |
+|-------------------------------------|--------------------------------------------------------------------|
+| ✅ **Ultra-low latency** (<100ns)    | ❌ **Fixed size** (must pre-allocate, cannot grow)                  |
 | ✅ **High throughput** (10M msg/sec) | ❌ **Backpressure handling** (if full, producer must block or drop) |
-| ✅ **Lock-free** (no contention) | ⚠️ **Shared memory setup** (more complex than sockets) |
+| ✅ **Lock-free** (no contention)     | ⚠️ **Shared memory setup** (more complex than sockets)             |
 
 ### When to Reconsider
 
@@ -684,12 +690,12 @@ Should the matching engine run on dedicated on-premise hardware or in the cloud 
 
 ### Options Considered
 
-| Deployment | Latency | Cost (5 Years) | Control | Scalability |
-|------------|---------|---------------|---------|-------------|
-| **On-Premise** (Chosen) | <100μs | $1.7M capex + $11M opex = **$12.7M** | ✅ Full hardware control | ⚠️ Manual scaling |
-| **Cloud (Bare Metal)** | 500μs-1ms | $50K/month × 60 months = **$3M** | ⚠️ Limited control | ✅ Easy scaling |
-| **Cloud (VMs)** | 1-10ms | $30K/month × 60 months = **$1.8M** | ❌ No hardware control | ✅ Auto-scaling |
-| **Hybrid** | Mixed | $6M (on-prem) + $1M (cloud) = **$7M** | ⚠️ Partial control | ✅ Flexible |
+| Deployment              | Latency   | Cost (5 Years)                        | Control                 | Scalability       |
+|-------------------------|-----------|---------------------------------------|-------------------------|-------------------|
+| **On-Premise** (Chosen) | <100μs    | $1.7M capex + $11M opex = **$12.7M**  | ✅ Full hardware control | ⚠️ Manual scaling |
+| **Cloud (Bare Metal)**  | 500μs-1ms | $50K/month × 60 months = **$3M**      | ⚠️ Limited control      | ✅ Easy scaling    |
+| **Cloud (VMs)**         | 1-10ms    | $30K/month × 60 months = **$1.8M**    | ❌ No hardware control   | ✅ Auto-scaling    |
+| **Hybrid**              | Mixed     | $6M (on-prem) + $1M (cloud) = **$7M** | ⚠️ Partial control      | ✅ Flexible        |
 
 ### Decision Made
 
@@ -698,44 +704,44 @@ Should the matching engine run on dedicated on-premise hardware or in the cloud 
 ### Rationale
 
 1. **Latency Requirement:**
-   - **Target:** <100μs (p99)
-   - **On-premise:** 50-100μs (dedicated hardware, kernel bypass)
-   - **Cloud bare metal:** 500μs-1ms (multi-tenant, no kernel bypass)
-   - **Cloud VMs:** 1-10ms (virtualization overhead, noisy neighbors)
-   - **Result:** Cloud cannot meet latency target
+    - **Target:** <100μs (p99)
+    - **On-premise:** 50-100μs (dedicated hardware, kernel bypass)
+    - **Cloud bare metal:** 500μs-1ms (multi-tenant, no kernel bypass)
+    - **Cloud VMs:** 1-10ms (virtualization overhead, noisy neighbors)
+    - **Result:** Cloud cannot meet latency target
 
 2. **Kernel Bypass (DPDK):**
-   - **On-premise:** Full DPDK support (Intel X710, Mellanox NICs)
-   - **Cloud:** Limited DPDK support (AWS Nitro, GCP gVNIC require custom setup)
-   - **Result:** On-premise has 10× better network latency
+    - **On-premise:** Full DPDK support (Intel X710, Mellanox NICs)
+    - **Cloud:** Limited DPDK support (AWS Nitro, GCP gVNIC require custom setup)
+    - **Result:** On-premise has 10× better network latency
 
 3. **Cost (5-Year TCO):**
-   - **On-premise:** $1.7M capex + $2.2M/year × 5 = **$12.7M**
-   - **Cloud bare metal:** $50K/month × 60 months = **$3M** (cheaper!)
-   - **But:** On-premise has **predictable costs** (no egress fees, no instance spikes)
+    - **On-premise:** $1.7M capex + $2.2M/year × 5 = **$12.7M**
+    - **Cloud bare metal:** $50K/month × 60 months = **$3M** (cheaper!)
+    - **But:** On-premise has **predictable costs** (no egress fees, no instance spikes)
 
 4. **Revenue vs Cost:**
-   - **Revenue:** $3.15B/year (100K trades/sec × $0.001 fee × 86400 sec/day)
-   - **Cost:** $2.2M/year (opex)
-   - **Profit:** $3.148B/year (**99.93% margin**)
-   - **Result:** $12.7M capex is negligible (0.4% of first-year revenue)
+    - **Revenue:** $3.15B/year (100K trades/sec × $0.001 fee × 86400 sec/day)
+    - **Cost:** $2.2M/year (opex)
+    - **Profit:** $3.148B/year (**99.93% margin**)
+    - **Result:** $12.7M capex is negligible (0.4% of first-year revenue)
 
 5. **Control:**
-   - **NUMA optimization:** Pin threads to CPU cores, allocate local RAM
-   - **NIC tuning:** Direct access to NIC registers (DPDK)
-   - **No noisy neighbors:** Dedicated hardware (no multi-tenancy)
+    - **NUMA optimization:** Pin threads to CPU cores, allocate local RAM
+    - **NIC tuning:** Direct access to NIC registers (DPDK)
+    - **No noisy neighbors:** Dedicated hardware (no multi-tenancy)
 
 ### Implementation Details
 
 **Hardware Configuration:**
 
-| Component | On-Premise | Cloud (c6i.metal) |
-|-----------|------------|-------------------|
-| **CPU** | Intel Xeon Gold 6348 (28 cores, 3.5 GHz, pinned to matching engine) | Intel Xeon Platinum 8375C (shared, virtualized) |
-| **RAM** | 256 GB DDR4-3200 ECC (local NUMA node) | 128 GB DDR4 (remote NUMA) |
-| **NIC** | Mellanox ConnectX-6 (100 Gbps, DPDK) | AWS Nitro (100 Gbps, limited DPDK) |
-| **Storage** | NVMe SSD (battery-backed write cache) | EBS gp3 (network-attached, 10× slower) |
-| **Latency** | <100μs | 500μs-1ms |
+| Component   | On-Premise                                                          | Cloud (c6i.metal)                               |
+|-------------|---------------------------------------------------------------------|-------------------------------------------------|
+| **CPU**     | Intel Xeon Gold 6348 (28 cores, 3.5 GHz, pinned to matching engine) | Intel Xeon Platinum 8375C (shared, virtualized) |
+| **RAM**     | 256 GB DDR4-3200 ECC (local NUMA node)                              | 128 GB DDR4 (remote NUMA)                       |
+| **NIC**     | Mellanox ConnectX-6 (100 Gbps, DPDK)                                | AWS Nitro (100 Gbps, limited DPDK)              |
+| **Storage** | NVMe SSD (battery-backed write cache)                               | EBS gp3 (network-attached, 10× slower)          |
+| **Latency** | <100μs                                                              | 500μs-1ms                                       |
 
 **Colocation:**
 
@@ -745,12 +751,12 @@ Should the matching engine run on dedicated on-premise hardware or in the cloud 
 
 ### Trade-offs Accepted
 
-| What We Gain | What We Sacrifice |
-|--------------|-------------------|
-| ✅ **Ultra-low latency** (<100μs) | ❌ **High capex** ($1.7M upfront) |
-| ✅ **Full hardware control** (DPDK, NUMA, NIC tuning) | ❌ **Manual scaling** (cannot auto-scale like cloud) |
-| ✅ **Predictable costs** (no egress fees) | ⚠️ **Operational burden** (manage 10K servers) |
-| ✅ **HFT co-location revenue** ($500K/year) | ❌ **Long procurement cycle** (6-12 months to add capacity) |
+| What We Gain                                         | What We Sacrifice                                          |
+|------------------------------------------------------|------------------------------------------------------------|
+| ✅ **Ultra-low latency** (<100μs)                     | ❌ **High capex** ($1.7M upfront)                           |
+| ✅ **Full hardware control** (DPDK, NUMA, NIC tuning) | ❌ **Manual scaling** (cannot auto-scale like cloud)        |
+| ✅ **Predictable costs** (no egress fees)             | ⚠️ **Operational burden** (manage 10K servers)             |
+| ✅ **HFT co-location revenue** ($500K/year)           | ❌ **Long procurement cycle** (6-12 months to add capacity) |
 
 ### When to Reconsider
 
@@ -778,17 +784,17 @@ Should the matching engine run on dedicated on-premise hardware or in the cloud 
 
 ## Summary Comparison
 
-| Decision | Chosen | Alternative | Key Trade-off |
-|----------|--------|-------------|---------------|
-| **1. Threading Model** | Single-Threaded | Multi-Threaded + Locks | Latency (<100μs) vs Throughput (>5M orders/sec) |
-| **2. Order Book** | Red-Black Tree | AVL, B-Tree, Skip List | O(log N) insert/delete, O(1) best price |
-| **3. Networking** | DPDK Kernel Bypass | Traditional Stack | 10× latency reduction vs 100% CPU overhead |
-| **4. Audit Log** | Async Writes | Sync Writes | Non-blocking vs 1-10ms crash window |
-| **5. Price Format** | Fixed-Point Integers | Floating-Point | Exact precision vs Manual scaling |
-| **6. IPC** | Ring Buffer | Unix Socket, Kafka | <100ns latency vs Fixed size |
-| **7. Deployment** | On-Premise | Cloud | <100μs latency vs $1.7M capex |
+| Decision               | Chosen               | Alternative            | Key Trade-off                                   |
+|------------------------|----------------------|------------------------|-------------------------------------------------|
+| **1. Threading Model** | Single-Threaded      | Multi-Threaded + Locks | Latency (<100μs) vs Throughput (>5M orders/sec) |
+| **2. Order Book**      | Red-Black Tree       | AVL, B-Tree, Skip List | O(log N) insert/delete, O(1) best price         |
+| **3. Networking**      | DPDK Kernel Bypass   | Traditional Stack      | 10× latency reduction vs 100% CPU overhead      |
+| **4. Audit Log**       | Async Writes         | Sync Writes            | Non-blocking vs 1-10ms crash window             |
+| **5. Price Format**    | Fixed-Point Integers | Floating-Point         | Exact precision vs Manual scaling               |
+| **6. IPC**             | Ring Buffer          | Unix Socket, Kafka     | <100ns latency vs Fixed size                    |
+| **7. Deployment**      | On-Premise           | Cloud                  | <100μs latency vs $1.7M capex                   |
 
 **Overall Philosophy:**
 
-**Latency First, Cost Second** - Ultra-low latency is the primary goal. Infrastructure costs ($12.7M over 5 years) are negligible compared to revenue ($3.15B/year = 99.93% margin).
-
+**Latency First, Cost Second** - Ultra-low latency is the primary goal. Infrastructure
+costs ($12.7M over 5 years) are negligible compared to revenue ($3.15B/year = 99.93% margin).

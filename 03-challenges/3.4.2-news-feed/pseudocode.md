@@ -1,6 +1,7 @@
 # Global News Feed - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Global News Feed system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Global News Feed system. The main challenge document
+references these functions.
 
 ---
 
@@ -26,13 +27,16 @@ This document contains detailed algorithm implementations for the Global News Fe
 **Purpose:** Poll an RSS feed and publish articles to Kafka.
 
 **Parameters:**
+
 - source_id (string): Unique identifier for the RSS source (e.g., "cnn-rss")
 - feed_url (string): URL of the RSS feed
 
 **Returns:**
+
 - count (int): Number of articles ingested
 
 **Algorithm:**
+
 ```
 function ingest_rss_feed(source_id, feed_url):
   // Check rate limit
@@ -99,6 +103,7 @@ function ingest_rss_feed(source_id, feed_url):
 **Time Complexity:** O(n) where n = number of items in RSS feed
 
 **Example Usage:**
+
 ```
 count = ingest_rss_feed("cnn-rss", "https://rss.cnn.com/rss/cnn_topstories.rss")
 // Returns: 25 (25 articles ingested)
@@ -113,12 +118,15 @@ count = ingest_rss_feed("cnn-rss", "https://rss.cnn.com/rss/cnn_topstories.rss")
 **Purpose:** Check if an article is a duplicate using two-stage detection (Bloom Filter + LSH).
 
 **Parameters:**
+
 - article (object): Article to check {url, title, body}
 
 **Returns:**
+
 - result (object): {is_duplicate: boolean, story_id: string or null}
 
 **Algorithm:**
+
 ```
 function check_duplicate(article):
   // Stage 1: Bloom Filter (Exact URL Match)
@@ -151,10 +159,12 @@ function check_duplicate(article):
 ```
 
 **Time Complexity:**
+
 - Bloom Filter: O(1)
 - LSH query: O(log n) where n = number of articles
 
 **Example Usage:**
+
 ```
 article = {
   url: "https://cnn.com/article-123",
@@ -173,12 +183,15 @@ result = check_duplicate(article)
 **Purpose:** Compute LSH (MinHash) signature for content similarity matching.
 
 **Parameters:**
+
 - text (string): Article content (title + body)
 
 **Returns:**
+
 - signature (array): MinHash signature (128 hash values)
 
 **Algorithm:**
+
 ```
 function compute_lsh_signature(text):
   // Preprocessing
@@ -214,6 +227,7 @@ function compute_lsh_signature(text):
 **Time Complexity:** O(s × h) where s = number of shingles, h = number of hash functions (128)
 
 **Example Usage:**
+
 ```
 text = "Apple announces iPhone 16 with improved camera and battery life"
 signature = compute_lsh_signature(text)
@@ -227,13 +241,16 @@ signature = compute_lsh_signature(text)
 **Purpose:** Add article's LSH signature to the index for future similarity queries.
 
 **Parameters:**
+
 - article_id (string): Unique article identifier
 - signature (array): MinHash signature (128 values)
 
 **Returns:**
+
 - success (boolean): True if added successfully
 
 **Algorithm:**
+
 ```
 function add_to_lsh_index(article_id, signature):
   // LSH Banding Technique
@@ -264,6 +281,7 @@ function add_to_lsh_index(article_id, signature):
 **Time Complexity:** O(b) where b = number of bands (16)
 
 **Example Usage:**
+
 ```
 signature = compute_lsh_signature(article.body)
 success = add_to_lsh_index("article-123", signature)
@@ -279,12 +297,15 @@ success = add_to_lsh_index("article-123", signature)
 **Purpose:** Extract top keywords from article text using TF-IDF.
 
 **Parameters:**
+
 - text (string): Article content (title + body)
 
 **Returns:**
+
 - keywords (array): Top 20 keywords with scores [{keyword: string, score: float}]
 
 **Algorithm:**
+
 ```
 function extract_keywords(text):
   // Preprocessing
@@ -329,6 +350,7 @@ function extract_keywords(text):
 **Time Complexity:** O(n log n) where n = number of unique words
 
 **Example Usage:**
+
 ```
 text = "Apple announces new iPhone 16 with AI-powered camera..."
 keywords = extract_keywords(text)
@@ -347,12 +369,15 @@ keywords = extract_keywords(text)
 **Purpose:** Analyze sentiment of article using BERT model.
 
 **Parameters:**
+
 - text (string): Article content (first 512 tokens)
 
 **Returns:**
+
 - sentiment (object): {label: string, score: float}
 
 **Algorithm:**
+
 ```
 function analyze_sentiment(text):
   // Truncate to first 512 tokens (BERT limit)
@@ -393,6 +418,7 @@ function analyze_sentiment(text):
 **Time Complexity:** O(1) - Fixed inference time (~50ms on GPU)
 
 **Example Usage:**
+
 ```
 text = "This is an amazing breakthrough in AI technology!"
 sentiment = analyze_sentiment(text)
@@ -406,12 +432,15 @@ sentiment = analyze_sentiment(text)
 **Purpose:** Classify article into topics using BERT multi-label classifier.
 
 **Parameters:**
+
 - text (string): Article content (title + first 512 tokens)
 
 **Returns:**
+
 - topics (array): Topics with confidence scores [{topic: string, confidence: float}]
 
 **Algorithm:**
+
 ```
 function classify_topic(text):
   // Predefined topics
@@ -451,6 +480,7 @@ function classify_topic(text):
 **Time Complexity:** O(1) - Fixed inference time (~50ms on GPU)
 
 **Example Usage:**
+
 ```
 text = "Apple announces new iPhone 16 with breakthrough AI chip..."
 topics = classify_topic(text)
@@ -469,12 +499,15 @@ topics = classify_topic(text)
 **Purpose:** Write article to Redis Streams buffer before Elasticsearch indexing.
 
 **Parameters:**
+
 - article (object): Enriched article with NLP metadata
 
 **Returns:**
+
 - message_id (string): Redis Streams message ID
 
 **Algorithm:**
+
 ```
 function write_to_buffer(article):
   stream_key = "es:write:buffer"
@@ -504,6 +537,7 @@ function write_to_buffer(article):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 article = {
   article_id: "xyz-789",
@@ -524,13 +558,16 @@ message_id = write_to_buffer(article)
 **Purpose:** Read batch of articles from Redis Streams and bulk index to Elasticsearch.
 
 **Parameters:**
+
 - consumer_group (string): Redis Streams consumer group name
 - consumer_name (string): Unique consumer identifier
 
 **Returns:**
+
 - count (int): Number of articles indexed
 
 **Algorithm:**
+
 ```
 function bulk_index_from_buffer(consumer_group, consumer_name):
   stream_key = "es:write:buffer"
@@ -615,6 +652,7 @@ function bulk_index_from_buffer(consumer_group, consumer_name):
 **Time Complexity:** O(n) where n = batch size (1000)
 
 **Example Usage:**
+
 ```
 count = bulk_index_from_buffer("es:bulk:writers", "worker-1")
 // Returns: 1000 (1000 articles indexed)
@@ -629,12 +667,15 @@ count = bulk_index_from_buffer("es:bulk:writers", "worker-1")
 **Purpose:** Train collaborative filtering model using ALS (Alternating Least Squares).
 
 **Parameters:**
+
 - user_article_interactions (dataframe): User-article interaction matrix
 
 **Returns:**
+
 - model (object): Trained ALS model
 
 **Algorithm:**
+
 ```
 function train_collaborative_filtering(user_article_interactions):
   // Spark MLlib ALS configuration
@@ -666,6 +707,7 @@ function train_collaborative_filtering(user_article_interactions):
 **Time Complexity:** O(k × n × m) where k = iterations, n = users, m = articles
 
 **Example Usage:**
+
 ```
 interactions = load_interactions_from_kafka("user.actions", last_24_hours)
 model = train_collaborative_filtering(interactions)
@@ -679,15 +721,18 @@ model = train_collaborative_filtering(interactions)
 **Purpose:** Compute personalized score for an article given user preferences.
 
 **Parameters:**
+
 - user_embedding (array): User embedding vector (128 dimensions)
 - article_embedding (array): Article embedding vector (128 dimensions)
 - user_recent_topics (object): Recent topics clicked by user {topic: count}
 - article_topics (array): Article topics
 
 **Returns:**
+
 - score (float): Personalized score (0-1)
 
 **Algorithm:**
+
 ```
 function compute_personalized_score(user_embedding, article_embedding, 
                                    user_recent_topics, article_topics):
@@ -719,6 +764,7 @@ function compute_personalized_score(user_embedding, article_embedding,
 **Time Complexity:** O(d + t) where d = embedding dimensions (128), t = number of topics
 
 **Example Usage:**
+
 ```
 user_embedding = [0.1, 0.3, -0.2, ...] // 128 dimensions
 article_embedding = [0.2, 0.4, -0.1, ...] // 128 dimensions
@@ -739,13 +785,16 @@ score = compute_personalized_score(user_embedding, article_embedding,
 **Purpose:** Update user's real-time features when they perform an action (click, share).
 
 **Parameters:**
+
 - user_id (string): User identifier
 - action (object): User action {type: string, article_id: string, topic: string}
 
 **Returns:**
+
 - success (boolean): True if updated successfully
 
 **Algorithm:**
+
 ```
 function update_realtime_features(user_id, action):
   // Extract action details
@@ -803,6 +852,7 @@ function update_realtime_features(user_id, action):
 **Time Complexity:** O(log n) where n = number of topics in Sorted Set
 
 **Example Usage:**
+
 ```
 action = {
   type: "click",
@@ -827,12 +877,15 @@ success = update_realtime_features("user-123", action)
 **Purpose:** Detect trending topics using windowed aggregation and velocity tracking.
 
 **Parameters:**
+
 - time_window (int): Time window in seconds (default: 3600 for 1 hour)
 
 **Returns:**
+
 - trending_topics (array): Trending topics with scores [{topic: string, trend_score: float}]
 
 **Algorithm:**
+
 ```
 function detect_trending_topics(time_window=3600):
   current_time = now()
@@ -900,6 +953,7 @@ function detect_trending_topics(time_window=3600):
 **Time Complexity:** O(n log n) where n = number of unique topics
 
 **Example Usage:**
+
 ```
 trending = detect_trending_topics(time_window=3600)
 // Returns: [
@@ -918,13 +972,16 @@ trending = detect_trending_topics(time_window=3600)
 **Purpose:** Generate personalized news feed for a user.
 
 **Parameters:**
+
 - user_id (string): User identifier
 - page_size (int): Number of articles to return (default: 50)
 
 **Returns:**
+
 - feed (array): Personalized articles [{article_id, title, snippet, score}]
 
 **Algorithm:**
+
 ```
 function get_personalized_feed(user_id, page_size=50):
   // 1. Fetch user embeddings (batch ML model)
@@ -1068,6 +1125,7 @@ function get_personalized_feed(user_id, page_size=50):
 **Time Complexity:** O(log n) where n = number of articles in Elasticsearch
 
 **Example Usage:**
+
 ```
 feed = get_personalized_feed("user-123", page_size=50)
 // Returns: [
@@ -1086,13 +1144,16 @@ feed = get_personalized_feed("user-123", page_size=50)
 **Purpose:** Cache article content in Redis for fast retrieval.
 
 **Parameters:**
+
 - article (object): Article to cache
 - ttl (int): Time-to-live in seconds (default: 3600 for 1 hour)
 
 **Returns:**
+
 - success (boolean): True if cached successfully
 
 **Algorithm:**
+
 ```
 function cache_article(article, ttl=3600):
   cache_key = "article:" + article.article_id
@@ -1113,6 +1174,7 @@ function cache_article(article, ttl=3600):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 article = {article_id: "xyz-789", title: "Apple announces iPhone 16", ...}
 cache_article(article, ttl=3600)
@@ -1126,12 +1188,15 @@ cache_article(article, ttl=3600)
 **Purpose:** Invalidate article cache when content is updated.
 
 **Parameters:**
+
 - article_id (string): Article identifier
 
 **Returns:**
+
 - success (boolean): True if invalidated successfully
 
 **Algorithm:**
+
 ```
 function invalidate_cache(article_id):
   cache_key = "article:" + article_id
@@ -1151,6 +1216,7 @@ function invalidate_cache(article_id):
 **Time Complexity:** O(1)
 
 **Example Usage:**
+
 ```
 invalidate_cache("xyz-789")
 // Article cache cleared, CDN purged
@@ -1165,12 +1231,15 @@ invalidate_cache("xyz-789")
 **Purpose:** Replicate data to secondary regions (EU, AP) for low-latency global access.
 
 **Parameters:**
+
 - data_type (string): Type of data to replicate ("kafka", "redis", "elasticsearch")
 
 **Returns:**
+
 - success (boolean): True if replication initiated successfully
 
 **Algorithm:**
+
 ```
 function replicate_to_regions(data_type):
   if data_type == "kafka":
@@ -1231,11 +1300,13 @@ function replicate_to_regions(data_type):
 ```
 
 **Time Complexity:** Varies by data type
+
 - Kafka: O(1) - Continuous replication
 - Redis: O(n) where n = number of keys to replicate
 - Elasticsearch: O(s) where s = snapshot size
 
 **Example Usage:**
+
 ```
 replicate_to_regions("kafka")
 // Kafka MirrorMaker 2 started, replicating user.actions topic to EU/AP
@@ -1248,7 +1319,8 @@ replicate_to_regions("elasticsearch")
 
 ## Summary
 
-This pseudocode document provides detailed algorithm implementations for all major components of the Global News Feed system. Key algorithms include:
+This pseudocode document provides detailed algorithm implementations for all major components of the Global News Feed
+system. Key algorithms include:
 
 1. **Ingestion:** RSS feed polling and article publishing
 2. **Deduplication:** Two-stage detection (Bloom Filter + LSH)

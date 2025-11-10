@@ -1,4 +1,4 @@
-# Design a Distributed Monitoring System
+# 3.4.3 Design a Distributed Monitoring System
 
 > 📚 **Note on Implementation Details:**
 > This document focuses on high-level design concepts and architectural decisions.
@@ -13,123 +13,192 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
 Design a distributed monitoring system that collects, stores, and analyzes metrics from millions of endpoints (servers,
-containers, applications) in real-time. The system must handle **100M writes/sec**, store **10 PB** of compressed data,
-and provide **real-time alerting** (<5 seconds) with **fast dashboard queries** (<1 second).
+containers, applications) in real-time. The system must:
 
-**Similar Systems:** Prometheus, Datadog, New Relic, Grafana Cloud, AWS CloudWatch, Uber's M3
+- **Collect** metrics (CPU, memory, disk, latency, QPS, error rates) from 1M+ endpoints
+- **Store** time-series data efficiently for long-term retention (2+ years)
+- **Alert** on anomalies and threshold violations in real-time (<5 seconds)
+- **Visualize** metrics through dashboards for historical analysis and troubleshooting
+- **Scale** horizontally to handle massive write throughput (1M writes/sec)
+
+**Similar Systems:** Prometheus, Datadog, New Relic, Grafana Cloud, AWS CloudWatch
 
 ---
 
-## Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements
+### Functional Requirements (FRs)
 
-1. **Metrics Collection** - Pull and push-based collection from 1M endpoints
-2. **Time-Series Storage** - Store metrics with 1-second granularity for 2+ years
-3. **Real-Time Alerting** - Evaluate alert rules in <5 seconds with complex queries
-4. **Visualization** - Dashboards with historical analysis and ad-hoc queries
-5. **Auto-Discovery** - Automatically discover new endpoints (Kubernetes pods, cloud instances)
+1. **Metrics Collection**
+    - Pull-based collection (scraping endpoints like Prometheus)
+    - Push-based collection (agents push metrics)
+    - Support for custom metrics and labels
+    - Auto-discovery of new endpoints
 
-### Non-Functional Requirements
+2. **Time-Series Storage**
+    - Store metrics with high resolution (1-second granularity)
+    - Support retention policies (rollup and downsampling over time)
+    - Efficient compression for long-term storage
 
-1. **High Write Throughput:** 100M writes/sec sustained, 500M writes/sec peak
-2. **Low Write Latency:** <100ms p99 from collection to storage
+3. **Real-Time Alerting**
+    - Evaluate alert rules in real-time (e.g., `CPU > 80% for 5 minutes`)
+    - Support complex queries (aggregations, percentiles)
+    - Trigger notifications (email, Slack, PagerDuty)
+    - Alert deduplication and grouping
+
+4. **Visualization**
+    - Dashboards with customizable graphs
+    - Support for ad-hoc queries
+    - Historical data analysis
+    - Anomaly detection and forecasting
+
+### Non-Functional Requirements (NFRs)
+
+1. **High Write Throughput:** 1M writes/sec sustained, 5M writes/sec peak
+2. **Low Write Latency:** <100ms p99 from metric collection to storage
 3. **Fast Query Performance:** <1 second for dashboard queries (last 1 hour)
 4. **High Availability:** 99.9% uptime for alerting and query services
-5. **Horizontal Scalability:** Add nodes to scale writes and reads independently
+5. **Durability:** No data loss for critical metrics (best-effort for non-critical)
+6. **Scalability:** Horizontal scaling for both writes and reads
 
 ### Scale Estimation
 
-| Metric                   | Calculation                                      | Result                                 |
-|--------------------------|--------------------------------------------------|----------------------------------------|
-| **Endpoints**            | 1M servers/containers                            | 1 Million endpoints                    |
-| **Metrics per Endpoint** | 100 metrics (CPU, memory, disk, network, custom) | 100 metrics per endpoint               |
-| **Write Throughput**     | 1M endpoints × 100 metrics × 1 sample/sec        | **100M data points/sec**               |
-| **Storage (1 Day)**      | 100M points/sec × 86,400 sec/day                 | 8.64 trillion points/day               |
-| **Storage (2 Years)**    | 8.64 trillion × 730 days                         | **6.3 quadrillion points**             |
-| **Raw Storage Size**     | 6.3 quadrillion × 16 bytes                       | ~100 PB (before compression)           |
-| **Compressed Storage**   | 100 PB / 10 (compression ratio)                  | **~10 PB** (after Gorilla compression) |
-| **Query Throughput**     | 100k dashboards × 10 queries/min / 60            | **~16k QPS** (read queries)            |
+| Metric                        | Assumption                                       | Calculation                    | Result                                                |
+|-------------------------------|--------------------------------------------------|--------------------------------|-------------------------------------------------------|
+| **Total Endpoints**           | 1M servers/containers                            | -                              | 1 Million endpoints                                   |
+| **Metrics per Endpoint**      | 100 metrics (CPU, memory, disk, network, custom) | -                              | 100 metrics per endpoint                              |
+| **Collection Frequency**      | 1 sample per second                              | -                              | 1 data point/sec per metric                           |
+| **Write Throughput**          | $1\text{M}$ endpoints × $100$ metrics × $1$/sec  | -                              | **100M data points/sec** ($100\text{M}$ $\text{QPS}$) |
+| **Storage (1 Day)**           | $100\text{M}$ points/sec × $86,400$ sec/day      | -                              | 8.64 trillion data points/day                         |
+| **Storage (2 Years)**         | $8.64$ trillion × $365$ × $2$                    | -                              | **6.3 quadrillion data points** (petabyte scale)      |
+| **Storage Size (Raw)**        | 16 bytes per point (timestamp + value + labels)  | $6.3$ quadrillion × $16$ bytes | **~100 PB** (before compression)                      |
+| **Storage Size (Compressed)** | 10:1 compression ratio                           | $100$ PB / $10$                | **~10 PB** (after compression)                        |
+| **Query Throughput**          | 100k dashboards × 10 queries/min                 | -                              | **~16k QPS** (read queries)                           |
 
-**Key Insight:** System is **write-heavy** (100M writes/sec vs 16k reads/sec). Must optimize for sequential writes and
-time-based compression.
+**Key Insight:** The system is **write-heavy** (100M writes/sec vs 16k reads/sec). Storage must be optimized for
+sequential writes and time-based compression.
 
 ---
 
-## High-Level Architecture
+## 3. High-Level Architecture
+
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
+
+The architecture follows a classic **time-series data pipeline** optimized for high write throughput and efficient
+time-based queries.
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                    MONITORED INFRASTRUCTURE                          │
-│  [ Server 1 ] [ Server 2 ] [ Container ] [ App ] ... [ Server 1M ]  │
-│       │            │            │           │              │         │
-└───────┼────────────┼────────────┼───────────┼──────────────┼─────────┘
-        │ scrape     │ scrape     │ push      │ push         │ scrape
-        ▼            ▼            ▼           ▼              ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                      COLLECTION LAYER                                │
-│  [ Collector 1 ] [ Collector 2 ] ... [ Collector N ]                │
-│  (Prometheus/Agents - 100 instances, 1M metrics/sec each)            │
-└───────┬──────────────┬────────────────────────┬──────────────────────┘
-        │ write        │ write                  │ write
-        ▼              ▼                        ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                       BUFFER LAYER                                   │
-│                   [ Kafka Cluster ]                                  │
-│                   100M msgs/sec, 24 partitions                       │
-└───────┬──────────────┬────────────────────────┬──────────────────────┘
-        │              │                        │
-        ▼              ▼                        ▼
-  ┌──────────┐  ┌────────────┐  ┌──────────────────────┐
-  │ ALERTING │  │  TSDB      │  │ REAL-TIME AGGREGATION│
-  │ ENGINE   │  │ (M3DB)     │  │ (Stream Processor)   │
-  │ (Flink)  │  │            │  │                      │
-  │          │  │ 10 PB      │  │ - Downsampling       │
-  │ Rules:   │  │ Sharded by │  │ - Rollups            │
-  │ CPU>80%  │  │ - Time     │  └──────────┬───────────┘
-  │ for 5min │  │ - Metric   │             │ write rollups
-  └────┬─────┘  └─────┬──────┘             │
-       │ notify       │ read queries       ▼
-       ▼              ▼           ┌────────────────┐
-  ┌────────────┐  ┌──────────────────────┐        │
-  │NOTIFICATION│  │   QUERY SERVICE       │◄───────┘
-  │ SERVICE    │  │   (API + Cache)       │
-  │ - Email    │  │   - Query optimizer   │
-  │ - Slack    │  │   - Redis cache       │
-  │ - PagerDuty│  │   - Result cache      │
-  └────────────┘  └────────┬──────────────┘
-                           │ HTTP API
-                           ▼
-                  ┌────────────────┐
-                  │  GRAFANA       │
-                  │  (Dashboards)  │
-                  └────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          MONITORED INFRASTRUCTURE                           │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐         ┌─────────┐      │
+│  │ Server 1│ │ Server 2│ │Container│ │   App   │   ...   │ Server  │      │
+│  │ (1M endpoints)        │         │         │         │   1M    │      │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘         └────┬────┘      │
+└───────┼───────────┼───────────┼───────────┼──────────────────┼────────────┘
+        │           │           │           │                  │
+        │ scrape    │ scrape    │ push      │ push             │ scrape
+        │ (pull)    │ (pull)    │ (agent)   │ (SDK)            │ (pull)
+        ▼           ▼           ▼           ▼                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          COLLECTION LAYER                                   │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐              │
+│  │ Collector 1     │ │ Collector 2     │ │ Collector N     │              │
+│  │ (Prometheus)    │ │ (Prometheus)    │ │ (100 instances) │              │
+│  │ 1M metrics/sec  │ │ 1M metrics/sec  │ │                 │              │
+│  └────────┬────────┘ └────────┬────────┘ └────────┬────────┘              │
+└───────────┼───────────────────┼───────────────────┼─────────────────────────┘
+            │                   │                   │
+            │ write             │ write             │ write
+            ▼                   ▼                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            BUFFER LAYER                                     │
+│                         ┌─────────────────┐                                 │
+│                         │  Kafka Cluster  │                                 │
+│                         │  (Message Queue)│                                 │
+│                         │  100M msgs/sec  │                                 │
+│                         │  24 partitions  │                                 │
+│                         └────────┬────────┘                                 │
+└──────────────────────────────────┼──────────────────────────────────────────┘
+                                   │
+         ┌─────────────────────────┼─────────────────────────┐
+         │                         │                         │
+         ▼                         ▼                         ▼
+┌────────────────┐      ┌────────────────────┐      ┌──────────────────┐
+│ ALERTING       │      │ STORAGE            │      │ REAL-TIME        │
+│ ENGINE         │      │ (TSDB)             │      │ AGGREGATION      │
+│ (Flink/Streams)│      │                    │      │ (Stream Processor│
+│                │      │ ┌────────────────┐ │      │                  │
+│ - Evaluate     │      │ │ InfluxDB/M3DB  │ │      │ - Downsampling   │
+│   rules        │      │ │ Cassandra+TSDB │ │      │ - Rollups        │
+│ - Windowed     │      │ │                │ │      │                  │
+│   aggregations │      │ │ Sharded by:    │ │      └──────┬───────────┘
+│ - Trigger      │      │ │ - Time         │ │             │
+│   alerts       │      │ │ - Metric name  │ │             │ write
+│                │      │ │                │ │             │ (rollups)
+└────────┬───────┘      │ │ 10 PB storage  │ │             │
+         │              │ └────────┬───────┘ │             │
+         │ notify       │          │         │◄────────────┘
+         ▼              └──────────┼─────────┘
+┌────────────────┐                │
+│ NOTIFICATION   │                │ read queries
+│ SERVICE        │                │
+│ - Email        │                ▼
+│ - Slack        │      ┌────────────────────┐
+│ - PagerDuty    │      │ QUERY SERVICE      │
+└────────────────┘      │ (API Layer)        │
+                        │                    │
+                        │ - Query optimizer  │
+                        │ - Cache layer      │
+                        │   (Redis)          │
+                        │ - Query result     │
+                        │   cache            │
+                        └──────────┬─────────┘
+                                   │
+                                   │ HTTP API
+                                   ▼
+                        ┌────────────────────┐
+                        │ VISUALIZATION      │
+                        │ (Grafana)          │
+                        │                    │
+                        │ - Dashboards       │
+                        │ - Ad-hoc queries   │
+                        │ - Alerting UI      │
+                        └────────────────────┘
 ```
 
-**Components:**
+**Key Components:**
 
-1. **Collectors (Prometheus/Agents)** - Scrape or receive metrics (pull/push)
-2. **Kafka Buffer** - Decouples collectors from storage (handles bursts)
-3. **TSDB (M3DB)** - Optimized time-series storage (10 PB compressed)
-4. **Alerting Engine (Flink)** - Real-time rule evaluation on stream
-5. **Real-Time Aggregation** - Downsampling and rollups (1min, 1hr, 1day)
-6. **Query Service** - API layer with caching for fast dashboard queries
-7. **Notification Service** - Sends alerts (email, Slack, PagerDuty)
+1. **Collectors (Prometheus/Agents)** - Scrape or receive metrics from endpoints
+2. **Kafka Buffer** - Decouples collectors from storage, handles write bursts
+3. **Time-Series Database (TSDB)** - Optimized storage (InfluxDB, M3DB, Cassandra)
+4. **Alerting Engine** - Real-time rule evaluation on Kafka stream
+5. **Real-Time Aggregation** - Downsampling and rollups for long-term storage
+6. **Query Service** - API layer with caching for dashboard queries
+7. **Notification Service** - Sends alerts to external systems
 8. **Grafana** - Visualization and dashboard UI
 
 ---
 
-## Data Model
+## 4. Data Model
 
-### Time-Series Data Structure
+### 4.1 Time-Series Data Structure
+
+Time-series data consists of:
+
+- **Metric name** (e.g., `cpu_usage`, `http_request_latency`)
+- **Timestamp** (Unix epoch, millisecond precision)
+- **Value** (numeric: float, int)
+- **Labels/Tags** (key-value pairs for dimensions)
+
+**Example:**
 
 ```
 Metric: http_request_latency_ms
-Timestamp: 1698765432000 (Unix epoch, milliseconds)
-Value: 234.5 (numeric)
+Timestamp: 1698765432000
+Value: 234.5
 Labels: {
   service: "api-gateway",
   method: "POST",
@@ -145,22 +214,23 @@ Labels: {
 http_request_latency_ms{service="api-gateway",method="POST",endpoint="/users",region="us-east-1",status_code="200"} 234.5 1698765432000
 ```
 
-### TSDB Schema (Cassandra Example)
+### 4.2 TSDB Schema (Cassandra Example)
 
-**Table 1: Raw Metrics (1-Second Resolution)**
+**Table 1: Raw Metrics (High-Resolution)**
 
 ```sql
 CREATE TABLE metrics_raw (
-    metric_name text,
-    labels map<text, text>,
-    timestamp timestamp,
-    value double,
+    metric_name text,           -- e.g., cpu_usage
+    labels map<text, text>,     -- {host: "server-1", region: "us-east-1"}
+    timestamp timestamp,        -- Time of measurement
+    value double,               -- Metric value
     PRIMARY KEY ((metric_name, labels), timestamp)
-) WITH CLUSTERING ORDER BY (timestamp DESC);
+) WITH CLUSTERING ORDER BY (timestamp DESC)
+  AND compaction = {'class': 'TimeWindowCompactionStrategy'};
 ```
 
-**Partitioning:** By `(metric_name, labels)` to group all data points for a specific time series. Cluster by
-`timestamp DESC` for efficient time-range queries.
+**Partitioning Strategy:** Partition by `(metric_name, labels)` to group all data points for a specific metric+label
+combination. Cluster by `timestamp DESC` for efficient time-range queries.
 
 **Table 2: Rollup Metrics (Downsampled)**
 
@@ -168,125 +238,150 @@ CREATE TABLE metrics_raw (
 CREATE TABLE metrics_rollup_1min (
     metric_name text,
     labels map<text, text>,
-    timestamp_bucket timestamp,
-    count bigint,
-    sum double,
-    min double,
-    max double,
-    avg double,
-    p50 double,
-    p95 double,
-    p99 double,
+    timestamp_bucket timestamp,  -- Rounded to 1-minute boundary
+    count bigint,                -- Number of samples in window
+    sum double,                  -- Sum of values
+    min double,                  -- Min value
+    max double,                  -- Max value
+    avg double,                  -- Average value
+    p50 double,                  -- 50th percentile
+    p95 double,                  -- 95th percentile
+    p99 double,                  -- 99th percentile
     PRIMARY KEY ((metric_name, labels), timestamp_bucket)
-);
+) WITH CLUSTERING ORDER BY (timestamp_bucket DESC);
 ```
 
 **Rollup Hierarchy:**
 
-- **Raw (1-second)** → Retained for 1 day
+- **Raw** (1-second resolution) → Retained for 1 day
 - **1-minute rollup** → Retained for 7 days
 - **5-minute rollup** → Retained for 30 days
 - **1-hour rollup** → Retained for 1 year
 - **1-day rollup** → Retained for 2+ years
 
-**Benefits:** Reduces storage from 100 PB to 10 PB. Speeds up long-range queries by 3600x (use 1-hour rollup instead of
-raw).
-
 ---
 
-## Detailed Component Design
+## 5. Detailed Component Design
 
-### Metrics Collection
+### 5.1 Metrics Collection
 
-**Pull-Based (Prometheus Model):**
+**Pull-Based Collection (Prometheus Model):**
 
-1. **Service Discovery** - Auto-discover endpoints (Kubernetes API, AWS API)
+1. **Service Discovery** - Automatically discover endpoints (Kubernetes pods, AWS instances)
 2. **Scraping** - HTTP GET to `/metrics` endpoint every 1 second
-3. **Parsing** - Parse Prometheus text format
-4. **Buffering** - Write to local buffer → Kafka
+3. **Parsing** - Parse Prometheus text format (metric name, labels, value, timestamp)
+4. **Buffering** - Write to local buffer before sending to Kafka
 
-**Push-Based (Agent Model):**
+**Push-Based Collection (Agent Model):**
 
-1. **Agent Installation** - Deploy on each endpoint (Telegraf, Datadog agent)
-2. **Collection** - Collect system metrics (CPU, memory, disk, network)
-3. **Push** - HTTP POST to collector endpoint (batched)
+1. **Agent Installation** - Deploy agent on each endpoint (e.g., Telegraf, Datadog agent)
+2. **Metric Collection** - Agent collects system metrics (CPU, memory, disk, network)
+3. **Push to Collector** - HTTP POST to collector endpoint
+4. **Batching** - Agent batches metrics (100 points) before sending
 
 **Comparison:**
 
-| Aspect        | Pull-Based                            | Push-Based                    |
-|---------------|---------------------------------------|-------------------------------|
-| **Discovery** | Centralized (scraper knows endpoints) | Distributed (agents register) |
-| **Firewall**  | Requires inbound access               | Requires outbound only        |
-| **Failure**   | Scraper detects down                  | Endpoint retries              |
-| **Scale**     | Horizontal scaling                    | Self-managing                 |
+| Aspect               | Pull-Based (Prometheus)                   | Push-Based (Agent)            |
+|----------------------|-------------------------------------------|-------------------------------|
+| **Discovery**        | Centralized (scraper knows endpoints)     | Distributed (agents register) |
+| **Network**          | Collector initiates connection            | Endpoint initiates connection |
+| **Firewall**         | Requires inbound access to endpoints      | Requires outbound access only |
+| **Failure Handling** | Scraper detects endpoint down             | Endpoint can retry            |
+| **Scale**            | Collector bottleneck (horizontal scaling) | Endpoints self-managing       |
 
-**Decision:** **Hybrid** - pull for internal services, push for edge devices.
+**Decision:** Use **hybrid approach** - pull for internal services, push for external/edge devices.
 
-### Kafka Buffer Layer
+### 5.2 Kafka Buffer Layer
 
 **Why Kafka?**
 
-- **Decouples** collectors from storage (TSDB can lag, Kafka absorbs)
-- **Replay** capability (reprocess for backfill)
-- **Durability** (persisted to disk before ack)
-- **Partitioning** (distributes load)
+- **Decouples** collectors from storage (if TSDB is slow, Kafka absorbs writes)
+- **Replay** capability for reprocessing (e.g., backfill rollups)
+- **Durability** - Data persisted to disk before acknowledgment
+- **Partitioning** - Distributes load across TSDB writers
 
-**Configuration:**
+**Kafka Topic Configuration:**
 
 ```
 Topic: metrics.raw
-Partitions: 24 (for 100M msgs/sec)
-Replication: 3 (durability)
-Retention: 24 hours (replay window)
-Compression: snappy (5x reduction)
+Partitions: 24 (for 100M msgs/sec throughput)
+Replication factor: 3 (durability)
+Retention: 24 hours (enough for retry/replay)
+Compression: snappy (reduces storage by 5x)
 ```
 
-**Partitioning:** `hash(metric_name + labels)` to ensure ordering for each time series.
+**Partitioning Strategy:** Partition by `hash(metric_name + labels)` to ensure all data points for a specific time
+series go to the same partition (maintains order).
 
 **Consumer Groups:**
 
-1. **TSDB Writers** - Write to time-series database
-2. **Alerting Engine** - Real-time alert evaluation
-3. **Real-Time Aggregation** - Downsampling and rollups
+1. **TSDB Writers** - Consume and write to time-series database
+2. **Alerting Engine** - Consume for real-time alert evaluation
+3. **Real-Time Aggregation** - Consume for downsampling and rollups
 
-### Time-Series Database (TSDB)
+### 5.3 Time-Series Database (TSDB)
 
-**TSDB Options:**
+**TSDB Selection Criteria:**
 
-| Database      | Pros                                     | Cons                          |
-|---------------|------------------------------------------|-------------------------------|
-| **InfluxDB**  | Purpose-built, excellent compression     | Limited horizontal scaling    |
-| **M3DB**      | Designed for scale (billions writes/sec) | Complex to operate            |
-| **Cassandra** | Proven scalability                       | Not optimized for time-series |
+- High write throughput (100M writes/sec)
+- Efficient time-range queries
+- Built-in compression
+- Support for retention policies and downsampling
 
-**Decision:** **M3DB** for write-heavy workloads with Prometheus compatibility. *(
-See [this-over-that.md](./this-over-that.md) for analysis.)*
+**Option 1: InfluxDB (Specialized TSDB)**
+
+- **Pros:** Purpose-built for time-series, excellent compression, fast time-range queries
+- **Cons:** Horizontal scaling is limited (InfluxDB Enterprise required), expensive
+
+**Option 2: M3DB (Uber's TSDB)**
+
+- **Pros:** Designed for scale (handles billions of writes/sec), Prometheus-compatible
+- **Cons:** Complex to operate, relatively new (smaller community)
+
+**Option 3: Cassandra + Custom TSDB Layer**
+
+- **Pros:** Proven scalability, flexible schema, strong consistency options
+- **Cons:** Not optimized for time-series out-of-the-box (requires custom compression/indexing)
+
+**Decision:** **M3DB** for write-heavy workloads (100M writes/sec) with Prometheus compatibility.
+*See [this-over-that.md](./this-over-that.md) for detailed analysis.*
 
 **M3DB Architecture:**
 
-- **M3DB Nodes** - Distributed storage (50+ nodes)
-- **M3Coordinator** - Query aggregator
-- **M3Aggregator** - Real-time aggregation
+- **M3DB Nodes** - Distributed storage nodes (50+ nodes)
+- **M3Coordinator** - Query aggregator and downsampler
+- **M3Aggregator** - Real-time aggregation and rollups
 - **M3Query** - PromQL-compatible query engine
 
-**Sharding:** Consistent hashing by `metric_name + labels` (4096 shards, 3x replication).
+**Sharding Strategy:**
 
-**Compression:** Gorilla compression (Facebook's algorithm) → 10:1 ratio (100 PB → 10 PB).
+- **Shard by metric name + labels** (consistent hashing)
+- **Replication factor:** 3 (for durability)
+- **Shard count:** 4096 (for fine-grained distribution)
 
-### Alerting Engine
+**Compression:**
+
+- **Gorilla compression** (Facebook's time-series compression algorithm)
+- **Compression ratio:** 10:1 (100 PB → 10 PB)
+- **Delta-of-delta encoding** for timestamps
+- **XOR encoding** for float values
+
+### 5.4 Alerting Engine
 
 **Requirements:**
 
-- Evaluate rules in real-time (<5 seconds)
+- Evaluate alert rules in real-time (<5 seconds)
 - Support complex queries (aggregations, percentiles, windows)
-- Stateful queries ("CPU > 80% for 5 minutes")
+- Handle stateful queries (e.g., "CPU > 80% for 5 minutes")
 - Deduplicate and group alerts
 
-**Architecture:** Apache Flink or Kafka Streams
+**Architecture:**
 
-- **Input:** Kafka `metrics.raw`
+**Stream Processor:** Apache Flink or Kafka Streams
+
+- **Input:** Kafka topic `metrics.raw`
 - **Processing:** Stateful windowed aggregations
-- **Output:** Kafka `alerts.triggered`
+- **Output:** Kafka topic `alerts.triggered`
 
 **Alert Rule Example:**
 
@@ -299,476 +394,574 @@ Notification: slack-channel=#alerts
 
 **Processing Flow:**
 
-1. Consume metrics from Kafka
-2. Group by alert rule
-3. Windowed aggregation (5-minute tumbling window)
-4. Evaluate condition (avg > 80%)
-5. Trigger alert if condition met for entire window
-6. Deduplicate (don't resend if already firing)
-7. Publish to `alerts.triggered`
+1. **Consume metrics** from Kafka
+2. **Group by alert rule** (e.g., all `cpu_usage` metrics for `api-gateway`)
+3. **Windowed aggregation** (5-minute tumbling window)
+4. **Evaluate condition** (avg > 80%)
+5. **Trigger alert** if condition met for entire window
+6. **Deduplicate** (don't send alert if already firing)
+7. **Publish** to `alerts.triggered` topic
 
-**State Management:**
+**Stateful Processing:**
 
 - **State store:** RocksDB (embedded key-value store)
-- **State:** Current window aggregations
+- **State:** Current window aggregations (count, sum, min, max)
 - **Checkpointing:** Periodic snapshots for fault tolerance
 
-### Real-Time Aggregation (Rollups)
+**Alert Deduplication:**
+
+- Track alert state (firing, resolved)
+- Don't send duplicate alerts if already firing
+- Send "resolved" notification when condition clears
+
+**Alert Grouping:**
+
+- Group alerts by labels (e.g., all alerts for `region=us-east-1`)
+- Single notification for multiple related alerts
+- Reduces notification spam
+
+### 5.5 Real-Time Aggregation (Rollups)
 
 **Why Rollups?**
 
-- Storing 6.3 quadrillion points at 1-second resolution is too expensive
-- Dashboard queries over long ranges (e.g., "last 30 days") would be slow
-- Downsampling reduces storage (10x) and improves query performance (3600x)
+- Storing 6.3 quadrillion data points at 1-second resolution is too expensive
+- Dashboard queries over long time ranges (e.g., "last 30 days") would be slow
+- Downsampling reduces storage and improves query performance
+
+**Rollup Strategy:**
 
 **Retention Policy:**
 
-| Resolution      | Retention | Storage (per metric) |
-|-----------------|-----------|----------------------|
-| 1-second (raw)  | 1 day     | 8.64 trillion points |
-| 1-minute rollup | 7 days    | 1.4 trillion points  |
-| 5-minute rollup | 30 days   | 8.6 billion points   |
-| 1-hour rollup   | 1 year    | 876 million points   |
-| 1-day rollup    | 2+ years  | 730,000 points       |
+- **Raw (1-second):** 1 day (8.64 trillion points)
+- **1-minute rollup:** 7 days (1.4 trillion points)
+- **5-minute rollup:** 30 days (8.6 billion points)
+- **1-hour rollup:** 1 year (876 million points)
+- **1-day rollup:** 2+ years (730,000 points per metric)
 
 **Rollup Computation:**
 
-- **Stream processor:** Flink or Kafka Streams
-- **Input:** Kafka `metrics.raw`
-- **Processing:** Windowed aggregations (1-min, 5-min, 1-hour, 1-day)
+- **Stream processor** (Flink or Kafka Streams)
+- **Input:** Kafka topic `metrics.raw`
+- **Processing:** Windowed aggregations (1-minute, 5-minute, 1-hour, 1-day)
 - **Output:** Write to TSDB rollup tables
 
 **Aggregation Functions:**
 
-- `count`, `sum`, `min`, `max`, `avg`, `p50`, `p95`, `p99`
+- `count` - Number of samples in window
+- `sum` - Sum of values
+- `min`, `max` - Min/max values
+- `avg` - Average value
+- `p50`, `p95`, `p99` - Percentiles
 
-**Example:**
+**Example Rollup:**
 
 ```
-Raw (1-second):
+Raw data (1-second):
 cpu_usage{host="server-1"} 65.2 @ 12:00:00
 cpu_usage{host="server-1"} 67.5 @ 12:00:01
+cpu_usage{host="server-1"} 70.1 @ 12:00:02
 ...
 cpu_usage{host="server-1"} 72.3 @ 12:00:59
 
-1-minute rollup:
+1-minute rollup (12:00:00 - 12:00:59):
 cpu_usage_1min{host="server-1"} {
   count: 60,
-  avg: 68.0,
+  sum: 4080.5,
   min: 65.2,
   max: 75.1,
+  avg: 68.0,
   p50: 67.8,
-  p95: 74.2
+  p95: 74.2,
+  p99: 75.0
 } @ 12:00:00
 ```
 
-### Query Service
+### 5.6 Query Service
 
 **Requirements:**
 
-- Fast queries (<1 second for dashboards)
-- Complex queries (aggregations, joins, percentiles)
+- Fast query performance (<1 second for dashboard queries)
+- Support for complex queries (aggregations, joins, percentiles)
 - Caching for frequently accessed data
-- Query optimization
+- Query optimization (push down filters, use rollups)
+
+**Architecture:**
+
+**Query API Layer:**
+
+- **Protocol:** HTTP REST API + PromQL support
+- **Query optimizer:** Analyzes query and determines optimal execution plan
+- **Cache layer:** Redis for query result caching
+- **Rate limiting:** Prevent expensive queries from overloading TSDB
 
 **Query Optimization:**
 
-**1. Automatic Rollup Selection**
+1. **Automatic Rollup Selection**
+    - Query: "Show CPU usage for last 30 days"
+    - Optimizer: Use 1-hour rollup (not raw data)
+    - Benefit: 3600x fewer data points to fetch
 
-- Query: "Show CPU for last 30 days"
-- Optimizer: Use 1-hour rollup (not raw)
-- Benefit: 3600x fewer data points
+2. **Predicate Pushdown**
+    - Push filters down to TSDB (not in application layer)
+    - Example: Filter by `region=us-east-1` at storage level
 
-**2. Predicate Pushdown**
+3. **Query Result Caching**
+    - Cache key: `query_hash + time_range`
+    - TTL: 1 minute (for recent data), 1 hour (for old data)
+    - Invalidation: On alert trigger (stale data)
 
-- Push filters to TSDB (not app layer)
-- Example: Filter `region=us-east-1` at storage
-
-**3. Query Result Caching**
-
-- Cache key: `hash(query + time_range)`
-- TTL: 1 minute (recent), 1 hour (old data)
-- Hit rate: 80% (popular dashboards)
-
-**4. Query Parallelization**
-
-- Split query into sub-queries (per shard)
-- Execute in parallel
-- Merge results
+4. **Query Parallelization**
+    - Split query into sub-queries (per shard)
+    - Execute in parallel
+    - Merge results
 
 **Caching Strategy:**
 
-| Cache Layer        | Technology | TTL               | Hit Rate |
-|--------------------|------------|-------------------|----------|
-| Query Result Cache | Redis      | 1 minute (recent) | 80%      |
-| TSDB Block Cache   | In-Memory  | LRU eviction      | 60%      |
+**Cache Layer 1: Query Result Cache (Redis)**
+
+- Key: `hash(query + time_range)`
+- Value: Serialized query result
+- TTL: 1 minute (for last hour), 1 hour (for older data)
+- Hit rate: 80% (popular dashboards)
+
+**Cache Layer 2: TSDB Block Cache (In-Memory)**
+
+- Cache recently accessed TSDB blocks (1-hour chunks)
+- LRU eviction policy
+- Size: 100 GB per TSDB node
 
 ---
 
-## Bottlenecks and Scaling
+## 6. Bottlenecks and Scaling Strategies
 
-### Write Path Bottlenecks
+### 6.1 Write Path Bottlenecks
 
 **Bottleneck 1: Kafka Write Throughput**
 
-- **Problem:** 100M writes/sec requires high throughput (200 MB/s per partition)
-- **Solution:**
-    - Increase partitions: 24 → 48
-    - Batching: Collectors batch 1000 metrics
-    - Compression: Snappy (5x reduction)
-    - Async producers (non-blocking)
-- **Result:** 100M writes/sec, 100 MB/s per partition (comfortable headroom)
+**Problem:** 100M writes/sec requires high Kafka throughput (sustained 200 MB/s per partition).
+
+**Solution:**
+
+- **Increase partitions:** 24 → 48 partitions (distribute load)
+- **Batching:** Collectors batch 1000 metrics before sending to Kafka
+- **Compression:** Use snappy compression (5x reduction)
+- **Async producers:** Non-blocking writes
+
+**Performance:**
+
+- Before: 100M writes/sec, 200 MB/s per partition (at limit)
+- After: 100M writes/sec, 100 MB/s per partition (comfortable headroom)
 
 **Bottleneck 2: TSDB Write Throughput**
 
-- **Problem:** Random writes due to label combinations
-- **Solution:**
-    - Write buffer (M3DB aggregator): 1-minute memory buffer
-    - LSM-Tree storage (write-optimized)
-    - Gorilla compression (10x reduction)
-    - Horizontal scaling: 100 nodes
-- **Result:** 1M writes/sec per node × 100 nodes = 100M writes/sec
+**Problem:** TSDB struggles with random writes (even though time-series data is mostly sequential, labels create
+randomness).
 
-### Read Path Bottlenecks
+**Solution:**
+
+- **Write buffer (M3DB aggregator):** Buffer writes in memory (1 minute), batch to disk
+- **LSM-Tree storage engine:** Optimized for write-heavy workloads
+- **Compression:** Gorilla compression reduces disk writes by 10x
+- **Horizontal scaling:** Add more TSDB nodes (50+ nodes)
+
+**Performance:**
+
+- Single node: 1M writes/sec
+- 100 nodes: 100M writes/sec (linear scaling)
+
+### 6.2 Read Path Bottlenecks
 
 **Bottleneck 3: Dashboard Query Latency**
 
-- **Problem:** 30-day query fetches millions of points (slow)
-- **Solution:**
-    - Automatic rollup selection: 1-hour rollup (3600x fewer points)
-    - Query result caching: Redis (80% hit rate)
-    - Downsampling at query time
-- **Result:** 30-day query: 720 points (1-hour rollup), 100ms (vs 2.6B points, 10 seconds)
+**Problem:** Dashboard queries over long time ranges (e.g., "last 30 days") fetch millions of data points (slow).
+
+**Solution:**
+
+- **Automatic rollup selection:** Query optimizer uses 1-hour rollup (3600x fewer points)
+- **Query result caching:** Redis cache with 80% hit rate
+- **Downsampling at query time:** If query asks for 1000 points over 30 days, downsample to 1000 points (not millions)
+
+**Performance:**
+
+- Before: 30-day query = 2.6 billion points, 10 seconds
+- After: 30-day query (1-hour rollup) = 720 points, 100ms
 
 **Bottleneck 4: Ad-Hoc Query Overload**
 
-- **Problem:** Expensive queries overwhelm TSDB
-- **Solution:**
-    - Query rate limiting: Max 10 concurrent/user
-    - Query timeout: Kill queries >30 seconds
-    - Query cost estimation: Warn before expensive queries
-    - Dedicated query pool: Separate TSDB replicas
-- **Result:** Dashboard queries unaffected by ad-hoc queries
+**Problem:** Expensive ad-hoc queries (e.g., "Show p99 latency for all services over last year") can overwhelm TSDB.
 
-### Storage Bottlenecks
+**Solution:**
+
+- **Query rate limiting:** Max 10 concurrent queries per user
+- **Query timeout:** Kill queries running >30 seconds
+- **Query cost estimation:** Warn users before running expensive queries
+- **Dedicated query pool:** Separate TSDB replicas for ad-hoc queries (don't impact dashboards)
+
+### 6.3 Storage Bottlenecks
 
 **Bottleneck 5: Storage Capacity**
 
-- **Problem:** 10 PB storage is expensive
-- **Solution:**
-    - Tiered storage:
-        - **Hot (0-7 days):** SSD, fast queries
-        - **Warm (7-90 days):** HDD, slower queries
-        - **Cold (90+ days):** S3/Glacier, archive
-    - Aggressive rollups: 1-day rollups only for >1 year data
-    - Selective retention: Critical metrics longer, non-critical deleted
-- **Cost:** $244k/month ($80k hot + $160k warm + $4k cold)
+**Problem:** 10 PB storage (after compression) is expensive and hard to manage.
+
+**Solution:**
+
+- **Tiered storage:** Hot (SSD), warm (HDD), cold (S3/Glacier)
+    - **Hot tier (0-7 days):** SSD, fast queries
+    - **Warm tier (7-90 days):** HDD, slower queries
+    - **Cold tier (90+ days):** S3/Glacier, archive only
+- **Aggressive rollups:** Only store 1-day rollups for data >1 year old
+- **Selective retention:** Critical metrics retained longer, non-critical metrics deleted after 30 days
+
+**Cost Analysis:**
+
+```
+Hot tier (7 days): 800 TB × $0.10/GB-month = $80k/month
+Warm tier (83 days): 8 PB × $0.02/GB-month = $160k/month
+Cold tier (2 years): 1 PB × $0.004/GB-month = $4k/month
+
+Total storage cost: $244k/month
+```
 
 ---
 
-## Multi-Region Deployment
+## 7. Multi-Region Deployment
 
 **Requirements:**
 
-- Low-latency collection (collect in region where endpoint is)
+- Low-latency metric collection (collect in region where endpoint is located)
 - Global view of metrics (aggregate across regions)
-- Region failover
+- Region failover (if one region fails, others continue)
 
 **Architecture:**
 
 **Regional Deployment:**
 
-- Each region: Full stack (Collectors → Kafka → TSDB → Query)
+- Each region has full stack: Collectors → Kafka → TSDB → Query Service
 - Metrics collected locally (low latency)
 - Regional dashboards for local troubleshooting
 
 **Global Aggregation:**
 
-- **Cross-region replication:** Kafka MirrorMaker → central region
+- **Cross-region replication:** Kafka MirrorMaker replicates metrics to central region
 - **Global TSDB:** Aggregates metrics from all regions
-- **Global dashboards:** View across all regions
+- **Global dashboards:** View metrics across all regions
 
 **Trade-offs:**
 
-- **Eventual consistency:** Global metrics lag 5-30 seconds
+- **Eventual consistency:** Global metrics lag behind regional metrics by 5-30 seconds
 - **Higher cost:** 3x infrastructure (3 regions)
-- **Complexity:** Cross-region networking
+- **Complexity:** Cross-region networking and replication
 
 ---
 
-## Common Anti-Patterns
+## 8. Common Anti-Patterns
 
-### ❌ Anti-Pattern 1: Using RDBMS for Time-Series Data
+### ❌ **Anti-Pattern 1: Using RDBMS for Time-Series Data**
 
-**Problem:** PostgreSQL/MySQL for metrics
-**Why Bad:** Not optimized for high writes, slow time-range queries, no compression
-**Solution:** ✅ Use TSDB (InfluxDB, M3DB, TimescaleDB)
+**Problem:** Using PostgreSQL/MySQL to store time-series metrics.
 
-### ❌ Anti-Pattern 2: No Rollups/Downsampling
+**Why It's Bad:**
 
-**Problem:** Store all metrics at 1-second resolution forever
-**Why Bad:** 100 PB storage, slow long-range queries
-**Solution:** ✅ Implement rollups (1-min, 1-hour, 1-day) with retention policies
+- RDBMS not optimized for high write throughput (B-Tree indexes, write amplification)
+- Time-range queries slow (requires index scan)
+- No built-in compression or retention policies
+- Disk usage explodes (no downsampling)
 
-### ❌ Anti-Pattern 3: Synchronous Alert Evaluation on TSDB
+**Solution:**
+✅ Use specialized TSDB (InfluxDB, M3DB, TimescaleDB)
 
-**Problem:** Query TSDB every 10 seconds to evaluate alerts
-**Why Bad:** High query load, 10+ second latency, competes with dashboards
-**Solution:** ✅ Stream processing (Flink/Kafka Streams) on Kafka stream
+### ❌ **Anti-Pattern 2: No Rollups/Downsampling**
 
-### ❌ Anti-Pattern 4: No Cardinality Control
+**Problem:** Storing all metrics at full resolution (1-second) forever.
 
-**Problem:** Unlimited label combinations (high cardinality)
-**Why Bad:** Each unique label combo = new time series, memory/storage explodes
-**Solution:** ✅ Limit cardinality:
+**Why It's Bad:**
 
-- Don't use high-cardinality labels (`user_id`, `request_id`)
-- Enforce label whitelist
-- Monitor cardinality growth
+- Storage cost explodes (100 PB for 2 years)
+- Dashboard queries over long time ranges are slow (fetching billions of points)
+- Most queries don't need 1-second resolution for historical data
 
-### ❌ Anti-Pattern 5: No Query Cost Control
+**Solution:**
+✅ Implement aggressive rollups (1-minute, 1-hour, 1-day) with retention policies
 
-**Problem:** Allow expensive ad-hoc queries without limits
-**Why Bad:** Single query overloads TSDB, impacts all users
-**Solution:** ✅ Query cost control:
+### ❌ **Anti-Pattern 3: Synchronous Alert Evaluation on TSDB Queries**
 
-- Timeout (30 seconds)
-- Rate limiting (10 concurrent/user)
-- Cost estimation (warn users)
-- Dedicated query pool
+**Problem:** Alerting engine queries TSDB every 10 seconds to evaluate alert rules.
+
+**Why It's Bad:**
+
+- High query load on TSDB (10k alert rules × 6 queries/min = 1M queries/min)
+- Alert latency high (10+ seconds)
+- TSDB query load competes with dashboard queries
+
+**Solution:**
+✅ Use stream processing (Flink/Kafka Streams) to evaluate alerts on Kafka stream in real-time
+
+### ❌ **Anti-Pattern 4: No Cardinality Control**
+
+**Problem:** Allowing unlimited unique label combinations (high cardinality).
+
+**Why It's Bad:**
+
+- Each unique label combination creates a new time series
+- Example: `request_id` label with 1 billion unique values = 1 billion time series
+- TSDB memory and storage explodes
+- Queries become slow (needs to scan millions of time series)
+
+**Solution:**
+✅ Limit label cardinality:
+
+- Don't use high-cardinality labels (e.g., `user_id`, `request_id`)
+- Enforce label whitelist (only allow approved labels)
+- Monitor cardinality growth and alert
+
+### ❌ **Anti-Pattern 5: No Query Cost Control**
+
+**Problem:** Allowing users to run expensive ad-hoc queries without limits.
+
+**Why It's Bad:**
+
+- A single expensive query can overload TSDB (e.g., "Show all metrics for all services over last year")
+- Impacts all users (dashboard queries slow)
+- TSDB nodes crash due to memory exhaustion
+
+**Solution:**
+✅ Implement query cost control:
+
+- **Query timeout:** Kill queries running >30 seconds
+- **Query rate limiting:** Max 10 concurrent queries per user
+- **Query cost estimation:** Warn users before running expensive queries
+- **Dedicated query pool:** Separate TSDB replicas for ad-hoc queries
 
 ---
 
-## Alternative Approaches
+## 9. Alternative Approaches
 
-### Approach 1: Serverless (AWS CloudWatch)
+### Approach 1: Serverless Monitoring (AWS CloudWatch Model)
 
-**Pros:** ✅ No ops overhead, auto-scaling, cloud-integrated
-**Cons:** ❌ Expensive ($500k/month for 100M metrics/sec), vendor lock-in, limited customization
-**Use Case:** Small-medium scale (<1M metrics/sec), cloud-native apps
+**Architecture:**
 
-### Approach 2: Prometheus + Thanos
+- Managed service (no infrastructure to manage)
+- Push-based collection (agents push metrics to CloudWatch)
+- Pay-per-use pricing (per metric, per query)
 
-**Pros:** ✅ Cost-effective (S3 storage), unlimited retention, multi-cluster
-**Cons:** ❌ Slower queries (S3), complex architecture, eventual consistency
-**Use Case:** Medium scale (1-10M metrics/sec), long-term retention, cost-sensitive
+**Pros:**
 
-### Approach 3: VictoriaMetrics
+- ✅ No operational overhead (fully managed)
+- ✅ Scales automatically (no capacity planning)
+- ✅ Integrated with cloud services (AWS, GCP, Azure)
 
-**Pros:** ✅ Cost-effective (10x cheaper), fast queries, simple (single binary)
-**Cons:** ❌ Smaller community, single-vendor, limited horizontal scaling
-**Use Case:** Cost-sensitive, high compression, simple architecture
+**Cons:**
+
+- ❌ Expensive at scale (100M metrics/sec = $500k/month)
+- ❌ Vendor lock-in (can't migrate easily)
+- ❌ Limited customization (fixed retention, limited query capabilities)
+- ❌ Higher latency (shared infrastructure)
+
+**When to use:** Small to medium scale (<1M metrics/sec), cloud-native apps, no ops team.
+
+### Approach 2: Prometheus + Thanos (Prometheus Long-Term Storage)
+
+**Architecture:**
+
+- Prometheus for collection and short-term storage (2 weeks)
+- Thanos for long-term storage (S3/GCS) and global view
+- Sidecar architecture (Thanos sidecar uploads data to object storage)
+
+**Pros:**
+
+- ✅ Cost-effective (S3 storage is cheap: $0.023/GB-month)
+- ✅ Unlimited retention (store data forever)
+- ✅ Prometheus-compatible (same query language)
+- ✅ Multi-cluster aggregation (global view)
+
+**Cons:**
+
+- ❌ Slower queries (fetching from S3 is slower than local disk)
+- ❌ Complex architecture (multiple components: Prometheus, Thanos Sidecar, Thanos Query, Thanos Store)
+- ❌ Eventual consistency (Thanos lags behind Prometheus by minutes)
+
+**When to use:** Medium scale (1-10M metrics/sec), need long-term retention (>1 year), cost-sensitive.
+
+### Approach 3: VictoriaMetrics (High-Performance TSDB)
+
+**Architecture:**
+
+- Single-binary TSDB (simpler than M3DB)
+- Prometheus-compatible (drop-in replacement)
+- High compression (10-50x better than Prometheus)
+
+**Pros:**
+
+- ✅ Extremely cost-effective (10x cheaper storage than Prometheus)
+- ✅ Fast queries (optimized query engine)
+- ✅ Simple to operate (single binary, no dependencies)
+- ✅ High write throughput (1M writes/sec per node)
+
+**Cons:**
+
+- ❌ Smaller community (less mature than Prometheus)
+- ❌ Single-vendor (no other implementations)
+- ❌ Limited horizontal scaling (clustering is complex)
+
+**When to use:** Cost-sensitive deployments, need high compression, simple architecture preferred.
 
 ---
 
-## Monitoring the Monitoring System
+## 10. Monitoring the Monitoring System (Meta-Monitoring)
 
-**Challenge:** How to monitor the monitoring system itself?
+**Challenge:** How do you monitor the monitoring system itself?
 
 **Solution: Dual-Layered Monitoring**
 
-**Layer 1: Self-Monitoring**
+**Layer 1: Self-Monitoring (Monitoring System Monitors Itself)**
 
-- Collectors emit metrics about themselves
-- Kafka emits metrics (consumer lag, rebalancing)
-- TSDB emits metrics (write throughput, query latency)
-- Alerting engine emits metrics (evaluation time)
+- Collectors emit metrics about themselves (scrape duration, errors)
+- Kafka emits metrics (consumer lag, partition rebalancing)
+- TSDB emits metrics (write throughput, query latency, disk usage)
+- Alerting engine emits metrics (alert evaluation time, alerts triggered)
 
-**Layer 2: External Monitoring**
+**Layer 2: External Monitoring (Separate System)**
 
-- Deploy separate lightweight system (Prometheus on separate infra)
-- Monitor critical metrics of primary system
-- Alert if primary system down
+- Deploy lightweight external monitoring system (e.g., Prometheus on separate infrastructure)
+- Monitor critical metrics of primary monitoring system
+- Alert if primary monitoring system is down
 
-**Key Metrics:**
+**Key Metrics to Monitor:**
 
-| Component  | Metric                         | Alert Threshold |
-|------------|--------------------------------|-----------------|
-| Collectors | `scrape_duration_seconds`      | >5 seconds      |
-| Kafka      | `consumer_lag`                 | >1M messages    |
-| TSDB       | `write_throughput_qps`         | <50M QPS        |
-| TSDB       | `query_latency_p99_ms`         | >5000ms         |
-| Alerting   | `alert_evaluation_duration_ms` | >10 seconds     |
-
----
-
-## Trade-offs Summary
-
-| What We Gain                         | What We Sacrifice                              |
-|--------------------------------------|------------------------------------------------|
-| ✅ High write throughput (100M/sec)   | ❌ Expensive infrastructure (100+ nodes, 10 PB) |
-| ✅ Real-time alerting (<5 seconds)    | ❌ Complex stream processing (stateful Flink)   |
-| ✅ Long-term retention (2+ years)     | ❌ Aggressive rollups (lose granularity)        |
-| ✅ Fast dashboard queries (<1 second) | ❌ Eventual consistency (rollups lag)           |
-| ✅ Horizontal scalability             | ❌ Operational complexity (100+ nodes)          |
-| ✅ Multi-region (low latency)         | ❌ 3x infrastructure cost                       |
+| Component           | Metric                         | Alert Threshold          |
+|---------------------|--------------------------------|--------------------------|
+| **Collectors**      | `scrape_duration_seconds`      | >5 seconds               |
+| **Collectors**      | `scrape_errors_total`          | >10 errors/min           |
+| **Kafka**           | `consumer_lag`                 | >1M messages             |
+| **Kafka**           | `broker_disk_usage_pct`        | >80%                     |
+| **TSDB**            | `write_throughput_qps`         | <50M QPS (expected 100M) |
+| **TSDB**            | `query_latency_p99_ms`         | >5000ms                  |
+| **TSDB**            | `disk_usage_pct`               | >90%                     |
+| **Alerting Engine** | `alert_evaluation_duration_ms` | >10 seconds              |
+| **Query Service**   | `cache_hit_rate_pct`           | <50%                     |
 
 ---
 
-## Real-World Examples
+## 11. Trade-offs Summary
 
-### Uber's M3
+| What We Gain                                  | What We Sacrifice                                      |
+|-----------------------------------------------|--------------------------------------------------------|
+| ✅ **High write throughput** (100M writes/sec) | ❌ Expensive infrastructure (100+ nodes, 10 PB storage) |
+| ✅ **Real-time alerting** (<5 seconds)         | ❌ Complex stream processing (stateful Flink jobs)      |
+| ✅ **Long-term retention** (2+ years)          | ❌ Aggressive rollups (lose granularity for old data)   |
+| ✅ **Fast dashboard queries** (<1 second)      | ❌ Eventual consistency (rollups lag behind raw data)   |
+| ✅ **Horizontal scalability** (add nodes)      | ❌ Operational complexity (manage 100+ nodes)           |
+| ✅ **Multi-region deployment** (low latency)   | ❌ 3x infrastructure cost                               |
+| ✅ **Automatic downsampling** (reduce storage) | ❌ Cannot reconstruct original raw data                 |
 
-- **Scale:** 10M+ metrics/sec, 100+ PB, 100k+ hosts
-- **Storage:** M3DB (custom TSDB)
-- **Key:** Built M3DB for 10M writes/sec, 10:1 compression
+---
 
-### Datadog
+## 12. Real-World Examples
 
-- **Scale:** 500B metrics/day, multi-exabyte storage
-- **Architecture:** Push-based, custom TSDB
-- **Key:** Multi-tenancy, tiered storage (SSD/HDD/S3)
+### Uber's M3 Monitoring System
 
-### Netflix's Atlas
+**Scale:**
 
-- **Scale:** 2B metrics/minute, 100k+ instances, 1 PB
+- **Endpoints:** 10M+ metrics/sec from 100k+ hosts
+- **Storage:** 100+ PB of metrics data
+- **Queries:** 1M+ queries/day
+- **Alerts:** 100k+ alerts/day
+
+**Architecture:**
+
+- **Collection:** Pull-based (Prometheus-compatible)
+- **Storage:** M3DB (custom TSDB built by Uber)
+- **Alerting:** M3Query + custom alerting engine
+- **Visualization:** Grafana
+
+**Key Insights:**
+
+- Built M3DB because existing TSDB couldn't scale to 10M writes/sec
+- Aggressive compression (Gorilla + downsampling) → 10:1 ratio
+- Multi-region deployment with 5 seconds replication lag
+
+### Datadog (SaaS Monitoring Platform)
+
+**Scale:**
+
+- **Customers:** 25k+ companies
+- **Metrics:** 500 billion metrics/day
+- **Storage:** Multi-exabyte scale
+- **Queries:** 10M+ queries/day
+
+**Architecture:**
+
+- **Collection:** Push-based (Datadog agent)
+- **Storage:** Custom TSDB (proprietary)
+- **Alerting:** Real-time stream processing
+- **Visualization:** Custom web UI
+
+**Key Insights:**
+
+- Multi-tenancy (data isolation per customer)
+- Tiered storage (hot SSD, warm HDD, cold S3)
+- Dynamic rollups based on query patterns (optimize for frequently queried metrics)
+
+### Netflix's Atlas Monitoring System
+
+**Scale:**
+
+- **Metrics:** 2 billion metrics/minute
+- **Endpoints:** 100k+ instances
+- **Storage:** Cassandra (1 PB)
+- **Queries:** 1M+ queries/day
+
+**Architecture:**
+
+- **Collection:** Push-based (in-process collection)
 - **Storage:** Cassandra + custom TSDB layer
-- **Key:** In-memory aggregation, custom compression
+- **Alerting:** Atlas query language (AQL) with windowed evaluation
+- **Visualization:** Custom dashboards
+
+**Key Insights:**
+
+- Built on Cassandra (not specialized TSDB) for operational simplicity
+- Custom compression algorithm (better than standard Cassandra)
+- In-memory aggregation (pre-aggregate before writing to Cassandra)
 
 ---
 
-## References
+## 13. References
 
-### Official Documentation
+### Related System Design Components
 
-- **M3DB Documentation:** https://m3db.io/docs/
-- **Prometheus Documentation:** https://prometheus.io/docs/
-- **InfluxDB Documentation:** https://docs.influxdata.com/
-- **OpenTelemetry Collector:** https://opentelemetry.io/docs/collector/
-- **Thanos Documentation:** https://thanos.io/tip/thanos/getting-started.md/
+- **[2.1.3 Specialized Databases](../../02-components/2.1.3-specialized-databases.md)** - Time-series databases (
+  InfluxDB, M3DB)
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)** - Message queue for
+  metrics buffering
+- **[2.3.5 Batch vs Stream Processing](../../02-components/2.3.5-batch-vs-stream-processing.md)** - Real-time
+  aggregation and stream processing
+- **[2.4.2 Observability](../../02-components/2.4-security-observability/2.4.2-observability.md)** - Monitoring and
+  alerting best practices
+- **[2.1.9 Cassandra Deep Dive](../../02-components/2.1-databases/2.1.9-cassandra-deep-dive.md)** - Wide-column store
+  for time-series data
+- **[2.1.4 Database Scaling](../../02-components/2.1.4-database-scaling.md)** - Sharding strategies for TSDB
 
-### Technical Papers
+### Related Design Challenges
 
-- **Gorilla: A Fast, Scalable, In-Memory Time Series Database** (Facebook, 2015)
-    - Delta-of-delta encoding and XOR compression
-    - https://www.vldb.org/pvldb/vol8/p1816-teller.pdf
+- **[3.4.4 Recommendation System](../3.4.4-recommendation-system/)** - Real-time feature processing patterns
+- **[3.2.1 Twitter Timeline](../3.2.1-twitter-timeline/)** - High-throughput data pipelines
 
-- **M3: Uber's Open Source, Large-scale Metrics Platform** (Uber, 2018)
-    - Custom TSDB for 10M writes/sec
-    - https://eng.uber.com/m3/
+### External Resources
 
-- **Monarch: Google's Planet-Scale In-Memory Time Series Database** (Google, 2020)
-    - Distributed in-memory TSDB with 10B metrics/sec
-    - https://research.google/pubs/pub49897/
+- **Prometheus Documentation:** [Prometheus.io](https://prometheus.io/docs/) - Pull-based metrics collection
+- **M3 by Uber:** [M3DB.io](https://m3db.io/) - Distributed time-series database
+- **Gorilla Compression Paper:
+  ** [Facebook's Time-Series Compression](https://www.vldb.org/pvldb/vol8/p1816-teller.pdf) - Efficient compression
+  algorithm
+- **Google's Monarch Paper:
+  ** [Monarch: Google's Planet-Scale In-Memory Time Series Database](https://research.google/pubs/pub50652/) -
+  Large-scale monitoring
+- **Datadog Architecture:
+  ** [Time-Series Indexing at Scale](https://www.datadoghq.com/blog/engineering/timeseries-indexing-at-scale/) -
+  Multi-tenant TSDB design
 
-- **Atlas: Netflix's Telemetry Platform** (Netflix, 2018)
-    - In-memory aggregation and custom compression
-    - https://netflixtechblog.com/introducing-atlas-netflixs-primary-telemetry-platform-bd31f4d8ed9a
+### Books
 
-### Related Chapters
-
-From this handbook:
-
-**01-principles/** (Foundational Concepts)
-
-- [1.1.2 Latency, Throughput, and Scale](../../01-principles/1.1.2-latency-throughput-scale.md) - Understanding QPS and
-  throughput calculations
-- [1.1.4 Data Consistency Models](../../01-principles/1.1.4-data-consistency-models.md) - Eventual consistency in
-  multi-region
-- [1.1.5 Back-of-Envelope Calculations](../../01-principles/1.1.5-back-of-envelope-calculations.md) - Storage and
-  bandwidth estimation
-
-**02-components/** (Deep Dives)
-
-- [2.1.2 NoSQL Deep Dive](../../02-components/2.1.2-no-sql-deep-dive.md) - Cassandra for time-series data
-- [2.2.1 Caching Deep Dive](../../02-components/2.2.1-caching-deep-dive.md) - Redis for query result caching
-- [2.2.2 Consistent Hashing](../../02-components/2.2.2-consistent-hashing.md) - Sharding strategy for M3DB
-- [2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md) - Kafka as write buffer
-- [2.3.5 Batch vs Stream Processing](../../02-components/2.3.5-batch-vs-stream-processing.md) - Stream processing for
-  alerting
-- [2.4.2 Observability](../../02-components/2.4.2-observability.md) - Monitoring the monitoring system
-
-**03-challenges/** (Related Design Problems)
-
-- [3.1.2 Distributed Cache](../3.1.2-distributed-cache/) - Caching strategies
-- [3.3.1 Live Chat System](../3.3.1-live-chat-system/) - Real-time data flow
-- [3.3.4 Distributed Database](../3.3.4-distributed-database/) - Sharding and replication
-
-### Key Takeaways
-
-**1. Time-Series Databases Are Essential**
-
-- Standard RDBMS cannot handle 100M writes/sec
-- TSDB optimizations: Delta-of-delta encoding, columnar storage, aggressive compression
-- Gorilla compression achieves 20:1 ratio for typical metrics
-
-**2. Rollups Are Mandatory for Long-Term Storage**
-
-- Raw 1-second data: 6.3 quadrillion points (infeasible to store)
-- With rollups: 10 PB (feasible with compression)
-- Automatic rollup selection based on query time range
-
-**3. Stream Processing for Real-Time Alerting**
-
-- Cannot wait for data to be fully written to TSDB (adds latency)
-- Kafka Streams or Flink process alert rules on stream
-- Sub-5-second alerting from metric emission to notification
-
-**4. Cardinality Is the Silent Killer**
-
-- High-cardinality labels (user_id, request_id) explode time series count
-- 1M unique label combinations = 1M time series
-- Use label value limits, drop high-cardinality labels, or aggregate
-
-**5. Multi-Region for Global Scale**
-
-- Regional collection (low latency): <50ms in-region
-- Global aggregation (eventual consistency): 5-30s lag acceptable
-- 3x infrastructure cost but necessary for global deployments
-
-**6. Monitoring the Monitoring System Is Critical**
-
-- Self-monitoring: System monitors itself (Kafka lag, TSDB throughput)
-- External monitoring: Separate lightweight system for failover detection
-- Meta-metrics: How healthy is the alerting system itself?
-
-**7. Cost Optimization Through Tiering**
-
-- Hot tier (last 7 days): SSD, high IOPS, expensive
-- Warm tier (7-90 days): SSD, lower IOPS, medium cost
-- Cold tier (>90 days): HDD or S3, slow queries, cheap
-- Tiering reduces cost by 5-10x for long-term retention
-
-### Performance Characteristics Summary
-
-| Aspect                         | Target            | Achieved                                          |
-|--------------------------------|-------------------|---------------------------------------------------|
-| **Write Throughput**           | 100M points/sec   | 100M points/sec with Kafka buffer + M3DB sharding |
-| **Write Latency (p99)**        | <100ms            | ~50ms (collection → Kafka → TSDB write)           |
-| **Query Latency (dashboard)**  | <1 second         | <500ms with Redis cache (80% hit rate)            |
-| **Query Latency (long-range)** | <2 seconds        | <2 seconds with 1-hour rollups (30 days query)    |
-| **Alert Latency**              | <5 seconds        | <3 seconds (stream processing on Kafka)           |
-| **Storage Efficiency**         | 10 PB for 2 years | 10 PB (20:1 compression + rollups)                |
-| **Query Cache Hit Rate**       | >70%              | 80% (Redis query result cache)                    |
-| **Availability**               | 99.9%             | 99.95% (multi-region, 3 replicas)                 |
-
-### Cost Estimation (AWS, 2-Year Retention)
-
-**Infrastructure Costs (Monthly):**
-
-| Component           | Configuration                          | Monthly Cost        |
-|---------------------|----------------------------------------|---------------------|
-| **Kafka Cluster**   | 12 nodes (i3.2xlarge)                  | $10,000             |
-| **M3DB Cluster**    | 100 nodes (r5.4xlarge, 500GB SSD each) | $80,000             |
-| **Query Service**   | 20 nodes (c5.2xlarge)                  | $6,000              |
-| **Alerting Engine** | 10 nodes (c5.xlarge)                   | $2,000              |
-| **Redis Cache**     | 5 nodes (r5.xlarge)                    | $2,000              |
-| **S3 (cold tier)**  | 5 PB (archival)                        | $2,500              |
-| **Data Transfer**   | Cross-AZ, multi-region                 | $5,000              |
-| **Total**           |                                        | **~$107,500/month** |
-
-**Cost per Million Metrics per Second:** ~$1,075/month
-
-**Cost Breakdown:**
-
-- 75% Storage (TSDB nodes + S3)
-- 15% Compute (Query, Alerting)
-- 10% Networking (Multi-region replication)
-
-**Cost Optimization Strategies:**
-
-1. Use Spot Instances for non-critical nodes (30-70% savings)
-2. S3 Glacier for >1 year data (90% savings on cold tier)
-3. Aggressive rollups (reduce storage by 100x)
-4. Regional deployments only (eliminate cross-region costs)
-5. VictoriaMetrics or Thanos (10x cheaper than M3DB)
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Time-series data and monitoring systems
+- *Time Series Databases* by Ted Dunning and Ellen Friedman - TSDB design patterns

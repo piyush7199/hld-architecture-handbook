@@ -1,7 +1,7 @@
 # 3.4.1 Design a Stock Exchange Matching Engine
 
 > 📚 **Note on Implementation Details:**
-> This document focuses on high-level design concepts and architectural decisions. 
+> This document focuses on high-level design concepts and architectural decisions.
 > For detailed algorithm implementations, see **[pseudocode.md](./pseudocode.md)**.
 
 ## 📊 Visual Diagrams & Resources
@@ -13,779 +13,1116 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
-Design an ultra-low-latency stock exchange matching engine that processes financial orders in under 100 microseconds while maintaining ACID guarantees and handling millions of orders per second.
+Design an ultra-low-latency stock exchange matching engine that:
 
-**Real-World Context:**
-- **NASDAQ:** 4M messages/sec, <50μs matching latency
-- **NYSE:** 10B orders/day, <500μs end-to-end
-- **CME Group:** 5M messages/sec, <10μs with FPGA acceleration
-- **Coinbase:** 15K orders/sec, 5-50ms (crypto market acceptable)
+- **Matches orders in <100μs** (microseconds)
+- **Handles 1M orders/sec** peak throughput
+- **Guarantees ACID** transactions for financial correctness
+- **Publishes real-time market data** to millions of subscribers
 
-**Core Technical Challenges:**
+**Real-World Examples:**
 
-1. **Microsecond Latency:** 100μs = 300,000 CPU cycles at 3 GHz
-2. **Million QPS:** 1M orders/sec = 1 order every microsecond
-3. **Financial Correctness:** No lost trades, no double-spending (ACID)
-4. **Durability:** All orders persisted for audit and crash recovery
+- **NASDAQ:** Handles 4M messages/sec, <50μs matching latency
+- **NYSE:** Processes 10B orders/day, <500μs end-to-end latency
+- **CME Group:** Futures exchange, <10μs matching engine latency
+- **Coinbase:** Crypto exchange, 15K orders/sec, ~5ms latency
+
+**The Core Challenge:**
+
+Traditional databases are too slow (millisecond latency). We need:
+
+1. **In-Memory Processing:** All order book state in RAM
+2. **Single-Threaded Engine:** Avoid lock overhead (no mutexes)
+3. **Kernel Bypass Networking:** Direct memory access (DPDK, RDMA)
+4. **Custom Data Structures:** Price-time priority queues
 
 ---
 
-## Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements
+### Functional Requirements (FRs)
 
-**Order Types:**
-- Limit Order: Execute at specified price or better
-- Market Order: Execute immediately at best available price
-- Stop Order: Trigger when threshold price reached
-- IOC (Immediate-or-Cancel): Execute or cancel, no partial fills
-- FOK (Fill-or-Kill): Complete fill or full cancel
+1. **Order Types:**
+    - Limit Order: Buy/Sell at specific price or better
+    - Market Order: Buy/Sell at best available price
+    - Stop Order: Trigger when price reaches threshold
 
-**Matching Rules:**
-- Price Priority: Best price executes first (highest bid, lowest ask)
-- Time Priority: Within same price, FIFO (first-in-first-out)
-- Pro-rata: Some markets split by order size percentage
+2. **Order Matching:**
+    - Price-Time Priority: Highest bid, lowest ask, FIFO within price level
+    - Immediate-or-Cancel (IOC): Execute immediately or cancel
+    - Fill-or-Kill (FOK): Execute entire order or cancel
 
-**Order Book Transparency:**
-- Level 1: Top-of-book only (best bid/ask)
-- Level 2: Full depth (all price levels, aggregated)
-- Level 3: Order-by-order (full transparency, rare)
+3. **Order Book:**
+    - Level 1: Best bid/ask only
+    - Level 2: Full depth (all price levels)
+    - Level 3: Individual orders (full transparency)
 
-### Non-Functional Requirements
+4. **Trade Execution:**
+    - Update buyer and seller accounts
+    - Generate execution report
+    - Publish to market data feed
 
-| Requirement | Target | Industry Benchmark |
-|------------|--------|-------------------|
-| **Matching Latency (p99)** | <100μs | NASDAQ: 50μs, CME: 10μs |
-| **Peak Throughput** | 1M orders/sec | NYSE: ~200K, NASDAQ: ~500K |
-| **Availability** | 99.99% | 52 min downtime/year |
-| **Consistency** | ACID (strict) | Financial regulations mandate |
-| **Durability** | 100% | Audit log replay on crash |
-| **Market Data Latency** | <1ms | Broadcast to 1M+ subscribers |
+### Non-Functional Requirements (NFRs)
+
+| Requirement             | Target        | Rationale                                |
+|-------------------------|---------------|------------------------------------------|
+| **Matching Latency**    | <100μs (p99)  | Competitive with NYSE, NASDAQ            |
+| **Throughput**          | 1M orders/sec | Handle peak trading (market open, close) |
+| **Availability**        | 99.99%        | 52 minutes downtime/year                 |
+| **Consistency**         | ACID          | No double-spending, no lost trades       |
+| **Durability**          | 100%          | All orders/trades persisted (audit log)  |
+| **Market Data Latency** | <1ms          | Real-time price discovery                |
 
 ### Scale Estimation
 
-| Metric | Calculation | Result |
-|--------|-------------|--------|
-| **Peak Orders** | Market open/close spikes | 1,000,000 QPS |
-| **Order Size** | 128 bytes each | 128 MB/sec ingestion |
-| **Order Book Depth** | 1000 levels × 2 sides | 2000 price levels/symbol |
-| **Active Symbols** | NYSE + NASDAQ | 10,000 stocks |
-| **Execution Rate** | 10% of orders execute | 100,000 trades/sec |
-| **Market Data** | 100K updates/sec | 12.8 MB/sec broadcast |
-| **Audit Log** | All orders + trades | 128 MB/sec disk writes |
-| **Storage (Daily)** | 1M orders/sec × 86400 sec | 11 TB/day (compressed 1 TB) |
+| Metric               | Assumption                   | Calculation                       | Result                 |
+|----------------------|------------------------------|-----------------------------------|------------------------|
+| **Peak Orders**      | 1M orders/sec                | Market open/close spikes          | 1M QPS                 |
+| **Order Size**       | 128 bytes per order          | Order ID, symbol, price, quantity | 128 MB/sec ingestion   |
+| **Order Book Depth** | 1000 price levels per symbol | Bid + ask sides                   | 2000 levels total      |
+| **Symbols**          | 10,000 stocks traded         | NYSE + NASDAQ combined            | 10K order books        |
+| **Execution Rate**   | 10% of orders execute        | 90% passive orders sit in book    | 100K trades/sec        |
+| **Market Data Feed** | 100K updates/sec             | Executions + top-of-book changes  | 12.8 MB/sec broadcast  |
+| **Audit Log**        | 1M orders × 128 bytes        | Write-ahead log for durability    | 128 MB/sec disk writes |
 
-**Latency Budget Breakdown:**
-
-```
-Target: 100μs end-to-end
-
-Gateway validation:        5μs  (5%)
-Ring buffer transfer:      5μs  (5%)
-Matching engine:          40μs (40%)  ← Core bottleneck
-Audit log write (async): 10μs (10%)
-Market data publish:      40μs (40%)
-Total:                   100μs
-```
+**Key Insight:** 100μs latency = 100,000 nanoseconds. At 3 GHz CPU, that's only 300,000 CPU cycles. Every operation must
+be optimized.
 
 ---
 
-## High-Level Architecture
+## 3. High-Level Architecture
+
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
 
 ### Component Overview
 
 ```
-CLIENT LAYER (Traders, Algorithms, Market Makers)
-            │
-            ▼ FIX Protocol / gRPC (TCP with kernel bypass)
-┌──────────────────────────────────────────────────┐
-│        LOW-LATENCY GATEWAY                        │
-│  - DPDK kernel bypass networking                 │
-│  - Fast AuthN (JWT cache)                        │
-│  - Order validation                              │
-│  - Route to matching engine                      │
-└──────────────┬───────────────────────────────────┘
-               │
-               ▼ Ring Buffer (Lock-Free, Shared Memory)
-┌──────────────────────────────────────────────────┐
-│   MATCHING ENGINE (Single-Threaded, In-Memory)   │
-│                                                   │
-│   ORDER BOOK (Red-Black Tree + Linked Lists)     │
-│   ┌─────────────┬─────────────┐                  │
-│   │  BID SIDE   │  ASK SIDE   │                  │
-│   │  (Buy)      │  (Sell)     │                  │
-│   ├─────────────┼─────────────┤                  │
-│   │ $100.50 [3] │ $100.52 [2] │  ← Best prices   │
-│   │ $100.49 [5] │ $100.53 [7] │                  │
-│   │ $100.48 [2] │ $100.54 [1] │                  │
-│   └─────────────┴─────────────┘                  │
-│                                                   │
-│   Processing: <100μs per order                   │
-│   No locks, No context switches                  │
-└──────────────┬───────────────────────────────────┘
-               │
-     ┌─────────┼─────────┐
-     │         │         │
-     ▼         ▼         ▼
-┌────────┐ ┌──────────┐ ┌─────────┐
-│ AUDIT  │ │ MARKET   │ │ LEDGER  │
-│ LOG    │ │ DATA     │ │ SERVICE │
-│ (WAL)  │ │ FEED     │ │ (ACID)  │
-├────────┤ ├──────────┤ ├─────────┤
-│ NVMe   │ │ Kafka +  │ │ Postgres│
-│ SSD    │ │ WebSocket│ │ Async   │
-│ 128MB/s│ │ 100K/sec │ │ Updates │
-└────────┘ └──────────┘ └─────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    CLIENT LAYER (Traders)                        │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │ HFT Firm │  │  Retail  │  │ Algo Bot │  │ Market   │        │
+│  │          │  │  Trader  │  │          │  │ Maker    │        │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘        │
+│       │             │             │             │                │
+│       └─────────────┴─────────────┴─────────────┘                │
+│                         │                                         │
+└─────────────────────────┼─────────────────────────────────────────┘
+                          │
+                          ▼ FIX Protocol / gRPC
+┌─────────────────────────────────────────────────────────────────┐
+│                     LOW-LATENCY GATEWAY                          │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  - TCP/gRPC endpoint (kernel bypass: DPDK)                 │ │
+│  │  - Fast AuthN/AuthZ (JWT cached in memory)                 │ │
+│  │  - Order validation (basic checks)                         │ │
+│  │  - Route to matching engine via shared memory              │ │
+│  └────────────────────────────────────────────────────────────┘ │
+└─────────────────────────┼─────────────────────────────────────────┘
+                          │
+                          ▼ Shared Memory Queue (Ring Buffer)
+┌─────────────────────────────────────────────────────────────────┐
+│              MATCHING ENGINE (Single-Threaded Core)              │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  ORDER BOOK (In-Memory)                                     │ │
+│  │                                                             │ │
+│  │  BID SIDE (Buy Orders)   │   ASK SIDE (Sell Orders)        │ │
+│  │  ┌──────────────────┐    │    ┌──────────────────┐        │ │
+│  │  │ $100.50 → [O1]   │    │    │ $100.52 → [O5]   │        │ │
+│  │  │ $100.49 → [O2,O3]│    │    │ $100.53 → [O6,O7]│        │ │
+│  │  │ $100.48 → [O4]   │    │    │ $100.54 → [O8]   │        │ │
+│  │  └──────────────────┘    │    └──────────────────┘        │ │
+│  │       (Sorted DESC)       │        (Sorted ASC)            │ │
+│  │                                                             │ │
+│  │  Price-Time Priority Queue (Red-Black Tree)                │ │
+│  │  - O(log N) insert/delete                                  │ │
+│  │  - O(1) best bid/ask                                       │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  Processing Loop:                                                │
+│  1. Dequeue order from ring buffer                              │
+│  2. Match against opposite side                                 │
+│  3. Update order book (add/remove)                              │
+│  4. Generate execution events                                   │
+│  5. Write to audit log (async)                                  │
+│                                                                  │
+│  Single-Threaded: No locks, no context switches                 │
+│  Latency: <100μs per order                                      │
+└─────────────────────────┼─────────────────────────────────────────┘
+                          │
+         ┌────────────────┼────────────────┐
+         │                │                │
+         ▼                ▼                ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│  AUDIT LOG   │  │ MARKET DATA  │  │   LEDGER     │
+│  (WAL)       │  │  PUBLISHER   │  │   SERVICE    │
+├──────────────┤  ├──────────────┤  ├──────────────┤
+│ Append-only  │  │ WebSocket    │  │ PostgreSQL   │
+│ NVMe SSD     │  │ broadcast    │  │ (ACID)       │
+│ 128 MB/sec   │  │ 100K msg/sec │  │ Async update │
+│              │  │              │  │ User balance │
+│ Durability:  │  │ Subscribers: │  │              │
+│ All orders   │  │ 1M+ clients  │  │ Final truth  │
+│ + trades     │  │              │  │ for balances │
+└──────────────┘  └──────────────┘  └──────────────┘
 ```
 
-**Design Principles:**
+**Flow Summary:**
 
-1. **Single-Threaded Core:** Avoid lock overhead (50-100μs per lock)
-2. **In-Memory State:** All order book data in RAM (no disk I/O)
-3. **Async I/O:** Audit log and ledger updates non-blocking
-4. **Lock-Free Communication:** Ring buffer between gateway and engine
-5. **Kernel Bypass:** DPDK for <5μs network latency
+1. **Client** sends order via FIX protocol (TCP with kernel bypass)
+2. **Gateway** validates, writes to shared memory ring buffer
+3. **Matching Engine** dequeues order, matches against order book, generates execution
+4. **Audit Log** persists order + execution (durability)
+5. **Market Data Publisher** broadcasts to subscribers (WebSocket)
+6. **Ledger Service** updates user balances (async, eventual consistency)
 
 ---
 
-## Data Model and Order Book
+## 4. Data Model and Order Book Structure
 
-### Order Structure
+### 4.1 Order Structure
 
 ```
-struct Order {
-  order_id: u64,           // Timestamp + sequence (unique)
-  user_id: u32,            // Account ID
-  symbol: u32,             // Stock symbol (int-encoded for speed)
-  side: u8,                // 0=BUY, 1=SELL
-  order_type: u8,          // 0=LIMIT, 1=MARKET, 2=STOP
-  price: u64,              // Price in cents (no floats!)
-  quantity: u32,           // Shares
-  filled_quantity: u32,    // Shares executed
-  timestamp: u64,          // Nanosecond precision
-  time_in_force: u8,       // 0=GTC, 1=IOC, 2=FOK
-  status: u8               // 0=PENDING, 1=PARTIAL, 2=FILLED, 3=CANCELLED
+Order {
+  order_id: u64,           // Unique ID (timestamp + sequence)
+  user_id: u32,            // Owner
+  symbol: u32,             // Stock symbol (encoded as int for speed)
+  side: u8,                // 0 = BUY, 1 = SELL
+  order_type: u8,          // 0 = LIMIT, 1 = MARKET, 2 = STOP
+  price: u64,              // Price in cents (avoid float)
+  quantity: u32,           // Number of shares
+  filled_quantity: u32,    // Shares already filled
+  timestamp: u64,          // Nanosecond timestamp
+  time_in_force: u8,       // 0 = GTC, 1 = IOC, 2 = FOK
+  status: u8               // 0 = PENDING, 1 = PARTIAL, 2 = FILLED, 3 = CANCELLED
 }
 
-Size: 64 bytes (cache-line aligned)
+Size: 64 bytes (cache-line aligned for CPU efficiency)
 ```
 
-**Why Fixed-Point Integers (Not Floats)?**
+**Why u64 for price instead of float64?**
 
-```
-❌ Float64: 100.50 × 1000 = 100500.0000000001 (rounding error!)
-✅ Int64:   10050 × 1000 = 10050000 (exact!)
+- Avoid floating-point rounding errors (critical for finance)
+- Integer operations faster than floating-point (2-3× speedup)
+- Price = $100.50 stored as 10050 cents
 
-Financial Rule: Price in cents (10050 = $100.50)
-```
+### 4.2 Order Book Structure
 
-### Order Book Data Structure
-
-**Choice: Red-Black Tree + Linked List**
+**Data Structure Choice: Red-Black Tree + Linked List**
 
 ```
 OrderBook {
   symbol: u32,
   
-  bids: RBTree<Price, PriceLevel>,  // Buy orders (sorted DESC)
-  asks: RBTree<Price, PriceLevel>,  // Sell orders (sorted ASC)
+  // Bid side (buy orders): sorted descending by price
+  bids: RBTree<Price, PriceLevel>,
+  best_bid: Price,
   
-  best_bid: Price,  // Cached for O(1) access
+  // Ask side (sell orders): sorted ascending by price
+  asks: RBTree<Price, PriceLevel>,
   best_ask: Price,
   
-  orders: HashMap<OrderID, *Order>,  // Fast lookup for cancellation
+  // Order lookup (for cancellation)
+  orders: HashMap<OrderID, *Order>,
+  
+  // Statistics
+  total_bid_volume: u64,
+  total_ask_volume: u64,
+  last_trade_price: Price
 }
 
 PriceLevel {
   price: Price,
-  orders: LinkedList<*Order>,  // FIFO time priority
+  orders: LinkedList<*Order>,  // FIFO queue at this price
   total_quantity: u32
 }
 ```
 
 **Why Red-Black Tree?**
 
-| Operation | Red-Black Tree | Binary Search Tree | B-Tree |
-|-----------|---------------|-------------------|--------|
-| **Insert** | O(log N) | O(log N) avg, O(N) worst | O(log N) |
-| **Delete** | O(log N) | O(log N) avg, O(N) worst | O(log N) |
-| **Best Price** | O(1) cached | O(log N) | O(log N) |
-| **Balance** | Self-balancing | Manual rebalancing | Auto |
+- O(log N) insert/delete
+- O(1) best bid/ask (tree root or leftmost/rightmost)
+- Self-balancing (no worst-case O(N) like BST)
+- Better cache locality than AVL tree
 
-**Cache Locality:** Red-Black Tree better than B-Tree for in-memory (no disk I/O).
+**Why Linked List at each price level?**
 
-*Implementation: [pseudocode.md::insert_order()](pseudocode.md)*
+- Time priority: First order at price level executes first (FIFO)
+- O(1) append to end
+- O(1) remove from front
+
+*See [pseudocode.md::insert_order()](pseudocode.md) for implementation.*
 
 ---
 
-## Matching Algorithm (Price-Time Priority)
+## 5. Matching Algorithm (Price-Time Priority)
 
-### Matching Rules
+### 5.1 Matching Rules
 
-**1. Price Priority:** Best price executes first
+**Price Priority:**
+
 - Buy orders: Highest price first
 - Sell orders: Lowest price first
 
-**2. Time Priority:** Within same price level, FIFO
-- Order 1 at $100.50 executes before Order 2 at $100.50
+**Time Priority:**
 
-**Example Matching:**
+- Within same price level: FIFO (first-in-first-out)
 
-```
-Initial Order Book:
-BID (Buy)          │  ASK (Sell)
-$100.50 → [O1=100] │  $100.52 → [O5=200]
-$100.49 → [O2=200] │  $100.53 → [O6=700]
-
-Incoming: Market SELL 150 shares
-
-Step 1: Match against best bid ($100.50, O1=100 shares)
-  → Execute 100 shares at $100.50
-  → O1 fully filled (remove from book)
-  → Remaining: 50 shares
-
-Step 2: New best bid = $100.49 (O2=200 shares)
-  → Execute 50 shares at $100.49
-  → O2 partially filled (150 shares remain)
-  → Remaining: 0 shares
-
-Result:
-  - Executed: 100 @ $100.50, 50 @ $100.49
-  - New order book: BID $100.49 → [O2=150], ...
-```
-
-### Latency Breakdown
+**Example:**
 
 ```
-Microsecond Accounting (100μs total):
+Order Book:
+BID (Buy)          |  ASK (Sell)
+$100.50 → [O1]     |  $100.52 → [O5]
+$100.49 → [O2, O3] |  $100.53 → [O6, O7]
 
-1. Tree traversal (best bid/ask):        10 cycles = 3ns
-2. Match loop (check 3 orders):          150 cycles = 50ns
-3. Update order book (remove O1):        100 cycles = 33ns
-4. Hash map update (order lookup):       50 cycles = 17ns
-5. Generate execution events (2):        200 cycles = 67ns
-6. Ring buffer enqueue (audit log):      100 cycles = 33ns
-7. Market data publish (Kafka):          300 cycles = 100ns
-                                         ─────────────────
-Total matching engine:                   910 cycles = 303ns
+Incoming: Market SELL 100 shares
 
-Remaining budget: 100μs - 0.3μs = 99.7μs (network, gateway, etc.)
+Matching:
+1. Best bid = $100.50 (O1)
+2. Execute: O1 buys 100 shares at $100.50
+3. Remove O1 from book (fully filled)
+4. New best bid = $100.49 (O2)
 ```
 
-*Implementation: [pseudocode.md::match_order()](pseudocode.md)*
+### 5.2 Matching Flow
+
+```
+1. Incoming Order: SELL 500 shares @ $100.48 (aggressive limit)
+2. Check best bid: $100.50 (higher than ask price → can match!)
+3. Execute against O1 (100 shares @ $100.50)
+4. Remaining: 400 shares
+5. Check next best bid: $100.49 (O2 has 200 shares)
+6. Execute against O2 (200 shares @ $100.49)
+7. Remaining: 200 shares
+8. Check next best bid: $100.49 (O3 has 300 shares)
+9. Execute against O3 (200 shares @ $100.49)
+10. Fully filled! (O1 removed, O2 removed, O3 has 100 shares left)
+```
+
+**Latency Breakdown:**
+
+- Step 1-2: Tree traversal: 10 CPU cycles
+- Step 3-10: Matching loop: 50 CPU cycles per match (×3 = 150 cycles)
+- Total: 160 CPU cycles = **53 nanoseconds** at 3 GHz
+
+*See [pseudocode.md::match_order()](pseudocode.md) for implementation.*
 
 ---
 
-## Durability (Write-Ahead Log)
+## 6. Durability and Fault Tolerance (Audit Log)
 
-### Problem
+### 6.1 Write-Ahead Log (WAL)
 
-In-memory order book is volatile (lost on crash). Need 100% durability for audit and recovery.
+**Problem:** In-memory order book volatile (lost on crash). Need durability.
 
-### Solution: Audit Log (WAL)
+**Solution:** Append-only audit log persists all events before processing.
+
+**Audit Log Structure:**
 
 ```
 LogEntry {
-  sequence_number: u64,    // Monotonic
-  timestamp: u64,          // Nanoseconds
-  event_type: u8,          // 0=ORDER, 1=EXECUTION, 2=CANCEL
-  payload: [u8; 256],      // Serialized data
-  checksum: u32            // CRC32
+  sequence_number: u64,    // Monotonic counter
+  timestamp: u64,          // Nanosecond precision
+  event_type: u8,          // 0 = ORDER, 1 = EXECUTION, 2 = CANCEL
+  payload: [u8; 256]       // Serialized event data
+  checksum: u32            // CRC32 for integrity
 }
 
 Size: 272 bytes per entry
-Rate: 1M entries/sec
-Throughput: 272 MB/sec
-Storage: NVMe SSD (3 GB/sec write → no bottleneck)
+Throughput: 1M entries/sec × 272 bytes = 272 MB/sec
+Storage: NVMe SSD (3 GB/sec write bandwidth → no bottleneck)
 ```
 
-### Async Write Strategy
+**Async Write Strategy:**
 
 ```
-Synchronous (SLOW):
-  Order → Match → fsync(audit_log) → Return
-  Latency: 10-50μs disk write (blocks matching!)
-
-Asynchronous (FAST):
-  Order → Match → async_write(audit_log) → Return
-  Latency: 100ns (just copy to ring buffer)
-  
-Trade-off: Risk losing last 1-10ms if crash before flush
+1. Order received → Copy to ring buffer (in-memory)
+2. Matching engine processes order (matching, execution)
+3. Async thread writes to audit log (batched writes)
+4. If crash: Replay audit log from last checkpoint
 ```
+
+**Why Async?**
+
+- Synchronous write: 10-50μs latency (too slow!)
+- Async write: 0.1μs latency (just copy to buffer)
+- Trade-off: Risk of losing last 1-10ms of data if crash before flush
 
 **Mitigation: Battery-Backed Write Cache**
+
 - NVMe SSD with capacitor backup
-- Guarantees persistence on power loss
-- Cost: +$500 per drive
+- Guarantees writes persisted even on power loss
+- Cost: $500-$1000 per drive
 
-### Crash Recovery
+*See [pseudocode.md::write_audit_log()](pseudocode.md) for implementation.*
+
+### 6.2 Crash Recovery
 
 ```
-1. Read audit log from disk (sequential)
-   - 1M orders × 272 bytes = 272 MB
-   - Read time: 272 MB ÷ 3 GB/sec = 90ms
-
-2. Replay log (rebuild order book)
-   - Process: 1M orders × 1μs = 1 second
-
-Total downtime: ~1 second
+1. Read audit log from disk (sequential read: fast)
+2. Replay all ORDER events → Rebuild order book
+3. Replay all EXECUTION events → Update order states
+4. Rebuild in-memory structures (order book, hash map)
+5. Resume normal operation
 ```
 
-*Implementation: [pseudocode.md::replay_audit_log()](pseudocode.md)*
+**Recovery Time:**
+
+- 1M orders in log: 272 MB
+- Sequential read: 3 GB/sec → 90ms read time
+- Replay processing: 1M orders × 1μs = 1 second
+- **Total: ~1 second downtime**
 
 ---
 
-## Market Data Feed (Real-Time Broadcast)
+## 7. Market Data Feed (Real-Time Broadcast)
 
-### Market Data Levels
+### 7.1 Market Data Levels
 
 **Level 1 (Top-of-Book):**
+
 ```json
 {
   "symbol": "AAPL",
   "best_bid": 100.50,
+  "best_bid_size": 100,
   "best_ask": 100.52,
-  "last_trade": 100.51,
+  "best_ask_size": 200,
+  "last_trade_price": 100.51,
   "timestamp": 1640000000000001
 }
 ```
 
 **Level 2 (Full Depth):**
+
 ```json
 {
+  "symbol": "AAPL",
   "bids": [
-    {"price": 100.50, "qty": 100},
-    {"price": 100.49, "qty": 500}
+    {
+      "price": 100.50,
+      "quantity": 100
+    },
+    {
+      "price": 100.49,
+      "quantity": 500
+    },
+    {
+      "price": 100.48,
+      "quantity": 200
+    }
   ],
   "asks": [
-    {"price": 100.52, "qty": 200}
+    {
+      "price": 100.52,
+      "quantity": 200
+    },
+    {
+      "price": 100.53,
+      "quantity": 700
+    }
   ]
 }
 ```
 
-### Broadcast Architecture
+**Level 3 (Order-by-Order):**
 
-```
-Matching Engine → Kafka (100K msg/sec)
-                     ↓
-     ┌───────────────┼───────────────┐
-     ▼               ▼               ▼
-WS Server 1    WS Server 2    WS Server N
-(333K clients) (333K clients) (333K clients)
-
-Per-client rate: 100K msg/sec ÷ 1M clients = 0.1 msg/sec
-```
-
-**Optimization: Conflation**
-
-```
-Raw updates (within 10ms):
-  $100.50 → $100.51 → $100.52 → $100.50
-
-Conflated (send only last):
-  $100.50
-
-Reduction: 10× fewer messages
+```json
+{
+  "order_id": 12345,
+  "symbol": "AAPL",
+  "side": "BUY",
+  "price": 100.50,
+  "quantity": 100,
+  "timestamp": 1640000000000001
+}
 ```
 
-**Protocol: Protocol Buffers (Not JSON)**
+### 7.2 Broadcast Strategy
 
-| Format | Size | Encoding Latency |
-|--------|------|-----------------|
-| JSON | 48 bytes | 5μs |
-| ProtoBuf | 16 bytes | 0.5μs |
-| **Reduction** | **3× smaller** | **10× faster** |
+**WebSocket Fanout:**
+
+```
+Matching Engine → Kafka Topic → Market Data Service → WebSocket Server → Clients
+
+Kafka:
+  - Topic: market-data-feed
+  - Partitions: 100 (shard by symbol)
+  - Throughput: 100K messages/sec
+
+Market Data Service:
+  - Subscribe to Kafka
+  - Filter by subscription (clients choose symbols)
+  - Broadcast via WebSocket
+
+WebSocket Server:
+  - 1M concurrent connections
+  - 100K updates/sec broadcast
+  - Compression: Protocol Buffers (10× smaller than JSON)
+```
+
+**Latency:**
+
+- Matching Engine → Kafka: 100μs
+- Kafka → Market Data Service: 500μs
+- Market Data Service → Client: 500μs
+- **Total: 1.1ms** (acceptable for most traders)
+
+**HFT Requirement:**
+
+- High-Frequency Traders need <10μs
+- Solution: Direct feed from matching engine (bypass Kafka)
+- Co-location: HFT servers in same datacenter as exchange
 
 ---
 
-## Single-Threaded Design (LMAX Disruptor)
+## 8. Single-Threaded vs Multi-Threaded Design
 
-### Why NOT Multi-Threaded?
+### 8.1 Why Single-Threaded?
 
-**Multi-Threaded Problems:**
+**Multi-Threaded Challenges:**
 
 ```
-Thread 1: Lock order book → Match → Unlock
-Thread 2: Wait for lock → Match
+Thread 1: Process BUY order → Lock order book → Match → Unlock
+Thread 2: Process SELL order → Wait for lock → Match → Unlock
 
 Lock overhead:
-- Mutex acquire/release: 50-100 cycles
-- Cache line ping-pong: 100-500 cycles
+- Mutex acquire/release: 50-100 CPU cycles
+- Cache line contention: 100-500 cycles
 - Context switch: 1000-10000 cycles
 
-Result: 10-50μs latency (50× slower!)
+Result: 10-50μs latency per order (too slow!)
 ```
 
 **Single-Threaded Benefits:**
 
 ```
-✅ No locks (no concurrent access)
-✅ No cache coherency issues
-✅ No context switches
-✅ Predictable latency: <1μs
+Single thread: Process orders sequentially
+- No locks needed (no concurrent access)
+- No cache line ping-pong (all data in L1 cache)
+- No context switches
+- Predictable latency: 0.1-1μs per order
 
-Trade-off: Limited to ~1-2M orders/sec (single core)
+Result: <100μs end-to-end (10-100× faster!)
 ```
 
-### Scaling: Shard by Symbol
+**Trade-off:**
 
-```
-Symbol AAPL → Matching Engine 1 (CPU core 0)
-Symbol GOOG → Matching Engine 2 (CPU core 1)
-Symbol MSFT → Matching Engine 3 (CPU core 2)
-...
+- Single-threaded limits throughput to ~1-2M orders/sec (single CPU core)
+- Scaling: Deploy separate matching engine per symbol (AAPL engine, GOOG engine, etc.)
 
-Total: 10K symbols × 1M orders/sec = 10B orders/sec capacity
-```
+### 8.2 LMAX Disruptor Pattern
 
-### Ring Buffer (Lock-Free Queue)
+**Ring Buffer (Lock-Free Queue):**
 
 ```
 Producer (Gateway) → Ring Buffer → Consumer (Matching Engine)
 
-Structure:
+Ring Buffer:
   - Pre-allocated array (1M slots)
-  - Write index (atomic CAS)
-  - Read index (atomic CAS)
-  - Cache line aligned (no false sharing)
+  - Single producer, single consumer (no locks!)
+  - Write: Increment write index (atomic CAS)
+  - Read: Increment read index (atomic CAS)
+  - Latency: <100 nanoseconds
 
-Latency: <100 nanoseconds
+Key: CPU cache line alignment (64 bytes)
+- Write index: cache line 0
+- Read index: cache line 1
+- Data slots: cache lines 2-N
+- No false sharing!
 ```
 
-*Implementation: [pseudocode.md::ring_buffer_enqueue()](pseudocode.md)*
+*See [pseudocode.md::ring_buffer_enqueue()](pseudocode.md) for implementation.*
 
 ---
 
-## Low-Latency Optimizations
+## 9. Low-Latency Optimizations
 
-### 1. Kernel Bypass Networking (DPDK)
+### 9.1 Kernel Bypass Networking (DPDK)
 
-**Traditional Stack:**
+**Problem:** Linux kernel network stack adds 10-50μs latency.
+
+**Solution:** DPDK (Data Plane Development Kit)
+
 ```
-Packet → NIC → Kernel → Network Stack → Application
-Latency: 10-50μs
-```
+Traditional:
+  Packet → NIC → Kernel → Network Stack → Application
+  Latency: 10-50μs
 
-**DPDK (Kernel Bypass):**
-```
-Packet → NIC → Application (direct memory access)
-Latency: 1-5μs
+DPDK (Kernel Bypass):
+  Packet → NIC → Application (direct memory access)
+  Latency: 1-5μs
 
-How:
-- Poll NIC (no interrupts)
+How it works:
+- Poll NIC directly (no interrupts)
 - Zero-copy (no kernel buffer)
 - Huge pages (reduce TLB misses)
 ```
 
-**Trade-off:** Dedicated CPU cores (100% utilization)
+**Trade-off:**
 
-### 2. CPU Affinity (NUMA)
+- Requires dedicated CPU cores (100% utilization)
+- Complex programming model
+- Not portable (tied to specific NICs)
+
+### 9.2 CPU Affinity and NUMA
+
+**CPU Pinning:**
 
 ```bash
 # Pin matching engine to CPU core 0
 taskset -c 0 ./matching_engine
 
-# Allocate memory on same NUMA node
-numactl --cpunodebind=0 --membind=0 ./matching_engine
+# Disable hyperthreading (avoid sharing L1 cache)
+echo 0 > /sys/devices/system/cpu/cpu1/online
 ```
 
-**NUMA Benefit:** 30% latency reduction (local RAM vs remote RAM)
+**NUMA (Non-Uniform Memory Access):**
 
-### 3. Cache Line Alignment
+```
+Server: 2 CPU sockets
+Socket 0: CPUs 0-15, Local RAM (faster access)
+Socket 1: CPUs 16-31, Remote RAM (slower access)
+
+Optimization:
+- Allocate matching engine data on local RAM
+- Pin thread to CPU on same socket
+- Result: 30% latency reduction
+```
+
+### 9.3 Cache Optimization
+
+**Cache Line Alignment:**
 
 ```cpp
 struct Order {
   u64 order_id;
+  u32 user_id;
   // ... 56 more bytes ...
 } __attribute__((aligned(64)));  // 64-byte cache line
 
-Why? CPU fetches 64 bytes at once (entire cache line)
-If struct spans 2 cache lines → 2× memory reads
+Why?
+- CPU fetches entire cache line (64 bytes)
+- If struct spans 2 cache lines → 2× memory reads
+- Alignment ensures single cache line fetch
 ```
 
-### 4. Object Pool (Avoid malloc)
+**Prefetching:**
 
-```
-malloc/free: 50-500ns latency
-
-Object Pool:
-- Pre-allocate 10M Order objects
-- Free list: Linked list
-- Allocate: Pop from list (O(1))
-- Latency: 5-10ns (10× faster!)
+```cpp
+// Tell CPU to prefetch next order (hide memory latency)
+__builtin_prefetch(next_order, 0, 3);
+process_order(current_order);
 ```
 
-*Implementation: [pseudocode.md::object_pool_allocate()](pseudocode.md)*
+### 9.4 Avoid Memory Allocation
+
+**Problem:** malloc/free adds 50-500 nanoseconds latency.
+
+**Solution: Object Pool**
+
+```
+Pre-allocate 10M Order objects at startup
+- Pool: Array of Orders
+- Free list: Linked list of available slots
+- Allocate: Pop from free list (O(1))
+- Deallocate: Push to free list (O(1))
+- Latency: 5-10 nanoseconds
+```
+
+*See [pseudocode.md::object_pool_allocate()](pseudocode.md) for implementation.*
 
 ---
 
-## Bottlenecks and Solutions
+## 10. Bottlenecks and Scaling Strategies
 
 ### Bottleneck 1: Single-Core CPU Limit
 
-**Problem:** 1-2M orders/sec max on single core
+**Problem:** Single-threaded engine maxes out at 1-2M orders/sec (one CPU core).
 
-**Solution:** Shard by symbol (10K engines = 10B orders/sec)
+**Solution: Shard by Symbol**
+
+```
+Symbol: AAPL → Matching Engine 1 (CPU core 0)
+Symbol: GOOG → Matching Engine 2 (CPU core 1)
+Symbol: MSFT → Matching Engine 3 (CPU core 2)
+...
+
+Result: 10K symbols × 1M orders/sec each = 10B orders/sec total capacity
+```
+
+**Cross-Symbol Orders:**
+
+- Rare: <1% of orders span multiple symbols
+- Handle via inter-engine communication (slow path)
 
 ### Bottleneck 2: Audit Log Disk I/O
 
-**Problem:** 1M orders/sec × 272 bytes = 272 MB/sec
+**Problem:** 1M orders/sec × 272 bytes = 272 MB/sec disk writes.
 
-**Solution:** Batch writes (1000 orders → 1 syscall)
-- Reduction: 1000× fewer syscalls
-- Trade-off: Larger crash window (10ms)
+**Solution: Batch Writes**
+
+```
+Instead of: Write every order individually (1M syscalls/sec)
+Use: Batch 1000 orders, write once (1K syscalls/sec)
+
+Batch size: 1000 orders × 272 bytes = 272 KB
+Write latency: 272 KB / 3 GB/sec = 90μs
+Syscall overhead reduction: 1000× faster
+```
+
+**Trade-off:** Increased crash window (lose last 1-10ms of orders).
+
+**Mitigation:** Battery-backed write cache (persist to NVMe capacitor).
 
 ### Bottleneck 3: Market Data Broadcast
 
-**Problem:** 100K updates/sec × 1M clients = 100B messages/sec
+**Problem:** 100K updates/sec × 1M clients = 100B messages/sec.
 
-**Solution:** Hierarchical fanout + conflation
-- Kafka → 100 WS servers (10K clients each)
-- Conflate: 10× reduction (send only last price)
+**Solution: Hierarchical Fanout**
+
+```
+Matching Engine → Kafka (100K msg/sec)
+                     ↓
+       ┌─────────────┼─────────────┐
+       ▼             ▼             ▼
+  WS Server 1   WS Server 2   WS Server N
+  (333K clients) (333K clients) (333K clients)
+
+Each WS server: 100K msg/sec ÷ 333K clients = 0.3 msg/sec/client (manageable)
+```
+
+**Further Optimization: Conflation**
+
+```
+Updates within 10ms window:
+  - $100.50 → $100.51 → $100.52 → $100.50
+
+Conflated (send only last):
+  - $100.50
+
+Result: 10× reduction in messages (10 updates/100ms → 1 update/100ms)
+```
 
 ---
 
-## Common Anti-Patterns
+## 11. Common Anti-Patterns
 
-### ❌ Anti-Pattern 1: Float for Prices
+### ❌ Anti-Pattern 1: Using Floating-Point for Prices
 
 **Problem:**
+
 ```cpp
 double price = 100.50;
-double total = price * 1000;  // 100500.0000000001 (error!)
+double quantity = 1000.0;
+double total = price * quantity;  // 100500.0000000001 (rounding error!)
 ```
 
-**✅ Solution:** Fixed-point integers
+**Impact:** Financial errors, audit failures, regulatory fines.
+
+**✅ Best Practice:** Use fixed-point integers.
+
 ```cpp
 u64 price_cents = 10050;  // $100.50 = 10050 cents
-u64 total = price_cents * 1000;  // 10050000 (exact!)
+u32 quantity = 1000;
+u64 total_cents = price_cents * quantity;  // 10050000 cents = $100,500.00 (exact!)
 ```
 
 ---
 
-### ❌ Anti-Pattern 2: Multi-Threaded with Locks
+### ❌ Anti-Pattern 2: Multi-Threaded Order Book with Locks
 
-**Problem:** Lock overhead 50-100μs (too slow!)
+**Problem:**
 
-**✅ Solution:** Single-threaded + lock-free ring buffer
+```cpp
+std::mutex order_book_lock;
 
----
+void process_order(Order order) {
+  std::lock_guard<std::mutex> lock(order_book_lock);  // 50-100μs overhead!
+  match_order(order);
+}
+```
 
-### ❌ Anti-Pattern 3: Sync Audit Log
+**Impact:** 50-100μs latency per order (500× slower than target).
 
-**Problem:** fsync() blocks matching engine (10-50μs)
-
-**✅ Solution:** Async writes with battery-backed cache
-
----
-
-### ❌ Anti-Pattern 4: JSON Market Data
-
-**Problem:** 48 bytes, 5μs encoding latency
-
-**✅ Solution:** Protocol Buffers (16 bytes, 0.5μs)
+**✅ Best Practice:** Single-threaded matching engine + lock-free ring buffer.
 
 ---
 
-## Alternative Approaches
+### ❌ Anti-Pattern 3: Synchronous Audit Log Writes
 
-### Alternative 1: Multi-Threaded + Locks
+**Problem:**
 
-| Factor | Single-Threaded (Chosen) | Multi-Threaded |
-|--------|----------------------|---------------|
-| Latency | ✅ <100μs | ❌ 1-10ms |
-| Throughput | ⚠️ 1-2M/sec | ✅ 5-10M/sec |
-| Complexity | ✅ Simple | ❌ Complex |
+```cpp
+void process_order(Order order) {
+  match_order(order);
+  fsync(audit_log_fd);  // 10-50μs disk write! (blocks matching engine)
+}
+```
 
-**When to Use:** Higher throughput priority, 1-10ms latency OK
+**Impact:** Disk I/O blocks matching engine, latency spikes to milliseconds.
 
----
+**✅ Best Practice:** Async audit log writes with batching.
 
-### Alternative 2: Cloud-Based (AWS/GCP)
-
-| Factor | On-Premise (Chosen) | Cloud |
-|--------|------------------|-------|
-| Latency | ✅ <100μs | ❌ 500μs-5ms |
-| Cost | ✅ $100K capex | ⚠️ $50K/month |
-| Control | ✅ Full hardware | ❌ Limited |
-
-**When to Use:** Crypto exchanges (5-50ms OK), no capex budget
+```cpp
+void process_order(Order order) {
+  match_order(order);
+  async_write_to_audit_log(order);  // Non-blocking (100ns)
+}
+```
 
 ---
 
-### Alternative 3: FPGA/ASIC Acceleration
+### ❌ Anti-Pattern 4: JSON for Market Data Feed
 
-**Example: CME Group**
-- Hardware matching engine (FPGA)
-- Sub-10μs latency
-- Cost: $500K-$1M per system
+**Problem:**
 
-**When to Use:** Ultra-HFT (high-frequency trading), willing to pay premium
+```json
+{
+  "symbol": "AAPL",
+  "price": 100.50,
+  "quantity": 100
+}
+```
+
+- Size: 48 bytes (after minification)
+- Encoding latency: 1-5μs per message
+- 100K msg/sec × 5μs = 500ms total CPU time (one core!)
+
+**✅ Best Practice:** Protocol Buffers or FlatBuffers.
+
+```protobuf
+message Trade {
+  uint32 symbol = 1;  // 4 bytes (encoded as int)
+  uint64 price = 2;   // 8 bytes
+  uint32 quantity = 3; // 4 bytes
+}
+```
+
+- Size: 16 bytes (3× smaller)
+- Encoding latency: 0.1-0.5μs per message (10× faster)
 
 ---
 
-## Monitoring and Observability
+## 12. Alternative Approaches
 
-| Metric | Target | Alert |
-|--------|--------|-------|
-| **Matching Latency (p50)** | <50μs | >100μs |
-| **Matching Latency (p99)** | <100μs | >500μs |
-| **Audit Log Lag** | <10ms | >100ms |
-| **Market Data Lag** | <1ms | >10ms |
-| **Order Reject Rate** | <0.1% | >1% |
+### Alternative 1: Multi-Threaded with Fine-Grained Locks
 
-**Tracing:**
+**Why NOT Chosen:**
+
+| Factor          | Single-Threaded (Chosen)         | Multi-Threaded + Locks                |
+|-----------------|----------------------------------|---------------------------------------|
+| **Latency**     | ✅ <100μs (no locks)              | ❌ 1-10ms (lock contention)            |
+| **Throughput**  | ⚠️ 1-2M orders/sec (single core) | ✅ 5-10M orders/sec (multi-core)       |
+| **Complexity**  | ✅ Simple (no race conditions)    | ❌ Complex (deadlocks, races)          |
+| **Determinism** | ✅ Predictable (sequential)       | ❌ Non-deterministic (race conditions) |
+
+**When to Use Multi-Threaded:**
+
+- Lower latency requirement (1-10ms acceptable)
+- Higher throughput priority (>10M orders/sec)
+- Willing to accept complexity
+
+### Alternative 2: Distributed Matching Engine (Sharded by Price)
+
+**Architecture:**
+
+```
+Price $100.00-$100.50 → Engine 1
+Price $100.51-$101.00 → Engine 2
+Price $101.01-$101.50 → Engine 3
+```
+
+**Why NOT Chosen:**
+
+**Problem:** Cross-price matching requires coordination.
+
+```
+Order: BUY @ $101.00 (spans Engine 1 and Engine 2)
+  → Requires 2PC (Two-Phase Commit)
+  → Adds 1-10ms latency
+```
+
+**When to Use:**
+
+- Extremely high throughput (>100M orders/sec)
+- Price ranges rarely overlap (e.g., options trading)
+
+### Alternative 3: Cloud-Based Matching Engine
+
+**Why NOT Chosen:**
+
+| Factor      | On-Premise (Chosen)           | Cloud (AWS, GCP)           |
+|-------------|-------------------------------|----------------------------|
+| **Latency** | ✅ <100μs (dedicated hardware) | ❌ 500μs-5ms (multi-tenant) |
+| **Network** | ✅ Kernel bypass (DPDK)        | ❌ Standard networking      |
+| **Cost**    | ✅ $100K capex (one-time)      | ⚠️ $50K/month (ongoing)    |
+| **Control** | ✅ Full hardware control       | ❌ Limited control          |
+
+**When to Use Cloud:**
+
+- Non-latency-critical (crypto exchanges: 5-50ms OK)
+- Lower upfront cost (no capex)
+- Rapid scaling (add instances)
+
+---
+
+## 13. Monitoring and Observability
+
+### 13.1 Key Metrics
+
+| Metric                       | Target | Alert Threshold | Action                     |
+|------------------------------|--------|-----------------|----------------------------|
+| **Matching Latency (p50)**   | <50μs  | >100μs          | Investigate hot order book |
+| **Matching Latency (p99)**   | <100μs | >500μs          | Check CPU load, memory     |
+| **Matching Latency (p99.9)** | <1ms   | >5ms            | Restart matching engine    |
+| **Order Reject Rate**        | <0.1%  | >1%             | Check validation logic     |
+| **Execution Rate**           | 10%    | <5% or >20%     | Market anomaly detection   |
+| **Audit Log Lag**            | <10ms  | >100ms          | Disk I/O bottleneck        |
+| **Market Data Lag**          | <1ms   | >10ms           | Network congestion         |
+
+### 13.2 Distributed Tracing
+
+**Per-Order Trace:**
 
 ```
 Order ID: 12345
-  0μs: Gateway receive
-  5μs: Ring buffer enqueue
- 10μs: Matching engine dequeue
- 50μs: Match complete
- 60μs: Audit log (async)
-100μs: Market data published
+Timestamp 0μs:    Order received at gateway
+Timestamp 5μs:    Written to ring buffer
+Timestamp 10μs:   Dequeued by matching engine
+Timestamp 50μs:   Matching complete (executed)
+Timestamp 60μs:   Audit log written (async)
+Timestamp 100μs:  Market data published
 
-Bottleneck: Matching (40μs)
+Total: 100μs end-to-end
+Breakdown:
+  - Gateway: 5μs
+  - Ring buffer: 5μs
+  - Matching: 40μs ← Bottleneck
+  - Audit log: 10μs
+  - Market data: 40μs
+```
+
+**Tools:**
+
+- Custom instrumentation (RDTSC CPU cycle counter)
+- Low-overhead logging (circular buffer in shared memory)
+- Post-mortem analysis (replay audit log with tracing)
+
+---
+
+## 14. Real-World Examples
+
+### 15.1 NASDAQ (US Stock Exchange)
+
+**Scale:**
+
+- 4M messages/sec peak
+- 10,000 symbols
+- 10B shares/day
+- $20 trillion market cap
+
+**Architecture:**
+
+- Single-threaded matching engine (INET system)
+- Kernel bypass networking (Solarflare NICs)
+- Order book: Custom C++ implementation
+- Latency: <50μs matching, <500μs end-to-end
+
+**Innovations:**
+
+- Dynamic order types (pegged orders, hidden orders)
+- Halt/resume trading (circuit breakers)
+- Multi-tier market data (Level 1, 2, 3)
+
+### 15.2 CME Group (Futures Exchange)
+
+**Scale:**
+
+- 5M messages/sec peak
+- 100,000+ contracts
+- 3B contracts/day
+- $1 quadrillion notional value
+
+**Architecture:**
+
+- CME Globex platform (C++)
+- FPGA-accelerated matching (hardware acceleration)
+- Order book: ASIC custom chip
+- Latency: <10μs matching (hardware), <50μs end-to-end
+
+**Unique Features:**
+
+- Hardware matching engine (FPGA/ASIC)
+- Sub-10μs latency (fastest in industry)
+- 24/7 trading (futures never close)
+
+### 15.3 Coinbase (Crypto Exchange)
+
+**Scale:**
+
+- 15K orders/sec (lower than traditional)
+- 500 trading pairs
+- 100M users
+
+**Architecture:**
+
+- Multi-threaded matching engine (Golang)
+- Cloud-based (AWS, GCP)
+- Order book: PostgreSQL (!) + Redis cache
+- Latency: 5-50ms (acceptable for crypto)
+
+**Why Different:**
+
+- Lower latency requirements (crypto traders less sensitive)
+- Cloud-first (scalability over latency)
+- Retail focus (not institutional HFT)
+
+---
+
+## 15. Interview Discussion Points
+
+### Q1: Why not use a database for the order book?
+
+**Answer:**
+
+**Database (PostgreSQL):**
+
+- Disk-based: 1-10ms latency per query
+- ACID overhead: Row locks, WAL writes
+- Network overhead: TCP round-trip
+
+**In-Memory Order Book:**
+
+- RAM-based: <1μs latency
+- No locks (single-threaded)
+- No network (same process)
+
+**When Database is Acceptable:**
+
+- Non-latency-critical (>10ms OK)
+- Need ACID across multiple tables
+- Complex queries (joins, aggregations)
+
+---
+
+### Q2: How do you handle a flash crash?
+
+**Answer:**
+
+**Circuit Breakers:**
+
+```
+If price moves >10% in 5 minutes:
+  1. Halt trading (reject all orders)
+  2. Notify exchanges, regulators
+  3. Manual review (30-60 minutes)
+  4. Resume trading
+
+Implementation:
+  - Monitor last_trade_price every 1 second
+  - Compare to VWAP (volume-weighted average price)
+  - If delta > 10%: Trigger halt
+```
+
+**Kill Switch:**
+
+```
+Operator command: HALT_ALL_TRADING
+  - Stop accepting new orders
+  - Cancel all open orders
+  - Preserve audit log
+  - Notify clients
+
+Resume: Manually restart matching engines
 ```
 
 ---
 
-## Cost Analysis
+### Q3: What if matching engine crashes?
 
-### Hardware Costs
+**Answer:**
 
-| Component | Spec | Cost |
-|-----------|------|------|
-| CPU | Intel Xeon Gold 6348 (28 cores) | $4,000 |
-| RAM | 256 GB DDR4-3200 ECC | $2,000 |
-| Storage | 2× NVMe SSD 1TB (battery-backed) | $1,000 |
-| NIC | Mellanox ConnectX-6 (100 Gbps, DPDK) | $2,000 |
-| Motherboard | Dual-socket, PCIe 4.0 | $1,000 |
-| **Total per server** | | **$10,000** |
+**Crash Recovery:**
 
-**Cluster:**
+1. **Detect Crash:** Heartbeat monitor (1-second timeout)
+2. **Failover:** Backup matching engine takes over (hot standby)
+3. **Replay Audit Log:** Rebuild order book from WAL
+4. **Resume Trading:** ~1 second downtime
 
-| Component | Quantity | Total |
-|-----------|----------|-------|
-| Matching Engines | 100 servers | $1,000,000 |
-| Gateway Servers | 20 servers | $200,000 |
-| Market Data Servers | 50 servers | $500,000 |
-| **Total** | | **$1,700,000** |
+**Hot Standby:**
 
-### Operational Costs
+- Backup engine receives same audit log (async replication)
+- Maintains shadow order book (eventual consistency)
+- On crash: Promote backup to primary (<1 second)
 
-| Item | Annual |
-|------|--------|
-| Colocation | $500,000 |
-| Network | $200,000 |
-| Personnel (10 engineers) | $1,500,000 |
-| **Total** | **$2,200,000/year** |
+**Cold Start:**
 
-**Revenue:**
-- Trading fees: $0.001 per trade
-- 100K trades/sec × 86400 sec/day = 8.64B trades/day
-- Revenue: $8.64M/day = **$3.15B/year**
-
-**Profit:** $3.15B - $2.2M = **$3.148B/year** (99.93% margin!)
+- No backup: Replay audit log from scratch (10-60 seconds)
 
 ---
 
-## Real-World Examples
+## 16. Trade-offs Summary
 
-### NASDAQ (US Stock Exchange)
-
-- **Scale:** 4M messages/sec, 10K symbols
-- **Latency:** <50μs matching, <500μs end-to-end
-- **Architecture:** Single-threaded INET system, kernel bypass
-
-### CME Group (Futures)
-
-- **Scale:** 5M messages/sec, 100K contracts
-- **Latency:** <10μs (FPGA-accelerated)
-- **Architecture:** Hardware matching engine (ASIC)
-
-### Coinbase (Crypto)
-
-- **Scale:** 15K orders/sec, 500 pairs
-- **Latency:** 5-50ms (acceptable for crypto)
-- **Architecture:** Multi-threaded Golang, cloud-based
-
----
-
-## Interview Discussion Points
-
-### Q1: Why not use a database?
-
-**Database:** 1-10ms latency (disk I/O, locks)
-**In-Memory Order Book:** <1μs latency
-
-**When Database OK:** Non-latency-critical (>10ms acceptable)
-
----
-
-### Q2: Handle flash crash?
-
-**Circuit Breakers:**
-- If price moves >10% in 5 minutes: Halt trading
-- Manual review (30-60 min)
-- Resume after investigation
-
----
-
-### Q3: Matching engine crash?
-
-**Recovery:**
-1. Detect crash (1-second timeout)
-2. Failover to hot standby (<1 second)
-3. Replay audit log (1 second)
-4. Resume trading
-
-Total downtime: ~1 second
-
----
-
-## Trade-offs Summary
-
-| Gain | Sacrifice |
-|------|-----------|
-| ✅ Ultra-low latency (<100μs) | ❌ Single-core throughput limit |
-| ✅ Simple design (no locks) | ❌ Sharding required |
-| ✅ Deterministic execution | ⚠️ Custom hardware needed |
-| ✅ Strong consistency (ACID) | ❌ Eventual consistency (ledger) |
-| ✅ Financial correctness | ⚠️ High infrastructure cost |
+| What We Gain                                          | What We Sacrifice                                              |
+|-------------------------------------------------------|----------------------------------------------------------------|
+| ✅ **Ultra-low latency** (<100μs matching)             | ❌ **Single-core throughput limit** (1-2M orders/sec)           |
+| ✅ **Simple single-threaded design** (no locks)        | ❌ **Sharding required for scale** (separate engine per symbol) |
+| ✅ **Deterministic execution** (sequential processing) | ⚠️ **Custom hardware required** (kernel bypass, NVMe)          |
+| ✅ **Strong consistency** (ACID via audit log)         | ❌ **Eventual consistency for ledger** (async balance updates)  |
+| ✅ **Financial correctness** (no double-spending)      | ⚠️ **High infrastructure cost** ($1.7M capex, $2.2M/year opex) |
 
 **Best For:**
+
 - Institutional trading (HFT, market makers)
 - High-volume exchanges (NYSE, NASDAQ)
-- Latency-sensitive markets
+- Latency-sensitive markets (equities, futures)
 
 **NOT For:**
-- Retail platforms (latency less critical)
+
+- Retail-only platforms (latency less critical)
 - Low-volume markets (<1K orders/sec)
-- Cost-sensitive startups
+- Cost-sensitive startups (cloud alternatives cheaper)
 
 ---
 
-## References
+## 17. References
 
-### Academic Papers
-- [LMAX Disruptor Pattern](https://lmax-exchange.github.io/disruptor/) - Lock-free messaging
-- [Understanding Latency](https://people.eecs.berkeley.edu/~rcs/research/interactive_latency.html) - Jeff Dean's numbers
+### Related System Design Components
 
-### Related Chapters
-- [2.5.3 Distributed Locking](../../02-components/2.5-algorithms/2.5.3-distributed-locking.md)
-- [2.3.1 Asynchronous Communication](../../02-components/2.3-messaging-streaming/2.3.1-asynchronous-communication.md)
-- [2.0.3 Real-Time Communication](../../02-components/2.0-communication/2.0.3-real-time-communication.md)
+- **[2.5.3 Distributed Locking](../../02-components/2.5-algorithms/2.5.3-distributed-locking.md)** - Why single-threaded
+  avoids locks
+- **[2.3.1 Asynchronous Communication](../../02-components/2.3-messaging-streaming/2.3.1-asynchronous-communication.md)
+  ** - Audit log async writes
+- **[2.0.3 Real-Time Communication](../../02-components/2.0-communication/2.0.3-real-time-communication.md)** -
+  WebSocket market data
+- **[2.1.7 PostgreSQL Deep Dive](../../02-components/2.1-databases/2.1.7-postgresql-deep-dive.md)** - WAL (Write-Ahead
+  Log) patterns
+- **[2.3.2 Kafka Deep Dive](../../02-components/2.3.2-kafka-deep-dive.md)** - Market data feed distribution
 
-### Open Source
-- [Quickfix](https://github.com/quickfix/quickfix) - FIX protocol (C++)
-- [Disruptor](https://github.com/LMAX-Exchange/disruptor) - Ring buffer (Java)
-- [DPDK](https://www.dpdk.org/) - Kernel bypass framework
+### Related Design Challenges
+
+- **[3.4.4 Recommendation System](../3.4.4-recommendation-system/)** - Low-latency serving patterns
+- **[3.1.2 Distributed Cache](../3.1.2-distributed-cache/)** - In-memory data structures
+
+### External Resources
+
+- **LMAX Disruptor Pattern:** [Disruptor Documentation](https://lmax-exchange.github.io/disruptor/) - High-performance
+  inter-thread messaging
+- **Understanding Latency:
+  ** [Jeff Dean's Latency Numbers](https://people.eecs.berkeley.edu/~rcs/research/interactive_latency.html) - System
+  latency reference
+- **Matching Engine Design:** [Stanford EE380 Talk](https://web.stanford.edu/class/ee380/Abstracts/121017-slides.pdf) -
+  Exchange architecture
+- **Quickfix:** [FIX Protocol Implementation](https://github.com/quickfix/quickfix) - C++ FIX library
+- **Disruptor:** [Low-Latency Ring Buffer](https://github.com/LMAX-Exchange/disruptor) - Java ring buffer
+- **DPDK:** [Kernel Bypass Networking](https://www.dpdk.org/) - Data Plane Development Kit
 
 ### Books
-- "Trading and Exchanges" by Larry Harris
-- "Flash Boys" by Michael Lewis
-- "The Linux Programming Interface" by Michael Kerrisk
+
+- *Trading and Exchanges* by Larry Harris - Market microstructure and exchange design
+- *Flash Boys* by Michael Lewis - HFT and latency arbitrage
+- *The Linux Programming Interface* by Michael Kerrisk - Low-level system optimization
 

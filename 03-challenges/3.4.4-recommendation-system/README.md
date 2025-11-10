@@ -931,9 +931,14 @@ Training: Logistic regression (binary classification)
 
 ### External Resources
 
-- **Netflix Paper:** [Recommender Systems Handbook](https://www.springer.com/gp/book/9780387858197) - Comprehensive guide
-- **YouTube Paper:** [Deep Neural Networks for YouTube Recommendations](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/45530.pdf) - Two-tower model
-- **Amazon Paper:** [Item-to-Item Collaborative Filtering](https://www.cs.umd.edu/~samir/498/Amazon-Recommendations.pdf) - Collaborative filtering
+- **Netflix Paper:** [Recommender Systems Handbook](https://www.springer.com/gp/book/9780387858197) - Comprehensive
+  guide
+- **YouTube Paper:
+  ** [Deep Neural Networks for YouTube Recommendations](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/45530.pdf) -
+  Two-tower model
+- **Amazon Paper:
+  ** [Item-to-Item Collaborative Filtering](https://www.cs.umd.edu/~samir/498/Amazon-Recommendations.pdf) -
+  Collaborative filtering
 - **Apache Spark:** [MLlib Documentation](https://spark.apache.org/docs/latest/ml-guide.html) - Machine learning library
 - **Redis Documentation:** [Redis Data Structures](https://redis.io/docs/data-types/) - Feature store patterns
 
@@ -942,7 +947,3 @@ Training: Logistic regression (binary classification)
 - *Recommender Systems Handbook* by Francesco Ricci et al. - Comprehensive guide to recommendation algorithms
 - *Designing Machine Learning Systems* by Chip Huyen - ML system architecture and serving patterns
 - *Designing Data-Intensive Applications* by Martin Kleppmann - Lambda architecture and distributed systems
-
----
-
-This design provides a **production-ready, scalable blueprint** for building a recommendation system that serves personalized recommendations in <50ms while training on petabytes of historical data! 🚀
