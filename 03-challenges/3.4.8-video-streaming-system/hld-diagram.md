@@ -531,11 +531,10 @@ graph TB
     Debezium -.-> KafkaConnect
     KafkaConnect -.-> Elasticsearch
     APIGateway -->|6 . Response| Client
-    Redis -.->|Cache Entry:<br/>video:123<br/>title, cdn_urls<br/>720p, 1080p<br/>TTL: 3600s|Redis
-
-style Redis fill: #ff9999
-style Cassandra fill: #99ccff
-style VideoTable fill:#ffcc99
+    Redis -.->|Cache Entry:<br/>video:123<br/>title, cdn_urls<br/>720p, 1080p<br/>TTL: 3600s| Redis
+    style Redis fill: #ff9999
+    style Cassandra fill: #99ccff
+    style VideoTable fill: #ffcc99
 ```
 
 ---
@@ -568,44 +567,39 @@ Shows the search architecture with Elasticsearch powered by CDC from Cassandra.
 ```mermaid
 graph TB
     User[User Search<br/>funny cat videos]
-SearchUI[Search UI<br/>Web/Mobile]
+    SearchUI[Search UI<br/>Web/Mobile]
 
-subgraph Search_Service
-SearchAPI[Search API<br/>REST Endpoint]
-Elasticsearch[Elasticsearch Cluster<br/>10 Nodes, 1B Documents]
+    subgraph Search_Service
+        SearchAPI[Search API<br/>REST Endpoint]
+        Elasticsearch[Elasticsearch Cluster<br/>10 Nodes, 1B Documents]
 
-subgraph Index_Structure
-VideoIndex[videos Index<br/>Sharded by hash video_id<br/>Fields:<br/>- title text<br/>- description text<br/>- tags keyword<br/>- transcript text<br/>- views long<br/>- upload_date date<br/>- duration integer]
-end
-end
+        subgraph Index_Structure
+            VideoIndex[videos Index<br/>Sharded by hash video_id<br/>Fields:<br/>- title text<br/>- description text<br/>- tags keyword<br/>- transcript text<br/>- views long<br/>- upload_date date<br/>- duration integer]
+        end
+    end
 
-subgraph Data_Source
-Cassandra[Cassandra<br/>Video Metadata]
-CDC[Debezium CDC<br/>Change Capture]
-KafkaStream[Kafka Stream<br/>video-changes]
-ElasticsearchConnector[Elasticsearch Connector<br/>Index Updates]
-end
+    subgraph Data_Source
+        Cassandra[Cassandra<br/>Video Metadata]
+        CDC[Debezium CDC<br/>Change Capture]
+        KafkaStream[Kafka Stream<br/>video-changes]
+        ElasticsearchConnector[Elasticsearch Connector<br/>Index Updates]
+    end
 
-User -->|1. Search Query|SearchUI
-SearchUI -->|2. POST /search<br/>query: funny cat|SearchAPI
-
-SearchAPI -->|3 . Query ES|Elasticsearch
-Elasticsearch --> VideoIndex
-
-VideoIndex -->|4 . Match & Rank<br/> - Text Relevance BM25<br/> - Boost by views<br/> - Filter by date| Elasticsearch
-
-Elasticsearch -->|5 . Top 20 Results|SearchAPI
-SearchAPI -->|6 . Response|SearchUI
-SearchUI -->|7 . Display| User
-
-Cassandra -.->|Write video|CDC
-CDC -.->|Capture change|KafkaStream
-KafkaStream -.->|Stream event|ElasticsearchConnector
-ElasticsearchConnector -.->|Index/Update|Elasticsearch
-
-style Elasticsearch fill: #ffccff
-style VideoIndex fill: #ff9999
-style Cassandra fill: #99ccff
+    User -->|1 . Search Query| SearchUI
+    SearchUI -->|2 . POST /search<br/>query: funny cat| SearchAPI
+    SearchAPI -->|3 . Query ES| Elasticsearch
+    Elasticsearch --> VideoIndex
+    VideoIndex -->|4 . Match & Rank<br/> - Text Relevance BM25<br/> - Boost by views<br/> - Filter by date| Elasticsearch
+    Elasticsearch -->|5 . Top 20 Results| SearchAPI
+    SearchAPI -->|6 . Response| SearchUI
+    SearchUI -->|7 . Display| User
+    Cassandra -.->|Write video| CDC
+    CDC -.->|Capture change| KafkaStream
+    KafkaStream -.->|Stream event| ElasticsearchConnector
+    ElasticsearchConnector -.->|Index/Update| Elasticsearch
+    style Elasticsearch fill: #ffccff
+    style VideoIndex fill: #ff9999
+    style Cassandra fill: #99ccff
 ```
 
 ---
@@ -680,11 +674,10 @@ graph TB
     User -.->|Watch Event| KafkaEvents
     KafkaEvents -.-> SparkStreaming
     SparkStreaming -.->|Update Preferences| RedisCache
-    RedisCache -.->|Cache Entry:<br/>user:456:recs<br/>video_789 score:0.95<br/>video_123 score:0.87|RedisCache
-
-style RedisCache fill: #ff9999
-style Hybrid fill: #ffcc99
-style DataWarehouse fill: #99ccff
+    RedisCache -.->|Cache Entry:<br/>user:456:recs<br/>video_789 score:0 . 95<br/>video_123 score:0 . 87| RedisCache
+    style RedisCache fill: #ff9999
+    style Hybrid fill: #ffcc99
+    style DataWarehouse fill: #99ccff
 ```
 
 ---

@@ -1,6 +1,7 @@
 # Collaborative Editor - High-Level Design Diagrams
 
-This document contains high-level design diagrams for the Collaborative Editor system, including system architecture, data flow, conflict resolution, and scaling strategies.
+This document contains high-level design diagrams for the Collaborative Editor system, including system architecture,
+data flow, conflict resolution, and scaling strategies.
 
 ---
 
@@ -27,21 +28,25 @@ This document contains high-level design diagrams for the Collaborative Editor s
 
 **Flow Explanation:**
 
-This diagram shows the complete end-to-end architecture of the collaborative editor system, from client to persistence layer.
+This diagram shows the complete end-to-end architecture of the collaborative editor system, from client to persistence
+layer.
 
 **Layers:**
+
 1. **Client Layer**: Web browsers and mobile apps with WebSocket connections
 2. **Connection Layer**: Load balancer with sticky sessions and WebSocket server cluster
 3. **Processing Layer**: Kafka event stream and OT worker cluster for conflict resolution
 4. **Persistence Layer**: Event store (PostgreSQL), snapshots (Redis), cold storage (S3), metadata (PostgreSQL)
 
 **Key Design Decisions:**
+
 - WebSocket for bi-directional real-time communication (< 100ms latency)
 - Kafka for strict ordering guarantee (partitioned by document ID)
 - Event sourcing for complete version history
 - CQRS pattern (Redis snapshots) for fast reads
 
 **Performance:**
+
 - Edit propagation: < 100ms end-to-end
 - Document load: < 500ms from snapshot cache
 - Throughput: 1M+ events/sec
@@ -78,34 +83,26 @@ graph TB
     Browser1 --> LB
     Browser2 --> LB
     Mobile --> LB
-
     LB --> WS1
     LB --> WS2
     LB --> WSN
-
     WS1 --> Kafka
     WS2 --> Kafka
     WSN --> Kafka
-
     Kafka --> OT1
     Kafka --> OT2
     Kafka --> OTN
-
     OT1 --> EventStore
     OT2 --> EventStore
     OTN --> EventStore
-
     OT1 --> Snapshots
     OT2 --> Snapshots
     OTN --> Snapshots
-
     EventStore --> ColdStorage
     EventStore --> Metadata
-
     OT1 -.->|Broadcast transformed ops| WS1
     OT2 -.->|Broadcast transformed ops| WS2
     OTN -.->|Broadcast transformed ops| WSN
-
     WS1 -.->|Push to clients| Browser1
     WS2 -.->|Push to clients| Browser2
     WSN -.->|Push to clients| Mobile
@@ -120,6 +117,7 @@ graph TB
 This diagram illustrates the complete write and read flow for collaborative editing operations.
 
 **Write Path (User types character):**
+
 1. Client generates operation locally
 2. Applies optimistically to local UI (< 10ms perceived latency)
 3. Sends operation via WebSocket to server
@@ -130,6 +128,7 @@ This diagram illustrates the complete write and read flow for collaborative edit
 8. Clients apply transformation and acknowledge
 
 **Read Path (User opens document):**
+
 1. Client requests document via REST API
 2. API Gateway checks Redis snapshot cache
 3. If hit: Return snapshot (< 10ms)
@@ -137,6 +136,7 @@ This diagram illustrates the complete write and read flow for collaborative edit
 5. Client subscribes to WebSocket for real-time updates
 
 **Benefits:**
+
 - Optimistic UI: User sees changes instantly (no blocking)
 - Kafka ordering: All workers see operations in same order (deterministic OT)
 - Snapshot caching: Fast document load (no replay of millions of events)
@@ -161,22 +161,21 @@ graph LR
         Reconstruct["Event<br/>Replay<br/>Engine"]
     end
 
-    LocalDoc -->|1. User types| OpBuffer
-    OpBuffer -->|2. Optimistic apply| LocalDoc
-    OpBuffer -->|3. Send operation| WS
-    WS -->|4. Publish event| Kafka
-    Kafka -->|5. Consume| OT
-    OT -->|6. Transform| OT
-    OT -->|7. Append| EventLog
-    OT -->|8. Broadcast| WS
-    WS -->|9. Push to all clients| LocalDoc
-
-    API -->|1. Open document| Redis
-    Redis -->|2a. Cache hit| Client
-    Redis -->|2b. Cache miss| Reconstruct
-    Reconstruct -->|3. Replay events| EventLog
-    Reconstruct -->|4. Return state| Client
-    Client -->|5. Subscribe| WS
+    LocalDoc -->|1 . User types| OpBuffer
+    OpBuffer -->|2 . Optimistic apply| LocalDoc
+    OpBuffer -->|3 . Send operation| WS
+    WS -->|4 . Publish event| Kafka
+    Kafka -->|5 . Consume| OT
+    OT -->|6 . Transform| OT
+    OT -->|7 . Append| EventLog
+    OT -->|8 . Broadcast| WS
+    WS -->|9 . Push to all clients| LocalDoc
+    API -->|1 . Open document| Redis
+    Redis -->|2a . Cache hit| Client
+    Redis -->|2b . Cache miss| Reconstruct
+    Reconstruct -->|3 . Replay events| EventLog
+    Reconstruct -->|4 . Return state| Client
+    Client -->|5 . Subscribe| WS
 ```
 
 ---
@@ -188,6 +187,7 @@ graph LR
 This diagram shows how Operational Transformation resolves conflicting concurrent edits to maintain consistency.
 
 **Steps:**
+
 1. **Initial State**: Document at version 0: "Hello"
 2. **Concurrent Operations**: User A and User B both insert at position 5 simultaneously
 3. **Server Receives A First**: Applies User A's operation → "HelloX" (version 1)
@@ -198,12 +198,14 @@ This diagram shows how Operational Transformation resolves conflicting concurren
 8. **Broadcast**: All clients receive transformed operations and converge to "HelloXY"
 
 **Why OT Works:**
+
 - Central server maintains canonical operation sequence
 - All operations transformed against same sequence (deterministic)
 - Transformation rules preserve user intent (insert positions adjusted)
 - All clients eventually see identical state (convergence guarantee)
 
 **Performance:**
+
 - Transformation latency: 20-50ms (in-memory processing)
 - Total propagation: < 100ms (network + transformation + broadcast)
 
@@ -239,10 +241,9 @@ graph TB
     TransformB --> ApplyB
     ApplyB --> ClientA
     ApplyB --> ClientB
-
-    style ApplyA fill:#90EE90
-    style TransformB fill:#FFD700
-    style ApplyB fill:#87CEEB
+    style ApplyA fill: #90EE90
+    style TransformB fill: #FFD700
+    style ApplyB fill: #87CEEB
 ```
 
 ---
@@ -254,12 +255,14 @@ graph TB
 This diagram illustrates Conflict-Free Replicated Data Type (CRDT) architecture for offline-friendly collaboration.
 
 **Key Concepts:**
+
 1. **Unique IDs**: Each character has globally unique identifier `{siteId, logicalClock}`
 2. **Fractional Indexing**: New characters inserted with fractional IDs (5.5, 5.7, etc.)
 3. **Tombstones**: Deletions don't remove characters, just mark as deleted
 4. **Commutative Merge**: Merging any two states always produces same result (order-independent)
 
 **Example Flow:**
+
 - Initial: "Hello" → `[H(1), e(2), l(3), l(4), o(5)]`
 - User A inserts "X": Generates ID between 5 and end → `X(5.5)`
 - User B inserts "Y": Generates ID between 5 and end → `Y(5.7)`
@@ -267,17 +270,20 @@ This diagram illustrates Conflict-Free Replicated Data Type (CRDT) architecture 
 - Result: "HelloXY" (deterministic, all clients converge)
 
 **Benefits:**
+
 - **No central authority**: Clients can merge peer-to-peer
 - **Offline support**: Works without server connection
 - **Partition tolerant**: Multi-region writes merge automatically
 - **Simple logic**: No complex transformation functions
 
 **Trade-offs:**
+
 - **Memory overhead**: 3-10x storage (IDs for each character)
 - **Tombstone accumulation**: Deleted characters remain (requires periodic GC)
 - **Bandwidth**: Larger payloads (metadata transmitted)
 
 **Use Cases in Our System:**
+
 - Offline editing (mobile app disconnected)
 - Multi-region conflict resolution (WAN latency too high for OT)
 
@@ -313,9 +319,8 @@ graph TB
     Merged --> Associative
     Merged --> Idempotent
     Merged --> Convergent
-
-    style Merged fill:#90EE90
-    style Convergent fill:#FFD700
+    style Merged fill: #90EE90
+    style Convergent fill: #FFD700
 ```
 
 ---
@@ -327,29 +332,34 @@ graph TB
 This diagram shows how event sourcing (write model) and CQRS (read model) work together for performance and consistency.
 
 **Write Model (Event Sourcing):**
+
 1. All edits stored as immutable events in append-only log
 2. Event: `{event_id: 42, doc_id: abc, type: "insert", pos: 5, content: "X"}`
 3. PostgreSQL partitioned by doc_id for scalability
 4. Complete history preserved (version control, audit trail)
 
 **Read Model (CQRS - Snapshots):**
+
 1. Periodically save document snapshots (every 100 operations)
 2. Redis cache: `doc:{doc_id}:snapshot` → Full document state
 3. Document load: Read snapshot + replay events since snapshot (typically < 100 events)
 4. Snapshot updated asynchronously (doesn't block writes)
 
 **Storage Tiering:**
+
 - **Hot (Redis)**: Last 1000 events per doc (< 1 hour) → 5 GB
 - **Warm (PostgreSQL)**: Last 30 days → 500 GB
 - **Cold (S3)**: Full history → 1 PB
 
 **Benefits:**
+
 - **Fast Writes**: Append-only log (no updates, no locks)
 - **Fast Reads**: Snapshot cache (no replay of millions of events)
 - **Complete History**: Every edit preserved (audit, compliance, version control)
 - **Reproducibility**: Reconstruct document at any point in time
 
 **Performance:**
+
 - Write latency: 10ms (PostgreSQL append)
 - Read latency (cache hit): < 10ms (Redis)
 - Read latency (cache miss): 100-200ms (replay + cache write)
@@ -379,14 +389,12 @@ graph LR
     EventLog --> Snapshot
     Snapshot --> RedisCache
     RedisCache --> DocumentLoad
-
     EventLog --> Hot
     Hot --> Warm
     Warm --> Cold
-
-    style EventLog fill:#FFD700
-    style RedisCache fill:#90EE90
-    style DocumentLoad fill:#87CEEB
+    style EventLog fill: #FFD700
+    style RedisCache fill: #90EE90
+    style DocumentLoad fill: #87CEEB
 ```
 
 ---
@@ -398,6 +406,7 @@ graph LR
 This diagram shows how WebSocket connections are managed for real-time collaboration with sticky sessions.
 
 **Connection Lifecycle:**
+
 1. **Client Connects**: Establishes WebSocket to load balancer
 2. **Sticky Session**: Load balancer routes by doc_id hash to specific WebSocket server
 3. **All Collaborators**: All users editing same document connect to same server
@@ -406,17 +415,20 @@ This diagram shows how WebSocket connections are managed for real-time collabora
 6. **Disconnection**: Client detects timeout, reconnects with last known version
 
 **Why Sticky Sessions?**
+
 - **Efficient Broadcast**: All collaborators on same document connect to same server (no network hops)
 - **In-Memory State**: Server maintains connection pool in memory (fast lookup)
 - **Presence Tracking**: Easy to track who's online (same server)
 
 **Reconnection Strategy:**
+
 - Client stores last acknowledged event ID locally
 - On reconnect, sends: `{doc_id: abc, last_event_id: 42}`
 - Server replays events 43+ from Redis cache or Kafka log
 - Exponential backoff: 1s, 2s, 4s, 8s (max 30s)
 
 **Scalability:**
+
 - Each WebSocket server: 50k connections
 - Total cluster: 10 servers × 50k = 500k concurrent connections
 - Auto-scale based on connection count (Kubernetes HPA)
@@ -444,25 +456,21 @@ graph TB
         Kafka["Kafka<br/>Topic: document-edits<br/>Partition: hash(doc_id)"]
     end
 
-    C1 -->|1. Connect with doc_id=abc| LB
-    C2 -->|1. Connect with doc_id=abc| LB
-    C3 -->|1. Connect with doc_id=abc| LB
-
-    LB -->|2. Route all to WS1<br/>sticky by doc_id| WS1
+    C1 -->|1 . Connect with doc_id = abc| LB
+    C2 -->|1 . Connect with doc_id = abc| LB
+    C3 -->|1 . Connect with doc_id = abc| LB
+    LB -->|2 . Route all to WS1<br/>sticky by doc_id| WS1
     LB -.->|Other docs| WS2
     LB -.->|Other docs| WS3
-
-    WS1 -->|3. Publish operation| Kafka
-    WS1 -->|4. Broadcast to clients| C1
-    WS1 -->|4. Broadcast to clients| C2
-    WS1 -->|4. Broadcast to clients| C3
-
-    WS1 <-.->|Cross-server broadcast| RedisPubSub
-    WS2 <-.->|Cross-server broadcast| RedisPubSub
-    WS3 <-.->|Cross-server broadcast| RedisPubSub
-
-    style WS1 fill:#90EE90
-    style LB fill:#FFD700
+    WS1 -->|3 . Publish operation| Kafka
+    WS1 -->|4 . Broadcast to clients| C1
+    WS1 -->|4 . Broadcast to clients| C2
+    WS1 -->|4 . Broadcast to clients| C3
+    WS1 <-.->|Cross - server broadcast| RedisPubSub
+    WS2 <-.->|Cross - server broadcast| RedisPubSub
+    WS3 <-.->|Cross - server broadcast| RedisPubSub
+    style WS1 fill: #90EE90
+    style LB fill: #FFD700
 ```
 
 ---
@@ -474,33 +482,39 @@ graph TB
 This diagram illustrates how documents are sharded across multiple OT workers for horizontal scalability.
 
 **Sharding Algorithm:**
+
 ```
 Shard ID = hash(doc_id) % N
 ```
 
 **Example:**
+
 - Document ID: `abc123` → hash → `12345` → `12345 % 10` → **Shard 5**
 - All operations for `abc123` route to Shard 5
 
 **Shard Components:**
 Each shard contains:
+
 1. **OT Worker**: Processes all operations for documents in this shard
 2. **Kafka Partition**: Dedicated partition for this shard (ordering guarantee)
 3. **PostgreSQL Partition**: Table partition for this shard's events
 4. **Redis Partition**: Cache partition for this shard's snapshots
 
 **Benefits:**
+
 - **Linear Scalability**: Add more shards to handle more documents
 - **No Distributed Transactions**: All operations for a document go to same shard
 - **Load Balancing**: Hash function distributes documents evenly
 - **Fault Isolation**: Shard failure only affects subset of documents
 
 **Hot Document Handling:**
+
 - Document with 100+ simultaneous editors (rare but possible)
 - **Problem**: Single OT worker bottleneck, broadcast fanout (100² messages)
 - **Solution**: Read replicas for broadcast, primary shard handles writes only
 
 **Scalability:**
+
 - 10 shards: 100k documents, 10k docs per shard
 - 100 shards: 1M documents, 10k docs per shard
 - Add shards dynamically (rebalance via consistent hashing)
@@ -533,19 +547,16 @@ graph TB
     DocA --> Router
     DocB --> Router
     DocC --> Router
-
     Router -->|Shard 0| Shard0
     Router -->|Shard 5| Shard5
     Router -->|Shard 6| Shard6
     Router -.->|Other shards| ShardN
-
     Shard5 -->|100+ editors| Primary
     Primary --> Replica1
     Primary --> Replica2
-
-    style Shard5 fill:#90EE90
-    style Router fill:#FFD700
-    style Primary fill:#FF6B6B
+    style Shard5 fill: #90EE90
+    style Router fill: #FFD700
+    style Primary fill: #FF6B6B
 ```
 
 ---
@@ -557,18 +568,21 @@ graph TB
 This diagram shows the three-layer caching strategy for optimizing read performance.
 
 **Layer 1: Client-Side Cache (Browser/Mobile)**
+
 - Full document in memory (local state)
 - IndexedDB for persistence (offline support)
 - Service Worker caches document snapshots
 - **Benefit**: Zero latency for repeated opens (instant)
 
 **Layer 2: CDN/Edge Cache**
+
 - CloudFlare/Fastly caches public document snapshots
 - TTL: 60 seconds (short-lived, balance freshness vs caching)
 - Only for public/read-only documents
 - **Benefit**: Geographic distribution (< 20ms latency globally)
 
 **Layer 3: Server-Side Cache (Redis)**
+
 - Document snapshots: `doc:{doc_id}:snapshot`
 - Recent operations: `doc:{doc_id}:operations` (last 1000)
 - Presence data: `doc:{doc_id}:presence` (active users)
@@ -576,23 +590,26 @@ This diagram shows the three-layer caching strategy for optimizing read performa
 - **Benefit**: Fast reconstruction (< 10ms cache hit)
 
 **Cache Miss Path:**
+
 1. Check client cache → Miss
 2. Check CDN → Miss
 3. Check Redis → Miss
 4. **Reconstruct from Event Log:**
-   - Load last snapshot from PostgreSQL (if exists)
-   - Replay events since snapshot (typically < 100 events)
-   - Write to Redis cache
-   - Return to client
+    - Load last snapshot from PostgreSQL (if exists)
+    - Replay events since snapshot (typically < 100 events)
+    - Write to Redis cache
+    - Return to client
 5. Total latency: 100-200ms (acceptable for cache miss)
 
 **Cache Hit Rates:**
+
 - Client: 70% (users reopen docs)
 - CDN: 80% (public docs)
 - Redis: 95% (server-side)
 - **Overall**: 98% hit rate
 
 **Cache Invalidation:**
+
 - **Write-through**: Snapshot updates immediately invalidate cache
 - **Lazy expiry**: Operations expire via TTL
 - **Presence**: Self-expiring via heartbeat
@@ -630,14 +647,12 @@ graph TB
     RedisSnapshots -->|Miss| PostgreSQL
     PostgreSQL --> Reconstruct
     Reconstruct --> RedisSnapshots
-
     RedisSnapshots --> HitRate
     RedisOps --> HitRate
     BrowserCache --> Latency
-
-    style RedisSnapshots fill:#90EE90
-    style BrowserCache fill:#87CEEB
-    style HitRate fill:#FFD700
+    style RedisSnapshots fill: #90EE90
+    style BrowserCache fill: #87CEEB
+    style HitRate fill: #FFD700
 ```
 
 ---
@@ -649,6 +664,7 @@ graph TB
 This diagram shows how offline editing works and how changes sync when reconnecting.
 
 **Offline Editing Flow:**
+
 1. **Client Goes Offline**: Network disconnected (airplane mode, subway, etc.)
 2. **Local Editing**: User continues editing, all operations stored locally
 3. **CRDT Operations**: Each operation generates unique ID `{siteId, logicalClock}`
@@ -656,6 +672,7 @@ This diagram shows how offline editing works and how changes sync when reconnect
 5. **Local State**: Document state updated optimistically
 
 **Reconnection Flow:**
+
 1. **Network Restored**: Client detects connectivity
 2. **Send Last Version**: Client sends last known server version + all local CRDT operations
 3. **Server Merge**: Server merges client CRDT state with server state (which may have changed)
@@ -665,6 +682,7 @@ This diagram shows how offline editing works and how changes sync when reconnect
 7. **Convergence**: Client and server states now identical
 
 **Example Conflict:**
+
 ```
 Before disconnect: "Hello World"
 Client (offline): "Hello Beautiful World" (insert at pos 6)
@@ -677,11 +695,13 @@ CRDT Merge:
 ```
 
 **Benefits:**
+
 - **No Data Loss**: Both edits preserved
 - **Deterministic**: Same result regardless of merge order
 - **Partition Tolerant**: Works without server connection
 
 **Limitations:**
+
 - **Unexpected Merges**: Users might be surprised by merged result (UX consideration)
 - **Conflict UI**: Show notification "Merged offline changes" to inform user
 
@@ -715,10 +735,8 @@ graph TB
     Online --> Disconnect
     Disconnect --> Edit
     Edit --> LocalStorage
-
     ServerState --> OtherUser
     OtherUser --> ServerUpdate
-
     LocalStorage --> NetworkRestore
     NetworkRestore --> SendLocal
     SendLocal --> ServerMerge
@@ -726,9 +744,8 @@ graph TB
     ServerMerge --> SendMissing
     SendMissing --> ClientReconcile
     ClientReconcile --> Convergence
-
-    style ServerMerge fill:#FFD700
-    style Convergence fill:#90EE90
+    style ServerMerge fill: #FFD700
+    style Convergence fill: #90EE90
 ```
 
 ---
@@ -740,12 +757,14 @@ graph TB
 This diagram shows how real-time cursor positions and user presence are tracked and displayed.
 
 **Cursor Tracking:**
+
 1. **User Moves Cursor**: Client detects cursor movement
 2. **Throttle Updates**: Send at most 10 updates/sec (every 100ms) to avoid spam
 3. **Broadcast via WebSocket**: Server broadcasts to all collaborators on same document
 4. **Display Remote Cursors**: Each client renders other users' cursors with color-coded labels
 
 **Presence Tracking:**
+
 1. **User Opens Document**: Client sends presence event
 2. **Redis Set**: Server adds user to `doc:{doc_id}:presence` set with 10-second TTL
 3. **Heartbeat**: Client sends heartbeat every 5 seconds to refresh TTL
@@ -753,6 +772,7 @@ This diagram shows how real-time cursor positions and user presence are tracked 
 5. **Auto-Expiry**: If heartbeat stops (disconnect), presence expires automatically after 10 seconds
 
 **Data Structures:**
+
 ```
 Cursor Event: {
     type: "cursor",
@@ -769,12 +789,14 @@ TTL: 10 seconds
 ```
 
 **Optimization:**
+
 - **No Persistence**: Cursors and presence are ephemeral (not saved to database)
 - **In-Memory Only**: WebSocket server maintains cursor positions in memory (fast lookup)
 - **Same-Doc Only**: Only broadcast to clients editing same document (no cross-doc leak)
 - **Batching**: Batch multiple cursor updates (reduce WebSocket messages 10x)
 
 **Performance:**
+
 - Cursor propagation: < 50ms
 - Presence query: < 5ms (Redis in-memory)
 - Bandwidth per user: ~1 KB/sec (10 cursor updates/sec × 100 bytes)
@@ -812,19 +834,16 @@ graph TB
     WSBroadcast --> Charlie
     Bob --> RenderCursor
     Charlie --> RenderCursor
-
     Alice -->|Every 5s| Heartbeat
     Heartbeat --> RedisPresence
     RedisPresence --> QueryPresence
     QueryPresence --> DisplayPresence
-
     CursorEvent --> Throttle
     WSBroadcast --> InMemory
     RedisPresence --> SameDoc
-
-    style WSBroadcast fill:#90EE90
-    style RedisPresence fill:#87CEEB
-    style Throttle fill:#FFD700
+    style WSBroadcast fill: #90EE90
+    style RedisPresence fill: #87CEEB
+    style Throttle fill: #FFD700
 ```
 
 ---
@@ -836,16 +855,19 @@ graph TB
 This diagram illustrates multi-region deployment for global latency reduction and disaster recovery.
 
 **Architecture:**
+
 - **Primary Region (US-East)**: Handles all writes (strong consistency)
 - **Secondary Regions (EU-West, Asia-Pacific)**: Read replicas with 1-2 second replication lag
 
 **Read Flow (Regional):**
+
 1. User in Europe opens document
 2. Request routed to EU-West region (nearest)
 3. Read from local PostgreSQL read replica
 4. Latency: < 50ms (vs 200ms from US)
 
 **Write Flow (Global):**
+
 1. User in Europe edits document
 2. Write operation sent to US-East primary region
 3. Primary applies OT transformation and persists
@@ -854,21 +876,25 @@ This diagram illustrates multi-region deployment for global latency reduction an
 6. Other users in EU see update after 1-2 sec (acceptable)
 
 **Multi-Region Conflict (Advanced):**
+
 - **Problem**: Two users in different regions edit while network partitioned
 - **Solution**: CRDT-based merge (commutative, works across regions)
 - **Trade-off**: Eventual consistency (users might see different states for 1-2 seconds)
 
 **Disaster Recovery:**
+
 - **Failover**: If US-East fails, promote EU-West to primary
 - **RTO (Recovery Time)**: 5 minutes (manual promotion)
 - **RPO (Recovery Point)**: 1 minute (max data loss from async replication)
 
 **Benefits:**
+
 - **Low Latency**: Read from nearest region (< 50ms globally)
 - **High Availability**: Survive region failure
 - **Scalability**: Distribute read load across regions
 
 **Trade-offs:**
+
 - **Replication Lag**: 1-2 seconds (eventual consistency for reads)
 - **Complexity**: Multi-region coordination, failover procedures
 - **Cost**: 3x infrastructure (3 regions)
@@ -914,27 +940,22 @@ graph TB
     Router -->|Read from EU user| EURead
     Router -->|Read from Asia user| AsiaRead
     Router -->|Write from any user| USWrite
-
     USWrite --> USOT
     USOT --> USDB
     USDB --> PGRepl
     PGRepl --> EUDB
     PGRepl --> AsiaDB
-
     USKafka --> KafkaRepl
     KafkaRepl --> EUKafka
     KafkaRepl --> AsiaKafka
-
     USRedis --> RedisRepl
     RedisRepl --> EURedis
     RedisRepl --> AsiaRedis
-
     USDB -.->|If fails| Failover
     Failover -.->|Promote| EUDB
-
-    style USWrite fill:#FF6B6B
-    style EURead fill:#90EE90
-    style Failover fill:#FFD700
+    style USWrite fill: #FF6B6B
+    style EURead fill: #90EE90
+    style Failover fill: #FFD700
 ```
 
 ---
@@ -948,30 +969,35 @@ This diagram shows how the system auto-scales based on load metrics.
 **Scaling Triggers:**
 
 **1. WebSocket Server Scaling (Connection Count):**
+
 - **Scale Up**: If connections > 80% capacity (40k/50k per server)
 - **Scale Down**: If connections < 40% capacity (20k/50k per server)
 - **Metric**: Current connections per server
 - **Action**: Add/remove WebSocket server pods (Kubernetes HPA)
 
 **2. OT Worker Scaling (CPU/Latency):**
+
 - **Scale Up**: If CPU > 70% or OT latency > 100ms (p99)
 - **Scale Down**: If CPU < 30% for 10+ minutes
 - **Metric**: CPU utilization, processing latency
 - **Action**: Add/remove OT worker pods, rebalance Kafka partitions
 
 **3. Database Scaling (Query Latency):**
+
 - **Scale Up**: If query latency > 50ms (p99) or QPS > 10k
 - **Scale Down**: Manual (avoid thrashing)
 - **Metric**: Query latency, queries per second
 - **Action**: Add read replicas, increase instance size (vertical scaling)
 
 **4. Kafka Scaling (Consumer Lag):**
+
 - **Scale Up**: If consumer lag > 5 seconds or partition backlog > 10k messages
 - **Scale Down**: Manual (partition rebalancing is expensive)
 - **Metric**: Consumer lag, partition size
 - **Action**: Add Kafka brokers, increase partitions
 
 **Auto-Scaling Configuration (Kubernetes HPA):**
+
 ```yaml
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -981,27 +1007,29 @@ spec:
   minReplicas: 10
   maxReplicas: 50
   metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-  - type: Pods
-    pods:
-      metric:
-        name: websocket_connections
-      target:
-        type: AverageValue
-        averageValue: "40000"
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Pods
+      pods:
+        metric:
+          name: websocket_connections
+        target:
+          type: AverageValue
+          averageValue: "40000"
 ```
 
 **Scaling Response Time:**
+
 - WebSocket servers: 30 seconds (pod startup + load balancer registration)
 - OT workers: 60 seconds (pod startup + Kafka rebalancing)
 - Database replicas: 5-10 minutes (instance provisioning + replication sync)
 
 **Benefits:**
+
 - **Cost Optimization**: Scale down during off-peak hours (save 50% cost)
 - **Performance**: Scale up proactively before user impact
 - **Resilience**: Gradual degradation (not sudden failure)
@@ -1035,19 +1063,16 @@ graph TB
     Prometheus --> OTScaling
     Prometheus --> DBScaling
     Prometheus --> KafkaScaling
-
     WSScaling --> HPA
     OTScaling --> HPA
     HPA --> ScaleUp
     HPA --> ScaleDown
-
     Before --> Spike
     Spike --> ScaleUp
     ScaleUp --> After
-
-    style Spike fill:#FF6B6B
-    style ScaleUp fill:#90EE90
-    style After fill:#87CEEB
+    style Spike fill: #FF6B6B
+    style ScaleUp fill: #90EE90
+    style After fill: #87CEEB
 ```
 
 ---
@@ -1059,40 +1084,47 @@ graph TB
 This diagram shows the disaster recovery strategy for complete region failure.
 
 **Normal Operation:**
+
 - Primary region (US-East) handles all writes
 - Secondary region (EU-West) replicates asynchronously (1-2 sec lag)
 - Clients write to primary, read from nearest region
 
 **Disaster Scenario: Primary Region Failure**
+
 1. **Detection** (30 seconds): Health checks fail for all primary region services
 2. **Alert** (immediate): On-call engineer paged
 3. **Decision** (2 minutes): Confirm permanent failure (not transient network issue)
 4. **Promote Secondary** (2 minutes):
-   - Promote EU-West PostgreSQL replica to primary (write access)
-   - Reconfigure Kafka to accept writes in EU-West
-   - Update DNS to point to EU-West
+    - Promote EU-West PostgreSQL replica to primary (write access)
+    - Reconfigure Kafka to accept writes in EU-West
+    - Update DNS to point to EU-West
 5. **Resume Operations** (5 minutes total): System fully operational
 
 **RTO (Recovery Time Objective): 5 minutes**
+
 - Time from failure detection to full service restoration
 
 **RPO (Recovery Point Objective): 1 minute**
+
 - Max data loss (operations in-flight during failure)
 - Async replication lag: 1-2 seconds
 - Buffered operations in Kafka: ~30 seconds
 - Total potential loss: < 1 minute of operations
 
 **Data Loss Mitigation:**
+
 - Kafka replication factor 3 (survive 2 node failures)
 - PostgreSQL WAL (Write-Ahead Log) archiving to S3 every 30 seconds
 - Client retries for unacknowledged operations
 
 **Testing:**
+
 - Disaster recovery drills quarterly
 - Automated failover tests in staging
 - Chaos engineering (randomly kill services)
 
 **Post-Recovery:**
+
 - Investigate root cause
 - Restore primary region (when available)
 - Rebalance traffic gradually
@@ -1138,18 +1170,15 @@ graph TB
     Decision --> PromoteDB
     PromoteDB --> UpdateDNS
     UpdateDNS --> ResumeOps
-
     ResumeOps --> RTO
     ResumeOps --> RPO
     RPO --> DataLoss
-
     ResumeOps --> Investigate
     Investigate --> Restore
-
-    style Failure fill:#FF6B6B
-    style ResumeOps fill:#90EE90
-    style RTO fill:#FFD700
-    style RPO fill:#FFD700
+    style Failure fill: #FF6B6B
+    style ResumeOps fill: #90EE90
+    style RTO fill: #FFD700
+    style RPO fill: #FFD700
 ```
 
 ---
@@ -1163,47 +1192,54 @@ This diagram shows the multi-layered security architecture protecting the collab
 **Security Layers:**
 
 **1. Network Security:**
+
 - **DDoS Protection**: CloudFlare/AWS Shield (filters malicious traffic)
 - **WAF (Web Application Firewall)**: Blocks SQL injection, XSS attacks
 - **Rate Limiting**: API Gateway limits (100 req/sec per IP)
 
 **2. Authentication & Authorization:**
+
 - **User Authentication**: OAuth 2.0 (Google/Microsoft SSO) or JWT tokens
 - **WebSocket Auth**: JWT token in WebSocket handshake (validated before connection)
 - **Document Permissions**: Row-level security in PostgreSQL (enforced on every query)
 
 **3. Data Encryption:**
+
 - **In Transit**: TLS 1.3 for all connections (WebSocket, HTTP, DB)
 - **At Rest**: PostgreSQL TDE (Transparent Data Encryption), S3 SSE-S3
 - **End-to-End (Optional)**: Client-side encryption for sensitive documents (trade-off: no server-side search)
 
 **4. Input Validation:**
+
 - **Operation Validation**: Server validates every operation (type, position, length)
 - **Content Filtering**: Block malicious content (XSS scripts, SQL injection)
 - **Rate Limiting**: Max 100 operations/sec per user (prevents spam/bots)
 
 **5. Audit Logging:**
+
 - **Access Logs**: Who accessed which document and when
 - **Operation Logs**: Complete history of all edits (compliance requirement)
 - **Anomaly Detection**: Flag unusual patterns (excessive edits, large payloads)
 
 **6. Secrets Management:**
+
 - **API Keys**: Stored in AWS Secrets Manager (rotated every 90 days)
 - **Database Credentials**: Rotated automatically, never in code
 - **Encryption Keys**: KMS (Key Management Service) for master key
 
 **Threat Mitigation:**
 
-| Threat | Mitigation |
-|--------|------------|
-| **DDoS Attack** | CloudFlare rate limiting + auto-scaling |
+| Threat                  | Mitigation                                |
+|-------------------------|-------------------------------------------|
+| **DDoS Attack**         | CloudFlare rate limiting + auto-scaling   |
 | **Unauthorized Access** | JWT authentication + document permissions |
-| **Data Breach** | Encryption at rest + TLS in transit |
-| **XSS/Injection** | Input validation + content sanitization |
-| **Malicious Edits** | Server-side validation + rate limiting |
-| **Account Compromise** | 2FA (two-factor auth) + anomaly detection |
+| **Data Breach**         | Encryption at rest + TLS in transit       |
+| **XSS/Injection**       | Input validation + content sanitization   |
+| **Malicious Edits**     | Server-side validation + rate limiting    |
+| **Account Compromise**  | 2FA (two-factor auth) + anomaly detection |
 
 **Compliance:**
+
 - **GDPR**: Right to erasure (delete user data), data portability
 - **SOC 2**: Audit logs, access controls, encryption
 - **HIPAA** (optional): PHI encryption, audit trails
@@ -1252,28 +1288,22 @@ graph TB
     DDoS --> CloudFlare
     Hacker --> CloudFlare
     MITM --> TLS
-
     CloudFlare --> OAuth
     OAuth --> WSAuth
     WSAuth --> Permissions
-
     Permissions --> TLS
     TLS --> AtRest
     AtRest --> E2E
-
     E2E --> OpValidation
     OpValidation --> ContentFilter
     ContentFilter --> RateLimit
-
     RateLimit --> AccessLog
     AccessLog --> OpLog
     OpLog --> Anomaly
-
     Anomaly --> KMS
     KMS --> SecretsManager
-
-    style CloudFlare fill:#FF6B6B
-    style OAuth fill:#FFD700
-    style TLS fill:#90EE90
-    style OpValidation fill:#87CEEB
+    style CloudFlare fill: #FF6B6B
+    style OAuth fill: #FFD700
+    style TLS fill: #90EE90
+    style OpValidation fill: #87CEEB
 ```

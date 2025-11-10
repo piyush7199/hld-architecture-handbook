@@ -14,63 +14,67 @@
 
 ---
 
-## Problem Statement
+## 1. Problem Statement
 
 Design a highly scalable, low-latency stock brokerage platform like Zerodha or Groww that enables 10 million concurrent
-users to view real-time stock quotes (<200ms latency), search and discover stocks instantly, place buy/sell orders with
-sub-second execution, and manage portfolios with ACID-compliant ledger integrity.
+users to:
+
+- View real-time stock quotes with <200ms latency
+- Search and discover stocks instantly
+- Place buy/sell orders with sub-second execution
+- Manage portfolios with ACID-compliant ledger integrity
+- Access personalized market watch and holdings
 
 The system must handle 100,000 market data updates/sec from exchanges and broadcast them to 200 million concurrent
-WebSocket streams while maintaining financial data consistency and regulatory compliance.
-
-**Core Challenges:**
-
-- **Broadcast Fanout:** 100k updates/sec → 200M WebSocket streams (20 trillion messages/sec if naive)
-- **Low Latency:** <200ms end-to-end (exchange → user's screen)
-- **Strong Consistency:** ACID transactions for financial ledger (no double spending)
-- **High Availability:** 99.99% uptime for real-time quote system
+WebSocket streams while maintaining financial data consistency.
 
 ---
 
-## Requirements and Scale Estimation
+## 2. Requirements and Scale Estimation
 
-### Functional Requirements
+### Functional Requirements (FRs)
 
-| Requirement                 | Description                                                 |
-|-----------------------------|-------------------------------------------------------------|
-| **Low-Latency Order Entry** | Place Buy/Sell orders instantly (<1s)                       |
-| **Real-Time Quotes**        | Display live stock prices (<200ms latency)                  |
-| **Search & Discovery**      | Search any ticker with instant results (<50ms)              |
-| **Account Management**      | Manage balances, holdings, risk limits with ACID guarantees |
-| **Market Watch**            | Personalized list of watched stocks with real-time updates  |
-| **Portfolio Analytics**     | Display P&L, holdings breakdown, performance charts         |
+| Requirement                 | Description                                                 | Priority    |
+|-----------------------------|-------------------------------------------------------------|-------------|
+| **Low-Latency Order Entry** | Allow users to place Buy/Sell orders instantly (<1s)        | Must Have   |
+| **Real-Time Quotes**        | Display live stock prices with <200ms latency               | Must Have   |
+| **Search & Discovery**      | Search any ticker with instant results (<50ms)              | Must Have   |
+| **Account Management**      | Manage balances, holdings, risk limits with ACID guarantees | Must Have   |
+| **Market Watch**            | Personalized list of watched stocks with real-time updates  | Must Have   |
+| **Order History**           | View complete order and trade history                       | Must Have   |
+| **Portfolio Analytics**     | Display P&L, holdings breakdown, performance charts         | Should Have |
+| **Alerts & Notifications**  | Price alerts, order fills, margin calls                     | Should Have |
 
-### Non-Functional Requirements
+### Non-Functional Requirements (NFRs)
 
-| Requirement              | Target               | Rationale                                  |
-|--------------------------|----------------------|--------------------------------------------|
-| **Low Latency (Quotes)** | < 200 ms (p99)       | Real-time market data critical for trading |
-| **Low Latency (Orders)** | < 1 second           | Order execution speed impacts user trust   |
-| **Strong Consistency**   | ACID guarantees      | Financial integrity non-negotiable         |
-| **High Availability**    | 99.99% uptime        | Users need continuous market access        |
-| **Scalability**          | 10M concurrent users | Support growing user base                  |
+| Requirement                     | Target               | Rationale                                  |
+|---------------------------------|----------------------|--------------------------------------------|
+| **Low Latency (Quotes)**        | < 200 ms (p99)       | Real-time market data critical for trading |
+| **Low Latency (Orders)**        | < 1 second           | Order execution speed impacts user trust   |
+| **Strong Consistency (Ledger)** | ACID guarantees      | Financial integrity non-negotiable         |
+| **High Availability (Quotes)**  | 99.99% uptime        | Users need continuous market access        |
+| **High Throughput (Data)**      | 100k updates/sec     | Peak market activity (9:15-9:30 AM)        |
+| **Scalability**                 | 10M concurrent users | Support growing user base                  |
 
 ### Scale Estimation
 
-| Metric                   | Calculation                                    | Result                                      |
-|--------------------------|------------------------------------------------|---------------------------------------------|
-| **Concurrent Users**     | 10 Million active users                        | -                                           |
-| **Market Data QPS (In)** | 100,000 updates/sec from Exchange              | High volume streaming input                 |
-| **Quote Pushes (Out)**   | $10 \text{M} \times 20 \text{ watched stocks}$ | $200 \text{M concurrent WebSocket streams}$ |
-| **Order Entry QPS**      | 1,000 orders/sec (peak)                        | 1,000 QPS to Matching Engine                |
-| **Search QPS**           | $50 \text{M searches} / (24 \times 3600)$      | $\sim 580$ searches per second              |
-| **Ledger Transactions**  | 1,000 trades/sec + 5,000 balance checks/sec    | 6,000 DB transactions per second            |
+| Metric                   | Assumption                                           | Calculation                                            | Result                                      |
+|--------------------------|------------------------------------------------------|--------------------------------------------------------|---------------------------------------------|
+| **Concurrent Users**     | 10 Million active users                              | -                                                      | -                                           |
+| **Market Data QPS (In)** | 100,000 updates/sec from Exchange                    | -                                                      | High volume streaming input                 |
+| **Quote Pushes (Out)**   | $10 \text{M users} \times 20 \text{ watched stocks}$ | -                                                      | $200 \text{M concurrent WebSocket streams}$ |
+| **Order Entry QPS**      | 1,000 orders/sec (peak)                              | -                                                      | 1,000 QPS to Matching Engine                |
+| **Search QPS**           | $10 \text{M users} \times 5 \text{ searches/day}$    | $\frac{50 \text{M}}{24 \text{h} \times 3600 \text{s}}$ | $\sim 580$ searches per second              |
+| **Ledger Transactions**  | 1,000 trades/sec + 5,000 balance checks/sec          | -                                                      | 6,000 DB transactions per second            |
 
-**Key Insight:** Primary bottleneck is **broadcast fanout** (100k updates/sec → 200M streams).
+**Key Insight:** The primary bottleneck is **broadcast fanout** (100k updates/sec → 200M streams = 20 trillion
+messages/sec if naive implementation).
 
 ---
 
-## High-Level Architecture
+## 3. High-Level Architecture
+
+> 📊 **See detailed architecture:** [High-Level Design Diagrams](./hld-diagram.md)
 
 The architecture splits into three independent flows:
 
@@ -78,40 +82,45 @@ The architecture splits into three independent flows:
 2. **User Interaction Flow:** Search, Market Watch, Portfolio Display
 3. **Transactional Flow:** Order Entry → Matching Engine → Ledger Update
 
-### Core Components
+### Key Components
 
-| Component                     | Responsibility                            | Technology                      | Scalability              |
-|-------------------------------|-------------------------------------------|---------------------------------|--------------------------|
-| **Market Data Ingestor**      | Receive data from Exchange (FIX protocol) | Go, Java (FIX libraries)        | Horizontal               |
-| **Quote Cache (Redis)**       | Store latest L1 quotes (LTP, Bid/Ask)     | Redis Cluster                   | Horizontal (sharding)    |
-| **WebSocket Broadcast Layer** | Push live quotes to connected users       | Node.js, Go, Elixir             | Horizontal (partitioned) |
-| **Kafka Message Bus**         | Distribute market data                    | Apache Kafka                    | Horizontal (partitions)  |
-| **Order Entry Gateway**       | Validate and route orders                 | gRPC service (Go/Java)          | Horizontal               |
-| **Search Index**              | Fast ticker search                        | Elasticsearch                   | Horizontal (sharding)    |
-| **Account Ledger**            | Store balances, holdings (ACID)           | PostgreSQL (sharded by user_id) | Horizontal (sharding)    |
+| Component                        | Responsibility                            | Technology Options                     | Scalability              |
+|----------------------------------|-------------------------------------------|----------------------------------------|--------------------------|
+| **Market Data Ingestor**         | Receive data from Exchange (FIX protocol) | Go, Java (FIX libraries)               | Horizontal               |
+| **Quote Cache (Redis)**          | Store latest L1 quotes (LTP, Bid/Ask)     | Redis Cluster                          | Horizontal (sharding)    |
+| **WebSocket Broadcast Layer**    | Push live quotes to connected users       | Node.js, Go, Elixir (Phoenix Channels) | Horizontal (partitioned) |
+| **Kafka Message Bus**            | Distribute market data to WebSocket nodes | Apache Kafka                           | Horizontal (partitions)  |
+| **Order Entry Gateway**          | Validate and route orders to Exchange     | gRPC service (Go/Java)                 | Horizontal               |
+| **Search Index (Elasticsearch)** | Fast ticker search and discovery          | Elasticsearch                          | Horizontal (sharding)    |
+| **Account Ledger (PostgreSQL)**  | Store balances, holdings, trades (ACID)   | PostgreSQL (sharded by user_id)        | Horizontal (sharding)    |
+| **Event Store (Kafka)**          | Immutable log of all ledger events        | Kafka (compacted topics)               | Horizontal (partitions)  |
 
 ---
 
-## Data Model
+## 4. Data Model
 
-### Quote Data (Redis - In-Memory)
+### 4.1 Quote Data (Redis - In-Memory)
 
-**Key-Value Schema:**
+**Schema (Key-Value):**
 
-| Key                   | Value (JSON)                                                       | TTL    |
-|-----------------------|--------------------------------------------------------------------|--------|
-| `quote:{symbol}`      | `{"ltp": 150.25, "bid": 150.20, "ask": 150.30, "volume": 1M}`      | None   |
-| `ohlc:{symbol}:{day}` | `{"open": 148.50, "high": 151.00, "low": 147.00, "close": 150.25}` | 7 days |
+| Key                   | Value (JSON)                                                       | TTL    | Notes                         |
+|-----------------------|--------------------------------------------------------------------|--------|-------------------------------|
+| `quote:{symbol}`      | `{"ltp": 150.25, "bid": 150.20, "ask": 150.30, "volume": 1M}`      | None   | Latest L1 data (always fresh) |
+| `ohlc:{symbol}:{day}` | `{"open": 148.50, "high": 151.00, "low": 147.00, "close": 150.25}` | 7 days | Daily OHLC candles            |
 
 **Why Redis?**
 
-- Sub-millisecond reads (<1ms) for 200M concurrent streams
+- Sub-millisecond reads (<1ms) required for 200M concurrent streams
 - High write throughput (100k updates/sec)
 - In-memory ensures consistent low latency
 
+*See pseudocode.md::update_quote() for implementation.*
+
 ---
 
-### User Account Ledger (PostgreSQL - ACID)
+### 4.2 User Account Ledger (PostgreSQL - ACID)
+
+**Schema (Sharded by user_id):**
 
 **Table: `accounts`**
 
@@ -121,39 +130,45 @@ The architecture splits into three independent flows:
 | `cash_balance` | `DECIMAL(15,2)` | Available cash             |
 | `margin_used`  | `DECIMAL(15,2)` | Blocked for open positions |
 | `total_value`  | `DECIMAL(15,2)` | Cash + holdings value      |
+| `updated_at`   | `TIMESTAMP`     | Last update time           |
 
 **Table: `holdings`**
 
-| Field       | Type            | Notes                  |
-|-------------|-----------------|------------------------|
-| `user_id`   | `BIGINT`        | Foreign key, shard key |
-| `symbol`    | `VARCHAR(20)`   | Stock ticker           |
-| `quantity`  | `INT`           | Number of shares       |
-| `avg_price` | `DECIMAL(10,2)` | Average purchase price |
+| Field           | Type            | Notes                           |
+|-----------------|-----------------|---------------------------------|
+| `user_id`       | `BIGINT`        | Foreign key, shard key          |
+| `symbol`        | `VARCHAR(20)`   | Stock ticker                    |
+| `quantity`      | `INT`           | Number of shares                |
+| `avg_price`     | `DECIMAL(10,2)` | Average purchase price          |
+| `current_value` | `DECIMAL(15,2)` | Quantity × current market price |
 
 **Table: `orders`**
 
-| Field      | Type            | Notes                         |
-|------------|-----------------|-------------------------------|
-| `order_id` | `BIGINT`        | Primary key (Snowflake ID)    |
-| `user_id`  | `BIGINT`        | Foreign key, shard key        |
-| `symbol`   | `VARCHAR(20)`   | Stock ticker                  |
-| `side`     | `ENUM`          | BUY, SELL                     |
-| `quantity` | `INT`           | Order size                    |
-| `price`    | `DECIMAL(10,2)` | Limit price (null for market) |
-| `status`   | `ENUM`          | PENDING, FILLED, CANCELLED    |
+| Field        | Type            | Notes                         |
+|--------------|-----------------|-------------------------------|
+| `order_id`   | `BIGINT`        | Primary key (Snowflake ID)    |
+| `user_id`    | `BIGINT`        | Foreign key, shard key        |
+| `symbol`     | `VARCHAR(20)`   | Stock ticker                  |
+| `side`       | `ENUM`          | BUY, SELL                     |
+| `quantity`   | `INT`           | Order size                    |
+| `price`      | `DECIMAL(10,2)` | Limit price (null for market) |
+| `status`     | `ENUM`          | PENDING, FILLED, CANCELLED    |
+| `created_at` | `TIMESTAMP`     | Order placement time          |
+| `filled_at`  | `TIMESTAMP`     | Execution time                |
 
-**Why PostgreSQL?**
+**Why PostgreSQL (ACID)?**
 
-- Financial data requires strict ACID consistency
-- Transactions ensure atomicity (order + balance update atomic)
+- Financial data requires strict consistency (no lost money, no double spends)
+- Transactions ensure atomicity (order placement + balance deduction atomic)
 - Sharding by `user_id` keeps user data co-located
+
+*See pseudocode.md::place_order() for transaction logic.*
 
 ---
 
-### Search Index (Elasticsearch)
+### 4.3 Search Index (Elasticsearch)
 
-**Document Schema:**
+**Schema (Document Store):**
 
 ```json
 {
@@ -161,32 +176,89 @@ The architecture splits into three independent flows:
   "name": "Apple Inc.",
   "exchange": "NASDAQ",
   "sector": "Technology",
-  "market_cap": 2800000000000
+  "market_cap": 2800000000000,
+  "keywords": [
+    "apple",
+    "iphone",
+    "tech",
+    "aapl"
+  ]
 }
 ```
+
+**Index Configuration:**
+
+- **Prefix Matching:** Optimized for autocomplete ("AP" → AAPL, APPL)
+- **Fuzzy Search:** Handles typos ("GOGLE" → GOOGL)
+- **Boosting:** Popular stocks ranked higher
 
 **Why Elasticsearch?**
 
 - Built for fast full-text and prefix search (<50ms)
-- Handles 100k+ documents with sub-second queries
+- Handles 100k+ documents with sub-second query times
 - PostgreSQL LIKE queries cannot match this performance
+
+*See pseudocode.md::search_stocks() for implementation.*
 
 ---
 
-## Detailed Component Design
+### 4.4 Market Watch (Redis List)
 
-### Real-Time Market Data Flow
+**Schema:**
+
+| Key                   | Value (List)                | TTL     | Notes                 |
+|-----------------------|-----------------------------|---------|-----------------------|
+| `watchlist:{user_id}` | `["AAPL", "GOOGL", "TSLA"]` | 30 days | User's watched stocks |
+
+**Why Redis List?**
+
+- O(1) retrieval on homepage load
+- Persistent across sessions (unlike in-memory cache)
+- Fast updates (LPUSH/LREM)
+
+---
+
+## 5. Detailed Component Design
+
+### 5.1 Real-Time Market Data Flow
 
 **Problem:** Broadcast 100,000 updates/sec from Exchange to 200 million WebSocket connections.
 
 **Naive Approach (Does NOT Scale):**
 
-- Each update triggers 2,000 user notifications (if 2,000 users watch each stock)
-- **Total:** 100k × 2,000 = **200M messages/sec** (impossible)
+- Exchange → Market Data Ingestor → Update Redis → Notify all 200M WebSocket connections
+- **Fanout explosion:** Each update triggers 2,000 user notifications (if 2,000 users watch each stock)
+- **Total messages:** 100k updates × 2,000 users = **200 million messages/sec** (impossible)
 
 **Scalable Solution: Multi-Level Pub/Sub Hierarchy**
 
-**Architecture:**
+> 📊 **See architecture diagram:** [HLD Diagrams - Multi-Level Pub/Sub](./hld-diagram.md#multi-level-pubsub)
+
+**Step 1: Centralized Ingestion**
+
+- **Market Data Ingestor** receives FIX protocol messages from Exchange
+- Parses quotes and publishes to Kafka topic `market.quotes` (partitioned by symbol)
+- Updates Redis quote cache asynchronously
+
+**Step 2: Kafka as Distribution Layer**
+
+- Kafka topic has 100 partitions (load balanced)
+- Each partition handles ~1,000 symbols
+- **WebSocket Server Fleet** (1,000 nodes) consumes from Kafka
+
+**Step 3: Selective Fanout at WebSocket Layer**
+
+- Each WebSocket server maintains **in-memory subscription map:**
+  ```
+  {
+    "AAPL": [user123, user456, user789],  // 2,000 users on this node watching AAPL
+    "GOOGL": [user234, user567]
+  }
+  ```
+- When Kafka delivers `AAPL` update, server pushes ONLY to 2,000 subscribed users on that node
+- **Fanout per node:** 100 updates/sec × 2,000 users = 200k messages/sec per node (manageable)
+
+**Total Architecture:**
 
 ```
 Exchange (100k updates/sec)
@@ -200,31 +272,6 @@ WebSocket Servers (1,000 nodes, each handles 200k users)
 Users (10M total, 200M subscriptions)
 ```
 
-**How It Works:**
-
-**Step 1: Centralized Ingestion**
-
-- Market Data Ingestor receives FIX protocol messages from Exchange
-- Parses quotes and publishes to Kafka topic `market.quotes` (partitioned by symbol)
-- Updates Redis quote cache asynchronously
-
-**Step 2: Kafka Distribution**
-
-- Kafka topic has 100 partitions (load balanced)
-- WebSocket Server Fleet (1,000 nodes) consumes from Kafka
-
-**Step 3: Selective Fanout**
-
-- Each WebSocket server maintains in-memory subscription map:
-  ```
-  {
-    "AAPL": [user123, user456, user789],  // 2,000 users on this node watching AAPL
-    "GOOGL": [user234, user567]
-  }
-  ```
-- When Kafka delivers `AAPL` update, server pushes ONLY to 2,000 subscribed users on that node
-- **Fanout per node:** 100 updates/sec × 2,000 users = 200k messages/sec per node (manageable)
-
 **Performance:**
 
 - Ingestion latency: <10ms
@@ -236,7 +283,7 @@ Users (10M total, 200M subscriptions)
 
 ---
 
-### Search and Discovery Flow
+### 5.2 Search and Discovery Flow
 
 **User Experience:**
 
@@ -249,6 +296,8 @@ Users (10M total, 200M subscriptions)
 
 **Technical Flow:**
 
+> 📊 **See sequence diagram:** [Sequence Diagrams - Search Flow](./sequence-diagrams.md#search-flow)
+
 ```
 User → Search API → Elasticsearch (prefix query: "AP*") → [AAPL, APPL, ...]
   ↓
@@ -259,28 +308,31 @@ UI (display search results with live prices)
 
 **Optimization:**
 
-- **Caching:** Cache popular queries in Redis (1-minute TTL)
-- **Debouncing:** Wait 300ms after last keystroke before querying
+- **Caching:** Cache popular search queries (e.g., "AAPL") in Redis (1-minute TTL)
+- **Debouncing:** Wait 300ms after last keystroke before querying (reduce load)
 - **Pagination:** Return top 10, fetch more on scroll
 
 *See pseudocode.md::search_and_hydrate() for implementation.*
 
 ---
 
-### Order Entry and Execution Flow
+### 5.3 Order Entry and Execution Flow
 
 **Requirements:**
 
 - Sub-second order placement
 - ACID transaction (deduct balance + place order atomically)
-- Route order to Exchange Matching Engine
+- Route order to Exchange Matching Engine (see 3.4.1)
 
 **Technical Flow:**
+
+> 📊 **See sequence diagram:** [Sequence Diagrams - Order Entry](./sequence-diagrams.md#order-entry)
 
 **Step 1: Validation (100ms)**
 
 ```
 User → Order Entry API (gRPC)
+  ↓
 API validates:
   - Sufficient balance (fetch from PostgreSQL)
   - Risk limits (position size, margin)
@@ -292,14 +344,18 @@ API validates:
 ```sql
 BEGIN TRANSACTION;
 
+-- Lock user account (prevent concurrent order placement)
 SELECT cash_balance FROM accounts WHERE user_id = 12345 FOR UPDATE;
 
+-- Check sufficient balance
 IF cash_balance < (order.quantity * order.price):
   ROLLBACK;
   RETURN "Insufficient balance";
 
+-- Deduct balance (block for pending order)
 UPDATE accounts SET margin_used = margin_used + (order.quantity * order.price) WHERE user_id = 12345;
 
+-- Insert order
 INSERT INTO orders (user_id, symbol, side, quantity, price, status) VALUES (...);
 
 COMMIT;
@@ -309,28 +365,34 @@ COMMIT;
 
 ```
 Order Entry API → Exchange Gateway (FIX protocol)
-Exchange Matching Engine → Fill notification via FIX
+  ↓
+Exchange Matching Engine (see 3.4.1)
+  ↓
+Fill notification via FIX
+  ↓
 Update order status: PENDING → FILLED
 ```
 
 **Step 4: Ledger Update (Async)**
 
 ```
-Kafka Event: ORDER_FILLED
+Kafka Event: {"type": "ORDER_FILLED", "user_id": 12345, "symbol": "AAPL", "quantity": 10, "price": 150.25}
+  ↓
 Ledger Service consumes event
-Update holdings table (add shares)
-Release margin, deduct cash
+  ↓
+Update holdings table (add 10 shares of AAPL)
+Release margin_used, deduct cash_balance
 ```
 
-**Total Latency:** 100ms + 200ms + 300ms = **600ms** (within 1s SLA)
+**Total Latency:** 100ms (validation) + 200ms (DB transaction) + 300ms (exchange) = **600ms** (within 1s SLA)
 
-*See pseudocode.md::place_order() for implementation.*
+*See pseudocode.md::place_order() for full transaction logic.*
 
 ---
 
-### Event Sourcing for Account Ledger
+### 5.4 Event Sourcing for Account Ledger
 
-**Problem:** High contention on `cash_balance` field (thousands of concurrent orders).
+**Problem:** High contention on `cash_balance` field (thousands of concurrent orders updating same field).
 
 **Traditional Approach (Locks, Slow):**
 
@@ -344,12 +406,15 @@ UPDATE accounts SET cash_balance = cash_balance - 1500 WHERE user_id = 12345;
 **Concept:** Instead of updating balance directly, append immutable events to a log. Balance is derived by replaying
 events.
 
+**Implementation:**
+
 **Event Log (Kafka Compacted Topic):**
 
 ```
-Event 1: {user_id: 12345, type: DEPOSIT, amount: 10000, ts: 1609459200000}
-Event 2: {user_id: 12345, type: ORDER_PLACED, amount: -1500, ts: 1609459201000}
-Event 3: {user_id: 12345, type: ORDER_FILLED, amount: 0, ts: 1609459202000}
+Event 1: {"user_id": 12345, "type": "DEPOSIT", "amount": 10000, "ts": 1609459200000}
+Event 2: {"user_id": 12345, "type": "ORDER_PLACED", "amount": -1500, "ts": 1609459201000}
+Event 3: {"user_id": 12345, "type": "ORDER_FILLED", "amount": 0, "ts": 1609459202000}
+Event 4: {"user_id": 12345, "type": "HOLDING_ADDED", "symbol": "AAPL", "quantity": 10, "ts": 1609459203000}
 ```
 
 **Balance Calculation:**
@@ -367,440 +432,360 @@ Current balance = SUM(all DEPOSIT/WITHDRAWAL events) - SUM(margin_used from pend
 
 **Benefits:**
 
-- ✅ No locks (Kafka appending is lock-free)
-- ✅ Audit trail (complete history of all transactions)
-- ✅ Replayable (reconstruct balance at any point in time)
-- ✅ Scalable (Kafka handles 100k+ writes/sec)
+- ✅ **No locks:** Appending to Kafka is lock-free (partition-level ordering)
+- ✅ **Audit trail:** Complete history of all transactions (regulatory requirement)
+- ✅ **Replayable:** Can reconstruct balance at any point in time
+- ✅ **Scalable:** Kafka handles 100k+ writes/sec easily
 
 **Trade-offs:**
 
-- ❌ Eventual consistency (snapshot lags by ~1 second)
-- ❌ Complexity (requires event replay logic)
+- ❌ **Eventual consistency:** Snapshot lags behind event log by ~1 second
+- ❌ **Complexity:** Requires event replay logic and snapshot maintenance
+
+*See this-over-that.md for detailed Event Sourcing vs Direct Update comparison.*
 
 *See pseudocode.md::append_ledger_event() for implementation.*
 
 ---
 
-### FIX Protocol Integration (Exchange Connectivity)
+### 5.5 FIX Protocol Integration for Exchange Connectivity
 
-**Problem:** Communicate with stock exchanges (NSE/BSE) for order routing using FIX protocol.
+**Problem:** Connect to stock exchange to receive market data and route orders using industry-standard protocol.
 
 **FIX (Financial Information eXchange) Protocol:**
 
-- Binary messaging protocol for financial transactions
-- Session-based: Maintains persistent TCP connection
-- Sequence numbers: Every message has unique `MsgSeqNum` for reliability
-- Heartbeats: Keepalive messages every 30 seconds
+- Industry-standard messaging protocol for financial transactions
+- ASCII-based, tag-value pairs format
+- Used by all major exchanges globally (NSE, BSE, NYSE, NASDAQ)
 
-**Key Messages:**
-
-**Logon (Session Start):**
+**Example FIX Message (New Order):**
 
 ```
-Broker → Exchange:
-  35=A (Logon)
-  49=BROKER_ID (SenderCompID)
-  56=NSE (TargetCompID)
-  34=1 (MsgSeqNum)
-  108=30 (HeartBtInt: 30 seconds)
+8=FIX.4.2|9=178|35=D|49=BROKER123|56=NSE|34=1|52=20231030-10:15:30|
+11=ORDER12345|21=1|55=RELIANCE|54=1|38=100|40=2|44=2450.50|
+59=0|60=20231030-10:15:30|10=123|
 ```
 
-**Place Order:**
+**Message Breakdown:**
+
+- `8=FIX.4.2` → Protocol version
+- `35=D` → Message type (D = New Order Single)
+- `49=BROKER123` → Sender ID (our broker)
+- `56=NSE` → Target (exchange)
+- `11=ORDER12345` → Unique order ID
+- `55=RELIANCE` → Symbol (stock ticker)
+- `54=1` → Side (1=Buy, 2=Sell)
+- `38=100` → Quantity
+- `40=2` → Order type (1=Market, 2=Limit)
+- `44=2450.50` → Price (for limit orders)
+- `10=123` → Checksum (message integrity)
+
+**FIX Session Management:**
+
+> 📊 **See sequence diagram:** [Sequence Diagrams - FIX Session](./sequence-diagrams.md#fix-session)
+
+**Logon Sequence:**
 
 ```
-Broker → Exchange:
-  35=D (NewOrderSingle)
-  11=ORD_123456 (ClOrdID)
-  55=RELIANCE (Symbol)
-  54=1 (Side: Buy)
-  38=100 (OrderQty)
-  40=2 (OrdType: Limit)
-  44=2450.00 (Price)
+Broker → Exchange: Logon (35=A) with credentials
+Exchange → Broker: Logon Acknowledgment
+Broker ↔ Exchange: Heartbeat (35=0) every 30 seconds
 ```
 
-**Order Fill Notification:**
+**Order Flow:**
 
 ```
-Exchange → Broker:
-  35=8 (ExecutionReport)
-  11=ORD_123456
-  39=2 (OrdStatus: Filled)
-  150=F (ExecType: Trade)
-  31=2450.00 (LastPx)
-  32=100 (LastQty)
+1. Broker → Exchange: New Order Single (35=D)
+2. Exchange → Broker: Execution Report (35=8, status=PENDING)
+3. [Matching Engine processes order]
+4. Exchange → Broker: Execution Report (35=8, status=FILLED, fill price, fill quantity)
 ```
 
-**FIX Engine Architecture:**
+**Market Data Subscription:**
 
 ```
-┌────────────────────────────────────────┐
-│  FIX Engine (Go/Java)                  │
-│  ├── Session Manager                   │
-│  ├── Message Parser (FIX 4.2/4.4)     │
-│  ├── Sequence Number Manager           │
-│  └── Heartbeat Monitor                 │
-└────────────────────────────────────────┘
-         ↕ TCP (port 5001)
-┌────────────────────────────────────────┐
-│  NSE/BSE Exchange Gateway              │
-└────────────────────────────────────────┘
+Broker → Exchange: Market Data Request (35=V) for symbols [RELIANCE, TCS, INFY]
+Exchange → Broker: Market Data Snapshot (35=W) - initial quotes
+Exchange → Broker: Market Data Incremental Refresh (35=X) - continuous updates
 ```
 
-**Performance:**
+**Implementation Architecture:**
 
-- Latency: ~100ms (order placed to fill notification)
-- Throughput: 1,000 orders/sec per FIX session
-- Solution for higher throughput: Multiple parallel FIX sessions
+```
+┌─────────────────────────────────────────┐
+│   Order Entry API (gRPC)                │
+│   ↓ Validates order                     │
+│   ↓ Converts to FIX message             │
+└─────────────────────────────────────────┘
+            ↓
+┌─────────────────────────────────────────┐
+│   FIX Engine (QuickFIX library)         │
+│   ↓ Session management                  │
+│   ↓ Message encoding/decoding           │
+│   ↓ Sequence number tracking            │
+│   ↓ Heartbeat/reconnect logic           │
+└─────────────────────────────────────────┘
+            ↓ TCP Socket
+┌─────────────────────────────────────────┐
+│   Exchange Gateway (NSE/BSE)            │
+│   ↓ Receives FIX messages               │
+│   ↓ Routes to Matching Engine           │
+└─────────────────────────────────────────┘
+```
+
+**Error Handling:**
+
+**Scenario 1: Order Rejection**
+
+```
+Exchange → Broker: Execution Report (status=REJECTED, reject_reason="Insufficient margin")
+Broker → User: WebSocket push {"order_id": 123, "status": "REJECTED", "reason": "Insufficient margin"}
+Broker → Ledger: Rollback margin block
+```
+
+**Scenario 2: Connection Loss**
+
+```
+1. Heartbeat timeout (no response for 60 seconds)
+2. FIX Engine initiates reconnect with exponential backoff
+3. After reconnect: Request missed messages using sequence number gap fill
+4. Exchange resends all execution reports during downtime
+5. Ledger reconciliation: replay missed fills
+```
+
+**Performance Characteristics:**
+
+- **Order Placement Latency:** 50-200ms (network + exchange processing)
+- **Market Data Latency:** 20-100ms (exchange → broker)
+- **Message Throughput:** 10,000 messages/sec (per FIX session)
+- **Session Reliability:** Auto-reconnect, gap fill, sequence number validation
+
+**Why FIX Protocol?**
+
+| Aspect              | FIX Protocol                        | Alternative (REST API)             |
+|---------------------|-------------------------------------|------------------------------------|
+| **Standardization** | Industry standard, all exchanges    | Custom implementation per exchange |
+| **Performance**     | Low latency (binary-like)           | Higher latency (JSON overhead)     |
+| **Reliability**     | Built-in sequence numbers, gap fill | Must implement manually            |
+| **Bi-Directional**  | Yes (orders out, fills in)          | Request-response only              |
+| **Real-Time**       | Continuous stream                   | Polling required                   |
 
 *See pseudocode.md::send_fix_order() for implementation.*
 
 ---
 
-### Risk Management System
+### 5.6 Risk Management and Circuit Breakers
 
-**Problem:** Prevent users from taking excessive risk.
+**Problem:** Prevent catastrophic losses from erroneous orders, fat-finger trades, or system bugs.
 
-**1. Margin Trading Risk**
+**Real-World Example:** Knight Capital (2012) lost $440 million in 45 minutes due to buggy trading algorithm.
 
-**Scenario:**
+**Risk Checks (Pre-Trade):**
 
-```
-User account: $10,000 cash
-User buys: 100 shares @ $200 = $20,000 total value
-Margin used: $10,000 borrowed from broker
-```
-
-**Risk:** If stock drops to $130, equity = $13,000 - $10,000 = $3,000 (equity ratio = 23%, below 30% → MARGIN CALL)
-
-**Solution: Margin Requirements**
+**1. Position Limits**
 
 ```
-Initial Margin: 50% (user must have 50% of position value)
-Maintenance Margin: 30% (triggers margin call if breached)
-
-Margin Call Process:
-  1. System detects equity ratio < 30%
-  2. Notify user: "Add funds or positions will be liquidated"
-  3. Grace period: 1 hour
-  4. Auto-liquidate if user doesn't add funds
+User's current position: 1,000 shares of RELIANCE
+Max position allowed: 5,000 shares
+New buy order: 500 shares
+Check: 1,000 + 500 = 1,500 ≤ 5,000 ✅ PASS
 ```
 
-**Real-Time Monitoring:**
+**2. Price Collar (Fat-Finger Protection)**
 
 ```
-Every 1 minute (during market hours):
-  FOR each user with margin positions:
-    position_value = SUM(holding.quantity × current_price)
-    equity = position_value - margin_used
-    equity_ratio = equity / position_value
-    
-    IF equity_ratio < 0.30:
-      trigger_margin_call(user_id)
+Current market price: $100
+User places order: $10 (typo, meant $100)
+Check: |10 - 100| / 100 = 90% deviation
+Threshold: 10% deviation
+Result: ❌ REJECT "Price deviates significantly from market"
 ```
 
-*See pseudocode.md::check_margin_requirements() for implementation.*
-
----
-
-**2. Circuit Breakers (Market-Wide)**
-
-**NSE/BSE Circuit Breaker Rules:**
-
-| Level | Decline | Action                           |
-|-------|---------|----------------------------------|
-| 1     | 10%     | Trading halted for 45 minutes    |
-| 2     | 15%     | Trading halted for 1 hour 45 min |
-| 3     | 20%     | Trading halted for rest of day   |
-
-**Implementation:**
+**3. Order Rate Limiting**
 
 ```
-every 1 second:
-  current_index = get_nifty_level()
-  previous_close = get_previous_close()
-  decline_percent = (previous_close - current_index) / previous_close × 100
-  
-  IF decline_percent >= 20:
-    halt_trading_for_day()
-  ELSE IF decline_percent >= 15:
-    halt_trading(duration=105 minutes)
-  ELSE IF decline_percent >= 10:
-    halt_trading(duration=45 minutes)
+User history (last 1 minute):
+  - 10 orders placed
+Max allowed: 20 orders/minute
+New order: PASS (10 < 20)
+
+If exceeded: ❌ REJECT "Rate limit exceeded, wait 30 seconds"
 ```
 
----
-
-**3. Fraud Detection**
-
-**Account Takeover Detection:**
+**4. Notional Value Limit**
 
 ```
-Trigger: User logs in from new device + new IP + different country
+Order: 1,000 shares @ $500 = $500,000 notional
+User's daily limit: $1,000,000
+Today's cumulative: $300,000
+Check: $300,000 + $500,000 = $800,000 ≤ $1,000,000 ✅ PASS
+```
+
+**Circuit Breaker Implementation:**
+
+> 📊 **See architecture diagram:** [HLD Diagrams - Circuit Breaker](./hld-diagram.md#circuit-breaker)
+
+**Market-Wide Circuit Breaker (Regulatory):**
+
+```
+If NIFTY50 index drops by 10% intraday:
+  → Trading halted for 45 minutes (exchange-mandated)
+  → Broker: Reject all new orders with message "Market halted"
+  → Display banner on UI: "Trading paused due to circuit breaker"
+```
+
+**Broker-Level Circuit Breaker (Self-Protection):**
+
+```
+If order rejection rate > 50% for 1 minute:
+  → YELLOW alert: Slow down order acceptance (add 500ms delay)
+  → Email/SMS: "High rejection rate detected"
+
+If system errors > 100/second:
+  → RED alert: Stop accepting new orders
+  → Engineering on-call paged
+  → Display: "System maintenance, orders temporarily disabled"
+```
+
+**Kill Switch (Emergency Shutdown):**
+
+```
+Trigger conditions:
+  1. Manual activation by risk manager
+  2. Unexpected P&L swing > $10M in 1 minute
+  3. Order volume > 10x normal (potential runaway algorithm)
 
 Action:
-  1. Block login
-  2. Send email: "Suspicious login attempt from New York. Was this you?"
-  3. Require additional verification (Email OTP, security question)
+  → Cancel all pending orders (send FIX cancel requests)
+  → Close all WebSocket connections (stop new orders)
+  → Freeze user accounts (require manual review)
+  → Alert: CEO, CTO, Risk Head (SMS + call)
 ```
 
-**Wash Trading Detection:**
+**Implementation (Redis-Based State):**
 
 ```
-Pattern: User buys and sells same stock >10 times in single day
+# Circuit breaker state
+Key: circuit:breaker:status
+Value: {"state": "OPEN", "reason": "High rejection rate", "timestamp": 1698765432}
+TTL: 300 seconds (auto-reset after 5 minutes)
 
-Detection:
-  Trigger: User completes >10 round-trips of same stock
-
-Action:
-  1. Warn user: "Wash trading is prohibited"
-  2. Block further trades for 24 hours
-  3. Report to exchange
+# Order rate limiting (per user)
+Key: rate:limit:user:12345
+Value: 15  # orders placed in current minute
+TTL: 60 seconds
 ```
 
-*See pseudocode.md::detect_fraud() for implementation.*
-
----
-
-### Performance Optimization Techniques
-
-**1. WebSocket Message Compression**
-
-**Problem:** Sending 200M messages/sec consumes massive bandwidth.
-
-**Solution: Per-Message Deflate (RFC 7692)**
+**Pseudocode:**
 
 ```
-Uncompressed: 62 bytes
-Compressed: 28 bytes
-Compression ratio: 55% reduction
-Bandwidth savings: 6.8 GB/sec saved
-Cost savings: ~$50k/month
-```
-
----
-
-**2. Redis Pipeline (Batch Quote Updates)**
-
-**Without Pipelining:**
-
-```
-FOR each quote in batch (100 quotes):
-  redis.SET(f"quote:{symbol}", quote_data)  // 1ms per SET
-Total time: 100ms
-```
-
-**With Pipelining:**
-
-```
-pipeline = redis.pipeline()
-FOR each quote in batch (100 quotes):
-  pipeline.SET(f"quote:{symbol}", quote_data)
-pipeline.execute()  // Single network call
-Total time: 5ms (20x faster)
-```
-
----
-
-**3. Kafka Producer Batching**
-
-**Configuration:**
-
-```
-linger.ms = 10  // Wait 10ms to accumulate messages
-batch.size = 100KB
-compression.type = snappy
-
-Result:
-  Instead of 100,000 individual sends/sec
-  Send ~1,000 batches/sec (100 messages per batch)
-  Network calls: 1k/sec (100x reduction)
-```
-
----
-
-**4. CDN for Historical Charts**
-
-**Problem:** Users request historical OHLC data (1-year chart = 365 data points).
-
-**Solution: Cloudflare CDN**
-
-```
-Cache-Control: public, max-age=3600
-  - 1 million users request same chart → Only 1 backend request/hour
-  - 99.9999% cache hit rate
+function check_risk_limits(order):
+  // 1. Check circuit breaker
+  if redis.get("circuit:breaker:status") == "OPEN":
+    return REJECT("Trading temporarily halted")
   
-Savings:
-  Backend load: 1M requests/hour → 1 request/hour
-  Cost: $5k/month (CDN) vs $500k/month (origin servers)
+  // 2. Check position limit
+  current_position = get_position(order.user_id, order.symbol)
+  if current_position + order.quantity > MAX_POSITION:
+    return REJECT("Position limit exceeded")
+  
+  // 3. Check price collar
+  market_price = redis.get(f"quote:{order.symbol}:ltp")
+  deviation = abs(order.price - market_price) / market_price
+  if deviation > 0.10:  // 10% threshold
+    return REJECT("Price deviates from market")
+  
+  // 4. Check rate limit
+  order_count = redis.incr(f"rate:limit:user:{order.user_id}")
+  redis.expire(f"rate:limit:user:{order.user_id}", 60)
+  if order_count > 20:
+    return REJECT("Rate limit exceeded")
+  
+  return PASS
 ```
+
+*See pseudocode.md::check_risk_limits() for full implementation.*
 
 ---
 
-### Security
+### 5.7 Regulatory Compliance and Audit Trail
 
-**Multi-Factor Authentication:**
+**Problem:** Financial regulators (SEBI in India, SEC in US) require complete audit trail of all activities.
 
-**Password + TOTP (Time-Based One-Time Password):**
+**Regulatory Requirements:**
 
-```
-Login Flow:
-  1. User enters username + password
-  2. Server validates credentials
-  3. Server sends: "Enter 6-digit code from authenticator app"
-  4. User opens Google Authenticator → sees: 847362
-  5. User enters code
-  6. Server validates TOTP (30-second time window)
-  7. Issue JWT token
-```
+**1. Order Audit Trail (SEBI Mandate)**
 
-**TOTP Algorithm:**
+- Every order modification, cancellation, fill must be logged
+- Immutable record (cannot be deleted or altered)
+- Retention: 5 years minimum
+- Must include: timestamp (microsecond precision), user ID, order details, IP address, device fingerprint
 
-```python
-def generate_totp(secret, timestamp=None):
-  if timestamp is None:
-    timestamp = int(time.time())
-  
-  counter = timestamp // 30  // 30-second time step
-  
-  hmac_hash = hmac.new(secret.encode(), struct.pack(">Q", counter), hashlib.sha1).digest()
-  
-  offset = hmac_hash[-1] & 0x0F
-  code = struct.unpack(">I", hmac_hash[offset:offset+4])[0]
-  code = (code & 0x7FFFFFFF) % 1000000
-  
-  return f"{code:06d}"
-```
+**2. Best Execution Reporting**
 
----
+- Prove that user got best available price
+- Log market snapshot at order placement time
+- Compare execution price with VWAP (Volume Weighted Average Price)
 
-### Advanced Order Types
+**3. Anti-Money Laundering (AML)**
 
-**1. Stop-Loss Order**
+- Flag suspicious patterns: circular trading, wash sales
+- Report transactions > $10,000 to FINCEN
+- KYC verification before account activation
 
-```
-User owns 100 shares RELIANCE @ $100
-Current: $120 (profit)
-Places: STOP-LOSS SELL 100 @ $110
+**Audit Log Implementation:**
 
-Implementation:
-  Redis: stop_orders:RELIANCE → [{user, qty, trigger_price}]
-  Monitor quotes
-  When LTP <= $110 → Convert to MARKET SELL
-```
-
-**2. Good-Till-Cancelled (GTC)**
-
-```
-BUY 100 RELIANCE @ $95 (current $100)
-Validity: GTC
-
-Implementation:
-  PostgreSQL: status=ACTIVE
-  Daily batch checks price
-  Auto-cancel after 90 days
-```
-
-**3. Iceberg Order**
-
-```
-Total: 10,000, Display: 500
-Benefits: Prevents market impact
-Exchange sees only 500 at a time
-```
-
-**4. Bracket Order**
-
-```
-Entry: BUY 100 @ $100
-Target: SELL 100 @ $110
-Stop-Loss: SELL 100 @ $95
-Implementation: OCO (One Cancels Other)
-```
-
----
-
-### Multi-Region Deployment
-
-**Regions:**
-
-1. Mumbai (Primary) - NSE/BSE exchanges
-2. Singapore (Secondary) - Southeast Asia
-3. London (Secondary) - Europe
-
-**Data Residency:**
-
-- SEBI: Indian data in India
-- GDPR: EU data in EU
-- Solution: Shard by region
-
-**Mumbai Architecture:**
-
-```
-├── WebSocket Servers (500)
-├── PostgreSQL (Indian users)
-├── Redis Cache (all symbols)
-├── FIX Engine (NSE/BSE)
-└── Kafka Cluster
-```
-
-**Cross-Region:**
-
-- Quote data: Mumbai → Singapore (100ms)
-- User data: NO replication (compliance)
-
-**Disaster Recovery:**
-
-```
-Scenario: Mumbai outage
-1. DNS Failover (5 min)
-2. Activate Standby FIX (10 min)
-3. DB Restoration (30 min)
-
-RTO: 1 hour
-RPO: 15 minutes
-```
-
----
-
-### Audit Logging and Compliance
-
-**Requirement:** Maintain immutable audit trail for 7 years (SEBI/SEC).
-
-**What to Log:**
-
-1. Order Events (placement, fills, cancellations)
-2. Ledger Events (deposits, withdrawals, trades)
-3. Market Snapshots (state at order time)
-4. System Events (login, logout)
-5. Admin Actions (freezes, margin calls)
-
-**Storage: ClickHouse**
-
-**Schema:**
+**Schema (Time-Series Database - ClickHouse):**
 
 ```sql
 CREATE TABLE audit_log (
-  event_id UUID,
-  user_id BIGINT,
-  event_type ENUM('ORDER_PLACED', 'ORDER_FILLED', 'DEPOSIT'),
-  timestamp TIMESTAMP,
-  order_details JSON,
-  market_snapshot JSON,
-  ip_address VARCHAR(45)
+    event_id UUID,
+    timestamp DateTime64(6),  -- Microsecond precision
+    event_type Enum('ORDER_PLACED', 'ORDER_MODIFIED', 'ORDER_CANCELLED', 'ORDER_FILLED'),
+    user_id UInt64,
+    order_id UInt64,
+    symbol String,
+    order_details JSON,
+    ip_address IPv4,
+    device_fingerprint String,
+    market_snapshot JSON,  -- Bid/Ask at placement time
+    INDEX idx_user_id user_id TYPE bloom_filter,
+    INDEX idx_timestamp timestamp TYPE minmax
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (user_id, timestamp);
+ORDER BY (timestamp, user_id);
 ```
 
-**Retention:**
+**Example Audit Entry:**
 
-- Hot: 6 months (SSD)
-- Warm: 2 years (HDD)
-- Cold: 7 years (S3 Glacier)
+```json
+{
+  "event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "timestamp": "2023-10-30T10:15:30.123456",
+  "event_type": "ORDER_PLACED",
+  "user_id": 12345,
+  "order_id": 67890,
+  "symbol": "RELIANCE",
+  "order_details": {
+    "side": "BUY",
+    "quantity": 100,
+    "price": 2450.50,
+    "order_type": "LIMIT"
+  },
+  "ip_address": "192.168.1.100",
+  "device_fingerprint": "Chrome|Windows|1920x1080",
+  "market_snapshot": {
+    "ltp": 2450.00,
+    "bid": 2449.75,
+    "ask": 2450.25,
+    "volume": 15000000
+  }
+}
+```
 
 **Compliance Queries:**
 
-**Reconstruct Trading History:**
+**Query 1: Reconstruct User's Trading History**
 
 ```sql
 SELECT * FROM audit_log
@@ -809,7 +794,7 @@ WHERE user_id = 12345
 ORDER BY timestamp;
 ```
 
-**Detect Wash Sales:**
+**Query 2: Detect Wash Sales (Buy and Sell same stock within 30 days)**
 
 ```sql
 WITH trades AS (
@@ -817,343 +802,1016 @@ WITH trades AS (
   FROM audit_log
   WHERE event_type = 'ORDER_FILLED'
 )
-SELECT t1.user_id, t1.symbol
+SELECT t1.user_id, t1.symbol, t1.timestamp AS buy_time, t2.timestamp AS sell_time
 FROM trades t1
-JOIN trades t2 ON t1.user_id = t2.user_id
+JOIN trades t2 ON t1.user_id = t2.user_id AND t1.symbol = t2.symbol
 WHERE t1.side = 'BUY' AND t2.side = 'SELL'
   AND t2.timestamp BETWEEN t1.timestamp AND t1.timestamp + INTERVAL 30 DAY;
 ```
 
-**GDPR (Right to be Forgotten):**
+**Query 3: Best Execution Analysis**
+
+```sql
+SELECT 
+  symbol,
+  AVG(JSONExtractFloat(market_snapshot, 'ltp')) AS avg_market_price,
+  AVG(JSONExtractFloat(order_details, 'price')) AS avg_execution_price,
+  (avg_execution_price - avg_market_price) AS slippage
+FROM audit_log
+WHERE event_type = 'ORDER_FILLED'
+  AND timestamp >= today() - INTERVAL 1 DAY
+GROUP BY symbol;
+```
+
+**GDPR Compliance (Right to be Forgotten):**
+
+**Challenge:** User requests data deletion, but audit logs must be immutable.
+
+**Solution: Pseudonymization**
 
 ```
-1. Replace user_id with SHA256 hash
-2. Store encrypted mapping (separate DB)
-3. Audit log retains records (immutable)
-4. Delete mapping after statute expires
+1. User requests deletion
+2. Replace user_id with pseudonymous hash: SHA256(user_id + salt)
+3. Store mapping: hash → original user_id (encrypted, separate secure database)
+4. Audit log retains records (regulatory requirement) but cannot identify user
+5. Mapping can be deleted after statute of limitations expires
 ```
+
+*See pseudocode.md::log_audit_event() for implementation.*
 
 ---
 
-### Execution Algorithms
+### 5.8 Multi-Region Deployment and Disaster Recovery
+
+**Problem:** Serve users across multiple geographic regions with low latency and high availability.
+
+**Geographic Distribution:**
+
+> 📊 **See architecture diagram:** [HLD Diagrams - Multi-Region](./hld-diagram.md#multi-region)
+
+**Regions:**
+
+1. **Mumbai (Primary):** Nearest to NSE/BSE exchanges (India)
+2. **Singapore (Secondary):** Serves Southeast Asia
+3. **London (Secondary):** Serves Europe, Middle East
+
+**Data Residency Requirements:**
+
+- **SEBI (India):** All Indian user data MUST be stored in India
+- **GDPR (Europe):** European user data MUST stay in EU
+- **Solution:** Shard database by region, replicate read-only data cross-region
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────┐
+│  Mumbai Region (Primary)                        │
+│  ├── WebSocket Servers (500 nodes)             │
+│  ├── PostgreSQL (Indian users)                 │
+│  ├── Redis Quote Cache (all symbols)           │
+│  ├── FIX Engine (NSE/BSE connection)           │
+│  └── Kafka Cluster                              │
+└─────────────────────────────────────────────────┘
+           ↕ Cross-region replication (quotes only)
+┌─────────────────────────────────────────────────┐
+│  Singapore Region (Secondary)                   │
+│  ├── WebSocket Servers (300 nodes)             │
+│  ├── PostgreSQL (Singapore users)              │
+│  ├── Redis Quote Cache (read replica)          │
+│  └── Kafka Mirror (read-only)                  │
+└─────────────────────────────────────────────────┘
+```
+
+**Cross-Region Replication:**
+
+**Quote Data (Redis):**
+
+- Mumbai → Singapore: Async replication via Kafka (latency: ~100ms)
+- Singapore users see slightly stale quotes (acceptable for retail trading)
+- Orders still route to Mumbai (FIX connection to NSE/BSE)
+
+**User Data (PostgreSQL):**
+
+- NO cross-region replication (data residency laws)
+- Singapore users access Singapore database only
+- Mumbai users access Mumbai database only
+
+**Disaster Recovery Plan:**
+
+**Scenario 1: Mumbai Datacenter Outage**
+
+**Impact:**
+
+- Primary region down (FIX connection to exchange lost)
+- 5 million Indian users cannot trade
+
+**Recovery Steps:**
+
+```
+1. DNS Failover (5 minutes)
+   - Update Route53: mumbai.broker.com → singapore.broker.com
+   
+2. Activate Standby FIX Connection (10 minutes)
+   - Singapore has standby FIX session with NSE (pre-configured, inactive)
+   - Activate session, start receiving market data
+   
+3. Database Restoration (30 minutes)
+   - Restore PostgreSQL from latest backup (taken every 15 minutes)
+   - Lost transactions: ~15 minutes of data (accept data loss vs downtime)
+   
+4. User Communication
+   - Display banner: "Service restored, please relogin"
+   - Email/SMS: "Trading resumed after datacenter outage"
+```
+
+**Total Downtime:** 30-45 minutes (acceptable for non-HFT retail platform)
+
+**Scenario 2: Database Corruption**
+
+**Recovery:**
+
+```
+1. Detect corruption (automatic checksums)
+2. Stop writes immediately
+3. Restore from Point-in-Time backup (PostgreSQL WAL replay)
+4. Replay event log from Kafka (fill the gap)
+5. Resume operations
+```
+
+**RTO/RPO Targets:**
+
+- **RTO (Recovery Time Objective):** 1 hour max downtime
+- **RPO (Recovery Point Objective):** 15 minutes max data loss
+
+*See this-over-that.md for Active-Active vs Active-Passive comparison.*
+
+---
+
+### 5.9 Advanced Order Types and Execution Strategies
+
+**Problem:** Support sophisticated trading strategies beyond simple market/limit orders.
+
+**Order Types:**
+
+**1. Stop-Loss Order**
+
+```
+User owns 100 shares of RELIANCE @ avg price $100
+Current price: $120 (in profit)
+User places: STOP-LOSS SELL 100 @ $110
+
+Implementation:
+  - Store in Redis: stop_orders:RELIANCE → [{user, qty, trigger_price}]
+  - Monitor live quotes
+  - When LTP <= $110 → Convert to MARKET SELL order
+  - Execute immediately
+```
+
+**2. Good-Till-Cancelled (GTC) Order**
+
+```
+User places: BUY 100 RELIANCE @ $95 (current price $100)
+Order type: LIMIT, validity: GTC (good till cancelled)
+
+Implementation:
+  - Store in PostgreSQL with status=ACTIVE
+  - Daily batch job checks if price reached $95
+  - If matched: Execute order, update status=FILLED
+  - If not matched: Keep order active for next day
+  - Auto-cancel after 90 days (regulatory limit)
+```
+
+**3. Iceberg Order (Hidden Quantity)**
+
+```
+User wants to buy 10,000 shares without revealing intent
+Iceberg order: Total 10,000, Display 500 (tip of iceberg)
+
+Exchange sees: BUY 500 @ $100
+When filled: Automatically place next: BUY 500 @ $100
+Repeat until total 10,000 filled
+
+Benefits: Prevents market impact (large order moving price)
+```
+
+**4. Bracket Order (Target + Stop-Loss)**
+
+```
+User places: BUY 100 RELIANCE @ $100 (Entry)
+  + Target: SELL 100 @ $110 (Take profit)
+  + Stop-Loss: SELL 100 @ $95 (Cut loss)
+
+Implementation:
+  - Entry order sent to exchange
+  - When filled: Simultaneously place target & stop-loss (OCO = One Cancels Other)
+  - If target fills → Cancel stop-loss
+  - If stop-loss triggers → Cancel target
+```
+
+**Execution Algorithms:**
 
 **1. VWAP (Volume Weighted Average Price)**
 
-**Goal:** Match market's VWAP for large orders.
-
-**Algorithm:**
-
 ```
-Total: 10,000 shares
-Window: 2 hours (9:15-11:15 AM)
+Goal: Execute large order over time window, matching market's VWAP
 
-Every 5 minutes:
-  volume_pct = current_volume / expected_daily_volume
-  target_qty = 10,000 × volume_pct
-  place_order(target_qty - filled_qty)
+Algorithm:
+  Total order: 10,000 shares
+  Time window: 9:15 AM - 11:15 AM (2 hours)
+  
+  Every 5 minutes:
+    - Calculate percentage of daily volume traded so far
+    - Place order for same percentage of total order
+    
+  Example (9:20 AM):
+    - Market volume: 5% of expected daily volume
+    - Place order: 5% × 10,000 = 500 shares
 ```
-
-**Example:**
-
-```
-9:20 AM:
-  Market volume: 5% of daily
-  Place: 5% × 10,000 = 500 shares
-```
-
-**Benefits:**
-
-- Reduces market impact
-- Matches market average
-- Minimizes slippage
-
----
 
 **2. TWAP (Time Weighted Average Price)**
 
-**Goal:** Execute evenly over time.
-
-**Algorithm:**
-
 ```
-Total: 10,000 shares
-Window: 2 hours = 120 minutes
-Intervals: 24 (every 5 minutes)
-Per interval: 10,000 / 24 = 417 shares
+Goal: Execute evenly over time (simpler than VWAP)
 
-9:15 AM: 417 shares
-9:20 AM: 417 shares
-...
-11:15 AM: remaining shares
+Total order: 10,000 shares
+Time window: 2 hours = 120 minutes
+Split: 10,000 / 24 = ~417 shares every 5 minutes
+
+Advantage: Predictable, easy to implement
+Disadvantage: Ignores market volume patterns
 ```
 
-**Advantages:**
-
-- Simple, predictable
-- Easy to implement
-
-**Disadvantages:**
-
-- Ignores volume patterns
-- High impact in low-volume periods
+*See pseudocode.md::execute_vwap_order() for implementation.*
 
 ---
 
-### Portfolio Management
+### 5.6 FIX Protocol Integration (Exchange Connectivity)
 
-**Real-Time P&L Calculation:**
+**Problem:** Communicate with stock exchanges (NSE/BSE) for order routing and market data using industry-standard FIX
+protocol.
 
-**Formula:**
+**FIX (Financial Information eXchange) Protocol:**
+
+- **Binary messaging protocol** for financial transactions
+- **Session-based:** Maintains persistent TCP connection with exchange
+- **Sequence numbers:** Every message has unique `MsgSeqNum` for reliability
+- **Heartbeats:** Keepalive messages every 30 seconds
+
+**FIX Session Lifecycle:**
+
+> 📊 **See sequence diagram:** [Sequence Diagrams - FIX Session](./sequence-diagrams.md#fix-session)
+
+**Step 1: Logon (Session Initialization)**
 
 ```
-Unrealized P&L (per stock):
-  = (Current Price - Avg Buy Price) × Quantity
+Broker → Exchange:
+  35=A (Logon)
+  49=BROKER_ID (SenderCompID)
+  56=NSE (TargetCompID)
+  34=1 (MsgSeqNum)
+  52=20231001-09:00:00 (SendingTime)
+  98=0 (EncryptMethod: None)
+  108=30 (HeartBtInt: 30 seconds)
 
-Total Portfolio P&L:
-  = SUM(Unrealized P&L) + Realized P&L
+Exchange → Broker:
+  35=A (Logon)
+  49=NSE
+  56=BROKER_ID
+  34=1
+  98=0
+  108=30
+  
+Status: Session ACTIVE
+```
+
+**Step 2: Market Data Subscription**
+
+```
+Broker → Exchange:
+  35=V (MarketDataRequest)
+  262=REQ_AAPL_QUOTES (MDReqID)
+  263=1 (SubscriptionRequestType: Snapshot + Updates)
+  264=1 (MarketDepth: Top of Book)
+  267=2 (NoMDEntryTypes: Bid + Ask)
+  269=0 (MDEntryType: Bid)
+  269=1 (MDEntryType: Ask)
+  146=1 (NoRelatedSym: 1 symbol)
+  55=RELIANCE (Symbol)
+```
+
+**Step 3: Receive Market Data Update (Quote)**
+
+```
+Exchange → Broker:
+  35=W (MarketDataSnapshot)
+  55=RELIANCE (Symbol)
+  268=3 (NoMDEntries: 3 prices)
+  269=0|270=2450.50|271=1000 (Bid: $2450.50, 1000 shares)
+  269=1|270=2451.00|271=500  (Ask: $2451.00, 500 shares)
+  269=2|270=2450.75|271=5000 (LTP: $2450.75, 5000 shares)
+  
+Broker Action:
+  1. Parse FIX message
+  2. Update Redis: SET quote:RELIANCE {"ltp": 2450.75, "bid": 2450.50, "ask": 2451.00}
+  3. Publish to Kafka: market.quotes topic
+  4. WebSocket servers push to users
+```
+
+**Step 4: Place Order**
+
+```
+Broker → Exchange:
+  35=D (NewOrderSingle)
+  11=ORD_123456 (ClOrdID: Client Order ID)
+  55=RELIANCE (Symbol)
+  54=1 (Side: Buy)
+  38=100 (OrderQty: 100 shares)
+  40=2 (OrdType: Limit)
+  44=2450.00 (Price)
+  59=0 (TimeInForce: Day order)
+  
+Exchange → Broker:
+  35=8 (ExecutionReport)
+  11=ORD_123456
+  39=0 (OrdStatus: New - Order accepted)
+  150=0 (ExecType: New)
+```
+
+**Step 5: Order Fill Notification**
+
+```
+Exchange → Broker:
+  35=8 (ExecutionReport)
+  11=ORD_123456
+  17=EXEC_789 (ExecID: Execution ID)
+  39=2 (OrdStatus: Filled)
+  150=F (ExecType: Trade)
+  31=2450.00 (LastPx: Execution price)
+  32=100 (LastQty: Filled quantity)
+  151=0 (LeavesQty: Remaining = 0, fully filled)
+  
+Broker Action:
+  1. Update order status: PENDING → FILLED
+  2. Append to Kafka event log: ORDER_FILLED event
+  3. Update holdings table (add 100 shares)
+  4. Send WebSocket notification to user
+```
+
+**Step 6: Heartbeat (Keepalive)**
+
+```
+Exchange → Broker (every 30 seconds):
+  35=0 (Heartbeat)
+  
+Broker → Exchange:
+  35=0 (Heartbeat)
+```
+
+**Step 7: Sequence Number Gap Detection**
+
+```
+Scenario: Broker expects MsgSeqNum=50, receives MsgSeqNum=52 (gap!)
+
+Broker → Exchange:
+  35=2 (ResendRequest)
+  7=50 (BeginSeqNo: start of gap)
+  16=51 (EndSeqNo: end of gap)
+  
+Exchange → Broker:
+  Resends messages 50-51
+```
+
+**FIX Engine Implementation:**
+
+**Architecture:**
+
+```
+┌────────────────────────────────────────────────┐
+│  FIX Engine (Go/Java)                          │
+│  ├── Session Manager (1 session per exchange) │
+│  ├── Message Parser (FIX 4.2/4.4 codec)       │
+│  ├── Sequence Number Manager (persistence)    │
+│  ├── Heartbeat Monitor (30s intervals)        │
+│  └── Resend Request Handler (gap recovery)    │
+└────────────────────────────────────────────────┘
+         ↕ TCP (port 5001)
+┌────────────────────────────────────────────────┐
+│  NSE/BSE Exchange Gateway                      │
+└────────────────────────────────────────────────┘
+```
+
+**Persistence (Sequence Numbers):**
+
+```sql
+CREATE TABLE fix_sessions (
+  session_id VARCHAR(50) PRIMARY KEY,
+  last_sent_seqnum INT NOT NULL,
+  last_received_seqnum INT NOT NULL,
+  session_state ENUM('DISCONNECTED', 'LOGON_SENT', 'ACTIVE') NOT NULL
+);
+
+-- On every message sent:
+UPDATE fix_sessions SET last_sent_seqnum = last_sent_seqnum + 1 WHERE session_id = 'NSE';
+
+-- On every message received:
+UPDATE fix_sessions SET last_received_seqnum = last_received_seqnum + 1 WHERE session_id = 'NSE';
+```
+
+**Error Handling:**
+
+**Scenario 1: Exchange Rejects Order (Insufficient Funds)**
+
+```
+Exchange → Broker:
+  35=8 (ExecutionReport)
+  11=ORD_123456
+  39=8 (OrdStatus: Rejected)
+  150=8 (ExecType: Rejected)
+  103=2 (OrdRejReason: Broker option - Insufficient balance)
+  58="Insufficient funds" (Text)
+  
+Broker Action:
+  1. Update order status: PENDING → REJECTED
+  2. Release margin_used in ledger
+  3. Send error notification to user via WebSocket
+```
+
+**Scenario 2: FIX Session Disconnect**
+
+```
+Problem: TCP connection to exchange lost (network issue, exchange restart)
+
+Recovery Steps:
+  1. Detect: No heartbeat received for 60 seconds
+  2. Close TCP socket
+  3. Wait 5 seconds (exponential backoff)
+  4. Reconnect: Initiate new TCP connection
+  5. Logon: Send Logon message with last known sequence numbers
+  6. Exchange may require:
+     - Sequence reset (35=4) if gap too large
+     - OR resend all missing messages
+```
+
+**Performance Considerations:**
+
+**Latency Breakdown (Order Entry):**
+
+```
+User clicks "Buy" button
+  ↓
+API Gateway: 10ms
+  ↓
+Order Entry Service (validation): 50ms
+  ↓
+FIX Engine (encode + send): 5ms
+  ↓
+Network (datacenter → exchange): 2ms (co-location)
+  ↓
+Exchange Matching Engine: 100μs (see 3.4.1)
+  ↓
+ExecutionReport (FIX message): 2ms
+  ↓
+Parse + Update Ledger: 20ms
+  ↓
+WebSocket notification: 10ms
+  
+Total: ~100ms (order placed to user notification)
+```
+
+**Throughput:**
+
+- Single FIX session: ~1,000 orders/sec (TCP single-threaded)
+- Solution: Multiple parallel FIX sessions (5 sessions = 5,000 orders/sec)
+
+*See pseudocode.md::send_fix_order() for implementation.*
+
+---
+
+### 5.7 Risk Management System
+
+**Problem:** Prevent users from taking excessive risk that could lead to default (user loses more than account value).
+
+**Risk Types:**
+
+**1. Margin Trading Risk**
+
+**Scenario:**
+
+```
+User account: $10,000 cash
+User buys: 100 shares @ $200 = $20,000 total value
+Margin used: $20,000 - $10,000 = $10,000 borrowed from broker
+```
+
+**Risk:** If stock drops to $150, user's equity = $15,000 - $10,000 debt = $5,000 (50% loss)
+
+**Solution: Margin Requirements**
+
+```
+Initial Margin: 50% (user must have 50% of position value)
+  - User can buy max: $10,000 / 0.5 = $20,000 worth of stock
+  
+Maintenance Margin: 30% (user must maintain 30% equity)
+  - If equity drops below 30%, trigger MARGIN CALL
+  
+Example:
+  Stock drops to $150:
+  Position value: 100 × $150 = $15,000
+  Equity: $15,000 - $10,000 debt = $5,000
+  Equity ratio: $5,000 / $15,000 = 33% ✅ (above 30%, OK)
+  
+  Stock drops to $130:
+  Position value: 100 × $130 = $13,000
+  Equity: $13,000 - $10,000 debt = $3,000
+  Equity ratio: $3,000 / $13,000 = 23% ❌ (below 30%, MARGIN CALL)
+```
+
+**Margin Call Process:**
+
+```
+1. System detects equity ratio < 30%
+2. Send urgent notification: "Add funds or positions will be liquidated"
+3. Grace period: 1 hour (market hours) or next trading day
+4. If user doesn't add funds:
+   - Auto-liquidate positions (force sell)
+   - Use proceeds to repay borrowed amount
+   - Return remaining balance to user
+```
+
+**Implementation:**
+
+**Real-Time Margin Monitoring:**
+
+```
+Every 1 minute (during market hours):
+  
+  FOR each user with margin positions:
+    // Fetch current holdings
+    holdings = get_holdings(user_id)
+    
+    // Calculate position value using live quotes
+    position_value = 0
+    FOR each holding:
+      quote = redis.get(f"quote:{holding.symbol}")
+      position_value += holding.quantity × quote.ltp
+    
+    // Calculate equity
+    equity = position_value - margin_used
+    equity_ratio = equity / position_value
+    
+    // Check margin requirements
+    IF equity_ratio < 0.30:
+      trigger_margin_call(user_id, equity_ratio)
+      
+      IF grace_period_expired:
+        auto_liquidate_positions(user_id)
+```
+
+*See pseudocode.md::check_margin_requirements() for implementation.*
+
+---
+
+**2. Position Concentration Risk**
+
+**Problem:** User invests 100% of capital in single stock (no diversification).
+
+**Risk Limit:**
+
+```
+Max position in single stock: 25% of portfolio value
+
+Example:
+  Portfolio value: $10,000
+  Max in RELIANCE: $10,000 × 0.25 = $2,500
+  
+  User tries to buy: 50 shares @ $200 = $10,000 (100%)
+  System REJECTS order: "Position limit exceeded, max $2,500 in single stock"
 ```
 
 **Implementation:**
 
 ```
-function calculate_pnl(user_id):
+function validate_position_limit(user_id, symbol, order_quantity, order_price):
+  // Calculate order value
+  order_value = order_quantity × order_price
+  
+  // Fetch current holdings
   holdings = get_holdings(user_id)
-  total_pnl = 0
+  current_position_value = holdings[symbol].quantity × get_current_price(symbol)
   
-  FOR each holding:
-    current_price = redis.get(f"quote:{holding.symbol}").ltp
-    pnl = (current_price - holding.avg_price) × holding.quantity
-    total_pnl += pnl
+  // Calculate new position value
+  new_position_value = current_position_value + order_value
   
-  RETURN total_pnl + realized_pnl
-```
-
-**Update Frequency:**
-
-- Every 1 second (market hours)
-- Push to WebSocket if change > $10 or 0.5%
-
----
-
-**Portfolio Breakdown:**
-
-**Asset Allocation:**
-
-```
-RELIANCE: $25,000 (25%)
-TCS: $20,000 (20%)
-INFY: $18,000 (18%)
-HDFC: $15,000 (15%)
-ICICI: $12,000 (12%)
-Cash: $10,000 (10%)
-
-Total: $100,000
-```
-
-**Sector Allocation:**
-
-```
-Technology: 38% (TCS + INFY)
-Finance: 27% (HDFC + ICICI)
-Energy: 25% (RELIANCE)
-Cash: 10%
-```
-
-**Performance:**
-
-```
-Overall Return: +12.5%
-Best: TCS (+25%)
-Worst: HDFC (-3%)
+  // Calculate portfolio value
+  total_portfolio_value = calculate_portfolio_value(user_id)
+  
+  // Check limit
+  position_ratio = new_position_value / total_portfolio_value
+  
+  IF position_ratio > 0.25:
+    RETURN error("Position limit exceeded, max 25% in single stock")
 ```
 
 ---
 
-### Advanced Features
+**3. Circuit Breakers (Market-Wide)**
 
-**1. Margin Financing**
+**Problem:** Extreme volatility causes panic selling, market crashes.
 
-**Concept:** Borrow from broker to buy stocks.
+**Circuit Breaker Rules (NSE/BSE):**
 
-**Calculation:**
-
-```
-User cash: $10,000
-Margin available: $10,000 (1:1 leverage)
-Buying power: $20,000
-
-User buys: 100 shares @ $200 = $20,000
-Borrowed: $10,000
-Interest: 12% annual = 1% monthly
-```
-
-**Risk Management:**
+**Level 1: 10% decline from previous close**
 
 ```
-Initial Margin: 50%
-Maintenance Margin: 30%
+Trigger: Index drops 10%
+Action: Trading halted for 45 minutes
+Example: NIFTY closes at 20,000. If drops to 18,000 (10%), trigger halt.
+```
 
-If equity < 30% → Margin Call
-If user doesn't add funds → Auto-liquidate
+**Level 2: 15% decline**
+
+```
+Action: Trading halted for 1 hour 45 minutes
+```
+
+**Level 3: 20% decline**
+
+```
+Action: Trading halted for rest of day
+```
+
+**Implementation:**
+
+```
+// Monitor index level
+every 1 second:
+  current_index = get_nifty_level()
+  previous_close = get_previous_close()
+  
+  decline_percent = (previous_close - current_index) / previous_close × 100
+  
+  IF decline_percent >= 20:
+    circuit_breaker_level = 3
+    halt_trading_for_day()
+    
+  ELSE IF decline_percent >= 15:
+    circuit_breaker_level = 2
+    halt_trading(duration=105 minutes)
+    
+  ELSE IF decline_percent >= 10:
+    circuit_breaker_level = 1
+    halt_trading(duration=45 minutes)
+```
+
+**Impact on Broker:**
+
+```
+When circuit breaker triggered:
+  1. Stop accepting new orders (reject with error: "Market halted")
+  2. Pending orders remain in order book (will execute when trading resumes)
+  3. Display prominent banner: "Trading halted due to circuit breaker"
+  4. Send push notification to all users
+  5. Resume order acceptance after halt period
 ```
 
 ---
 
-**2. Dividend Tracking**
+**4. Daily Trading Limit (Per User)**
 
-**Problem:** Credit dividends to user accounts automatically.
+**Problem:** Prevent users from excessive day trading (gambling behavior).
 
-**Flow:**
+**Limit:**
 
 ```
-1. Exchange announces dividend (RELIANCE: $10/share, ex-date: 2023-11-01)
-2. Broker fetches announcement via API
-3. On ex-date (2023-11-01 00:00):
-   FOR each user holding RELIANCE:
-     dividend = user.quantity × $10
-     credit_account(user_id, dividend)
-     send_notification(user_id, "Dividend credited: $" + dividend)
+Max trades per day: 100 orders
+Max turnover per day: $100,000 (buy + sell combined)
+
+Example:
+  User has placed 95 orders today
+  User tries to place 6th batch order → REJECT (exceeds 100 order limit)
+```
+
+---
+
+### 5.8 Performance Optimization Techniques
+
+**Problem:** Further reduce latency and improve throughput beyond base architecture.
+
+**1. WebSocket Message Compression**
+
+**Problem:** Sending 200M messages/sec consumes massive bandwidth.
+
+**Solution: Per-Message Deflate (RFC 7692)**
+
+```
+Uncompressed message (62 bytes):
+{"symbol":"RELIANCE","ltp":2450.75,"change":1.5,"timestamp":1609459200000}
+
+Compressed message (28 bytes):
+ʼn��w�wR�"JuL��Ku���5�3�3�0t���
+
+Compression ratio: 55% reduction
+Bandwidth savings: 200M msg/sec × 34 bytes = 6.8 GB/sec saved
+Cost savings: ~$50k/month (AWS data transfer)
+```
+
+**Implementation:**
+
+```javascript
+// Server-side (Node.js)
+const WebSocket = require('ws');
+
+const wss = new WebSocket.Server({
+  perMessageDeflate: {
+    zlibDeflateOptions: {
+      level: 1  // Fast compression (level 1-9, 1=fast, 9=best)
+    },
+    zlibInflateOptions: {
+      chunkSize: 10 * 1024  // 10KB chunks
+    },
+    threshold: 100  // Only compress messages >100 bytes
+  }
+});
+```
+
+**Trade-off:**
+
+- CPU overhead: +5% CPU usage per server
+- Latency: +2ms per message (acceptable)
+- Bandwidth: -55% (huge savings)
+
+---
+
+**2. Redis Pipeline (Batch Quote Updates)**
+
+**Problem:** Updating 100k quotes sequentially in Redis is slow.
+
+**Without Pipelining:**
+
+```
+FOR each quote in batch (100 quotes):
+  redis.SET(f"quote:{symbol}", quote_data)  // 1ms per SET
+  
+Total time: 100 × 1ms = 100ms (slow)
+```
+
+**With Pipelining:**
+
+```
+pipeline = redis.pipeline()
+
+FOR each quote in batch (100 quotes):
+  pipeline.SET(f"quote:{symbol}", quote_data)  // Queue command (no network)
+  
+pipeline.execute()  // Send all 100 commands in single network call
+
+Total time: ~5ms (20x faster)
+```
+
+**Implementation:**
+
+```python
+def update_quotes_batch(quotes):
+  pipeline = redis.pipeline(transaction=False)
+  
+  for quote in quotes:
+    key = f"quote:{quote['symbol']}"
+    value = json.dumps(quote)
+    pipeline.set(key, value)
+  
+  # Execute all 100 SET commands in single round-trip
+  pipeline.execute()
+```
+
+---
+
+**3. Kafka Producer Batching**
+
+**Problem:** Publishing 100k quote updates/sec to Kafka individually is inefficient.
+
+**Solution: Batch Accumulation**
+
+```
+Producer config:
+  linger.ms = 10  // Wait 10ms to accumulate messages
+  batch.size = 100KB  // Or until batch reaches 100KB
+  compression.type = snappy  // Compress batch
+  
+Result:
+  Instead of 100,000 individual sends/sec
+  Send ~1,000 batches/sec (100 messages per batch)
+  
+  Throughput: 100k messages/sec
+  Network calls: 1k/sec (100x reduction)
+```
+
+---
+
+**4. CDN for Static Quote Data (Historical Charts)**
+
+**Problem:** Users request historical OHLC data for charts (1-year chart = 365 data points).
+
+**Solution: Cloudflare CDN Caching**
+
+```
+Request: GET /api/chart/RELIANCE?period=1year
+
+Cache-Control: public, max-age=3600
+  - CDN caches for 1 hour
+  - 1 million users request same chart → Only 1 backend request/hour
+  - 99.9999% cache hit rate
+  
+Savings:
+  Backend load: 1M requests/hour → 1 request/hour (99.9999% reduction)
+  Cost: $5k/month (CDN) vs $500k/month (origin servers)
+```
+
+---
+
+### 5.9 Security and Fraud Detection
+
+**Problem:** Protect user accounts and detect malicious activity.
+
+**1. Authentication (Multi-Factor)**
+
+**Password + TOTP (Time-Based One-Time Password):**
+
+```
+Login Flow:
+  1. User enters: username + password
+  2. Server validates credentials
+  3. Server sends: "Enter 6-digit code from authenticator app"
+  4. User opens Google Authenticator → sees: 847362
+  5. User enters: 847362
+  6. Server validates TOTP code:
+     - Generate expected code using shared secret
+     - Check if entered code matches (30-second time window)
+  7. If valid → Issue JWT token
+```
+
+**TOTP Algorithm:**
+
+```python
+import hmac
+import hashlib
+import struct
+import time
+
+def generate_totp(secret, timestamp=None):
+  if timestamp is None:
+    timestamp = int(time.time())
+  
+  # Time step: 30 seconds
+  counter = timestamp // 30
+  
+  # HMAC-SHA1
+  hmac_hash = hmac.new(
+    secret.encode(),
+    struct.pack(">Q", counter),
+    hashlib.sha1
+  ).digest()
+  
+  # Dynamic truncation
+  offset = hmac_hash[-1] & 0x0F
+  code = struct.unpack(">I", hmac_hash[offset:offset+4])[0]
+  code = (code & 0x7FFFFFFF) % 1000000
+  
+  return f"{code:06d}"  // 6-digit code
+
+# Example:
+secret = "JBSWY3DPEHPK3PXP"
+code = generate_totp(secret)
+print(code)  # 847362
+```
+
+---
+
+**2. Fraud Detection (Unusual Trading Patterns)**
+
+**Rule 1: Account Takeover Detection**
+
+```
+Trigger: User logs in from new device + new IP + different country
+
+Example:
+  Normal: User logs in from Mumbai (IP: 203.88.x.x, Device: iPhone)
+  Suspicious: Login from New York (IP: 104.26.x.x, Device: Android)
+  
+Action:
+  1. Block login
+  2. Send email: "Suspicious login attempt from New York. Was this you?"
+  3. Require additional verification:
+     - Email OTP
+     - Answer security question
+     - Video KYC (extreme cases)
+```
+
+**Rule 2: Pump-and-Dump Scheme Detection**
+
+```
+Pattern:
+  1. User buys large quantity of penny stock (illiquid, low volume)
+  2. Price artificially inflated (pumped)
+  3. User sells at higher price (dumps on retail investors)
+  
+Detection:
+  Trigger: User buys >5% of daily volume of any stock
+  
+  Example:
+    Stock: ABC (penny stock, daily volume: 10,000 shares)
+    User buys: 1,000 shares (10% of volume)
+    
+  Action:
+    1. Flag for manual review
+    2. Report to SEBI (regulator)
+    3. If confirmed: Freeze account, reverse trades
+```
+
+**Rule 3: Wash Trading Detection**
+
+```
+Pattern: User buys and sells same stock repeatedly to create artificial volume
+
+Detection:
+  Trigger: User completes >10 round-trips (buy + sell) of same stock in single day
+  
+  Example:
+    9:30 AM: BUY 100 RELIANCE
+    9:45 AM: SELL 100 RELIANCE
+    10:00 AM: BUY 100 RELIANCE
+    ... (repeat 10 times)
+    
+  Action:
+    1. Warn user: "Wash trading is prohibited"
+    2. Block further trades for 24 hours
+    3. Report to exchange
 ```
 
 **Implementation:**
 
 ```sql
-CREATE TABLE dividends (
-  symbol VARCHAR(20),
-  amount_per_share DECIMAL(10,2),
-  ex_date DATE,
-  pay_date DATE,
-  status ENUM('ANNOUNCED', 'PROCESSED')
-);
-
--- Daily job (runs at 00:00)
-SELECT * FROM dividends WHERE ex_date = CURRENT_DATE AND status = 'ANNOUNCED';
-
-FOR each dividend:
-  users = SELECT user_id, quantity FROM holdings WHERE symbol = dividend.symbol;
-  
-  FOR each user:
-    amount = user.quantity × dividend.amount_per_share;
-    UPDATE accounts SET cash_balance = cash_balance + amount WHERE user_id = user.user_id;
-    INSERT INTO audit_log (user_id, event_type, amount) VALUES (user.user_id, 'DIVIDEND', amount);
-  
-  UPDATE dividends SET status = 'PROCESSED' WHERE symbol = dividend.symbol;
+-- Daily job to detect wash trading
+WITH round_trips AS (
+  SELECT 
+    user_id,
+    symbol,
+    COUNT(*) / 2 AS round_trip_count
+  FROM orders
+  WHERE status = 'FILLED'
+    AND DATE(created_at) = CURRENT_DATE
+  GROUP BY user_id, symbol, DATE(created_at)
+  HAVING COUNT(*) >= 20  -- At least 10 buy + 10 sell
+)
+SELECT user_id, symbol, round_trip_count
+FROM round_trips
+WHERE round_trip_count >= 10;
 ```
+
+*See pseudocode.md::detect_fraud() for full implementation.*
 
 ---
 
-**3. Tax Reporting (Form 1099/ITR)**
+### 5.10 Cost Analysis
 
-**Problem:** Generate annual tax forms for users.
+**Monthly Infrastructure Cost Breakdown:**
 
-**Required Data:**
+| Component                   | Configuration                      | Monthly Cost | Notes                                 |
+|-----------------------------|------------------------------------|--------------|---------------------------------------|
+| **WebSocket Servers**       | 1,000 instances (c5.xlarge)        | $72,000      | $0.10/hour × 1,000 × 720 hours        |
+| **Redis Quote Cache**       | 10-node cluster (r6g.2xlarge)      | $18,000      | In-memory, high availability          |
+| **PostgreSQL Ledger**       | 5 shards × 3 nodes (r5.2xlarge)    | $27,000      | Primary + 2 replicas per shard        |
+| **Kafka Cluster**           | 20 brokers (m5.2xlarge)            | $14,400      | Event streaming                       |
+| **Elasticsearch Search**    | 5-node cluster (r5.xlarge)         | $9,000       | Stock search/discovery                |
+| **FIX Engine Servers**      | 10 instances (c5.2xlarge)          | $3,456       | Exchange connectivity                 |
+| **Order Entry API**         | 50 instances (c5.large)            | $3,600       | gRPC order processing                 |
+| **Load Balancers**          | 5 ALBs (Application Load Balancer) | $1,500       | Layer 7 routing                       |
+| **Data Transfer (Egress)**  | 100 TB/month (WebSocket streams)   | $9,000       | $0.09/GB outbound                     |
+| **ClickHouse (Audit Logs)** | 3-node cluster (i3.2xlarge)        | $7,200       | Regulatory compliance                 |
+| **Monitoring (Prometheus)** | 3 instances (m5.xlarge)            | $1,800       | Metrics collection                    |
+| **Backup Storage (S3)**     | 500 TB (compliance, 7 years)       | $11,500      | $0.023/GB/month                       |
+| **Total**                   | -                                  | **$177,456** | For 10M users, 200M WebSocket streams |
 
-- Total capital gains (short-term vs long-term)
-- Dividend income
-- Interest earned (margin financing)
+**Cost per User:** $0.018/month per active user (10M users)
 
-**Calculation:**
+**Cost Optimization Strategies:**
 
-```
-Short-term capital gain: Holding period < 1 year
-Long-term capital gain: Holding period >= 1 year
+1. **Reserved Instances (1-year):** 40% discount → **Save $40k/month**
+2. **Spot Instances for non-critical:** WebSocket servers on Spot → **Save $30k/month**
+3. **Compression:** Reduce data transfer by 55% → **Save $5k/month**
+4. **Off-Peak Scaling:** Reduce WebSocket servers by 50% (11 PM - 8 AM) → **Save $15k/month**
+5. **S3 Glacier (Old Audit Logs):** Move >1 year logs to Glacier → **Save $8k/month**
 
-Example:
-  Buy: 100 RELIANCE @ $100 on 2023-01-01
-  Sell: 100 RELIANCE @ $150 on 2023-06-01 (6 months)
-  Gain: ($150 - $100) × 100 = $5,000 (short-term)
-  
-  Tax rate: 15% short-term, 10% long-term (India)
-  Tax owed: $5,000 × 0.15 = $750
-```
-
-**Report Generation:**
-
-```
-Annual job (runs Jan 1):
-  FOR each user:
-    trades = get_trades(user_id, year=2023)
-    
-    stcg = 0  // Short-term capital gains
-    ltcg = 0  // Long-term capital gains
-    
-    FOR each trade:
-      holding_period = trade.sell_date - trade.buy_date
-      gain = (trade.sell_price - trade.buy_price) × trade.quantity
-      
-      IF holding_period < 365 days:
-        stcg += gain
-      ELSE:
-        ltcg += gain
-    
-    dividend_income = get_dividends(user_id, year=2023)
-    
-    generate_pdf_report(user_id, stcg, ltcg, dividend_income)
-    send_email(user_id, "Your 2023 tax report is ready")
-```
+**Total Potential Savings:** $98k/month (55% reduction) → **$79k/month**
 
 ---
 
-**4. Corporate Actions (Stock Splits, Bonuses)**
+## 6. WebSocket Broadcast Architecture
 
-**Stock Split Example:**
+**Challenge:** Maintain 200 million concurrent WebSocket connections with <200ms latency.
 
-```
-Event: RELIANCE announces 1:2 split (1 share → 2 shares)
-Date: 2023-11-01
+### 6.1 WebSocket Server Topology
 
-User owns: 100 RELIANCE @ avg $200
-After split: 200 RELIANCE @ avg $100 (value unchanged)
-
-Implementation:
-  UPDATE holdings 
-  SET quantity = quantity × 2, avg_price = avg_price / 2 
-  WHERE symbol = 'RELIANCE';
-```
-
-**Bonus Issue Example:**
-
-```
-Event: TCS announces 1:1 bonus (1 free share for every 1 held)
-
-User owns: 50 TCS @ avg $150
-After bonus: 100 TCS @ avg $75 (value unchanged)
-
-Implementation:
-  UPDATE holdings 
-  SET quantity = quantity × 2, avg_price = avg_price / 2 
-  WHERE symbol = 'TCS';
-```
-
----
-
-### Performance Benchmarks
-
-**Latency Measurements (Production):**
-
-| Operation               | p50   | p99   | p99.9 | Target |
-|-------------------------|-------|-------|-------|--------|
-| **Quote Update (E2E)**  | 80ms  | 150ms | 250ms | <200ms |
-| **Order Placement**     | 450ms | 800ms | 1.2s  | <1s    |
-| **Search Query**        | 25ms  | 45ms  | 80ms  | <50ms  |
-| **Portfolio Load**      | 120ms | 200ms | 350ms | <300ms |
-| **WebSocket Reconnect** | 1.5s  | 3s    | 5s    | <5s    |
-
-**Throughput Measurements:**
-
-| Metric                         | Current | Peak  | Max Capacity |
-|--------------------------------|---------|-------|--------------|
-| **Concurrent WebSocket Conns** | 8M      | 10M   | 12M (scale)  |
-| **Quote Updates/sec (In)**     | 80k     | 100k  | 150k         |
-| **Order Entry/sec**            | 600     | 1,000 | 5,000        |
-| **DB Transactions/sec**        | 4.5k    | 6k    | 10k          |
-| **Search Queries/sec**         | 400     | 580   | 1,000        |
-
----
-
-## WebSocket Broadcast Architecture
-
-### WebSocket Server Topology
+> 📊 **See architecture diagram:** [HLD Diagrams - WebSocket Topology](./hld-diagram.md#websocket-topology)
 
 **Cluster Configuration:**
 
@@ -1163,30 +1821,30 @@ Implementation:
 
 **Connection Routing:**
 
-- **Load Balancer (Layer 7):** Routes initial handshake based on `user_id` hash
-- **Sticky Sessions:** User always connects to same server
+- **Load Balancer (Layer 7):** Routes initial WebSocket handshake based on `user_id` hash
+- **Sticky Sessions:** Ensures user always connects to same server (maintains subscription state)
 
 **Server Architecture (Per Node):**
 
 ```
 Node.js (Single-Threaded Event Loop)
   ├── 10,000 WebSocket connections (in-memory)
-  ├── Subscription Map: {"AAPL": [user1, user2, ...]}
-  ├── Kafka Consumer
-  └── Redis Client
+  ├── Subscription Map: {"AAPL": [user1, user2, ...], "GOOGL": [...]}
+  ├── Kafka Consumer (subscribes to market.quotes)
+  └── Redis Client (fetch initial quote snapshot)
 ```
 
 **Memory Footprint:**
 
-- 10,000 connections × 50 KB = 500 MB
-- Subscription map: ~10 MB
-- **Total:** ~600 MB per server
+- 10,000 connections × 50 KB/connection = 500 MB per server
+- Subscription map: ~10 MB (assuming 20 watched stocks/user)
+- **Total:** ~600 MB per server (fits in 8 GB RAM)
 
 ---
 
-### Subscription Protocol
+### 6.2 Subscription Protocol
 
-**Client → Server:**
+**Client → Server Messages:**
 
 ```json
 {
@@ -1199,7 +1857,7 @@ Node.js (Single-Threaded Event Loop)
 }
 ```
 
-**Server → Client:**
+**Server → Client Messages:**
 
 ```json
 {
@@ -1212,647 +1870,309 @@ Node.js (Single-Threaded Event Loop)
 }
 ```
 
-**Heartbeat:**
+**Heartbeat (Keepalive):**
 
 - Client sends PING every 30 seconds
 - Server responds with PONG
-- If no PING for 60 seconds → disconnect
+- If no PING for 60 seconds → disconnect (free resources)
 
 *See pseudocode.md::handle_websocket_subscription() for implementation.*
 
 ---
 
-### Failover and Redundancy
+### 6.3 Failover and Redundancy
 
-**Problem:** If WebSocket server crashes, 10,000 users lose connection.
+**Problem:** If a WebSocket server crashes, 10,000 users lose connection.
 
 **Solution: Graceful Failover**
 
 1. **Health Checks:** Load balancer pings servers every 5 seconds
-2. **Failure Detection:** Mark unhealthy if no response for 15 seconds
-3. **Client Reconnect:** Clients detect disconnection, reconnect (exponential backoff)
-4. **Resubscription:** Client sends `subscribe` with saved watchlist
+2. **Failure Detection:** If server doesn't respond for 15 seconds → mark unhealthy
+3. **Client Reconnect:** Clients detect disconnection, reconnect to new server (exponential backoff)
+4. **Resubscription:** Client sends `subscribe` message with saved watchlist
 
 **Stateless Design:**
 
-- WebSocket servers store NO persistent state
+- WebSocket servers store NO persistent state (subscription map is in-memory only)
 - Clients maintain watchlist locally (localStorage)
-- Reconnection rebuilds subscription map
+- Reconnection rebuilds subscription map from scratch
 
-**Downtime:** <5 seconds
+**Downtime:** <5 seconds (reconnect + resubscribe)
 
 ---
 
-## Bottlenecks and Future Scaling
+## 7. Bottlenecks and Future Scaling
 
-### Quote Broadcast Fanout (Current: 200M streams)
+### 7.1 Quote Broadcast Fanout (Current: 200M streams)
 
 **Problem:** Growing user base increases fanout exponentially.
 
 **Mitigation 1: Coalescing**
 
-- Batch updates every 100ms
+- Instead of pushing every single update, batch updates every 100ms
 - Reduces 100k updates/sec → 1k updates/sec (100x reduction)
-- Trade-off: Slightly stale data (acceptable for retail)
+- Trade-off: Slightly stale data (acceptable for retail traders, not HFT)
 
 **Mitigation 2: Differential Updates**
 
-- Only push if price changed by >0.1%
-- Reduces updates by 50%
+- Only push quote if price changed by >0.1% (filter noise)
+- Reduces updates by 50% (many quotes don't change significantly)
 
 **Mitigation 3: CDN-Based Pub/Sub**
 
 - Use AWS IoT Core or Pusher (managed WebSocket service)
-- Cost: ~$200k/month for 200M streams
+- Offload fanout to CDN infrastructure
+- Cost: ~$0.001 per million messages = $200k/month for 200M streams
+
+*See this-over-that.md for Self-Hosted vs Managed WebSocket comparison.*
 
 ---
 
-### Ledger Database Contention (Current: 6k TPS)
+### 7.2 Ledger Database Contention (Current: 6k TPS)
 
-**Problem:** HFT users place 100+ orders/sec, contending on same account row.
+**Problem:** High-frequency trading users place 100+ orders/sec, contending on same account row.
 
-**Mitigation: Full Event Sourcing**
+**Mitigation: Full Event Sourcing Migration**
 
-- Pure event sourcing (no snapshot)
-- Use Kafka Streams to compute balance in real-time
-- Eliminates PostgreSQL bottleneck
+- Current: Hybrid (events + materialized view)
+- Future: Pure event sourcing (no snapshot, derive balance on-demand)
+- Use Kafka Streams to compute balance in real-time from event log
+- Eliminates PostgreSQL bottleneck entirely
 
 **Performance:**
 
-- Kafka: 1M+ writes/sec (100x current)
+- Kafka: 1M+ writes/sec (100x current throughput)
 - Kafka Streams: Sub-second balance computation
+
+**Trade-off:**
+
+- More complex (event replay logic)
+- Higher operational cost (Kafka cluster)
 
 ---
 
-### Search Index Staleness
+### 7.3 Search Index Staleness (Current: Daily batch update)
 
-**Problem:** Newly listed stocks don't appear until next day.
+**Problem:** Newly listed stocks don't appear in search until next day.
 
 **Mitigation: Real-Time Index Updates**
 
 - Exchange publishes `NEW_LISTING` events to Kafka
-- Elasticsearch consumer indexes in real-time
-- Latency: <1 minute
+- Elasticsearch consumer indexes new stocks in real-time
+- Latency: <1 minute from listing to searchability
 
 ---
 
-## Common Anti-Patterns
+## 8. Common Anti-Patterns
 
-### ❌ **Anti-Pattern 1: Polling for Quotes**
+### ❌ **Anti-Pattern 1: Polling for Quotes (Instead of WebSockets)**
 
-**Problem:** Client polls API every 1 second.
+**Problem:** Client polls API every 1 second for quote updates.
 
 **Why It's Bad:**
 
-- 10M users × 20 stocks × 1 poll/sec = **200M HTTP requests/sec**
-- Higher latency (1-second interval)
-- Wastes bandwidth
+- 10M users × 20 stocks × 1 poll/sec = **200M HTTP requests/sec** (crushes API)
+- Higher latency (1-second polling interval)
+- Wastes bandwidth (fetches unchanged quotes)
 
-**Solution: ✅ WebSockets Push Model**
+**Solution:**
+
+✅ **Use WebSockets Push Model**
 
 - Server pushes updates only when price changes
 - Reduces requests from 200M/sec → ~100k/sec (2000x reduction)
+- Lower latency (<200ms)
+
+*See this-over-that.md for Polling vs WebSockets comparison.*
 
 ---
 
-### ❌ **Anti-Pattern 2: Synchronous Order Placement**
+### ❌ **Anti-Pattern 2: Synchronous Order Placement (Blocking API)**
 
-**Problem:** API waits for Exchange fill confirmation.
+**Problem:** Order Entry API waits for Exchange fill confirmation before returning to user.
 
 **Why It's Bad:**
 
-- Exchange fill can take 5-10 seconds
-- Blocks user's UI thread
-- Ties up API resources
+- Exchange fill can take 5-10 seconds (market order during volatility)
+- Blocks user's UI thread (bad UX)
+- Ties up API server resources (cannot handle other requests)
 
-**Solution: ✅ Async Order Placement**
+**Solution:**
+
+✅ **Async Order Placement with Status Updates**
 
 - API returns immediately with `order_id` and status `PENDING`
-- WebSocket pushes status update when order fills
+- User can continue using app
+- WebSocket pushes status update when order fills: `{"order_id": 123, "status": "FILLED"}`
+
+*See pseudocode.md::async_place_order() for implementation.*
 
 ---
 
-### ❌ **Anti-Pattern 3: Storing Quotes in PostgreSQL**
+### ❌ **Anti-Pattern 3: Storing Quotes in PostgreSQL (Slow Writes)**
 
-**Problem:** Writing 100k updates/sec to PostgreSQL.
+**Problem:** Writing 100k quote updates/sec to PostgreSQL `quotes` table.
 
 **Why It's Bad:**
 
-- PostgreSQL throughput: ~10k TPS (bottleneck)
-- Disk I/O saturated
+- PostgreSQL write throughput: ~10k TPS (bottleneck)
+- Disk I/O becomes saturated
+- Slows down critical ACID transactions (orders, ledger)
 
-**Solution: ✅ Redis for Quotes**
+**Solution:**
 
-- Redis throughput: 100k+ TPS (10x PostgreSQL)
+✅ **Use Redis for Quotes (In-Memory)**
+
+- Redis write throughput: 100k+ TPS (10x PostgreSQL)
 - Sub-millisecond reads
+- Reserve PostgreSQL for ACID-critical data only (ledger, orders)
 
 ---
 
-## Alternative Approaches
+## 9. Alternative Approaches
 
-### Server-Sent Events (SSE) Instead of WebSockets
+### 9.1 Server-Sent Events (SSE) Instead of WebSockets
+
+**How It Works:**
+
+- HTTP-based one-way streaming (server → client)
+- Simpler than WebSockets (no custom protocol)
 
 **Pros:**
 
-- ✅ Simpler (standard HTTP)
-- ✅ Works through firewalls
+- ✅ Easier to implement (standard HTTP)
+- ✅ Works through corporate firewalls (port 80/443)
+- ✅ Auto-reconnect built-in
 
 **Cons:**
 
-- ❌ One-way only (no client→server messages)
-- ❌ Limited browser support
+- ❌ One-way only (cannot send subscribe/unsubscribe messages from client)
+- ❌ Limited browser support (IE/Edge)
+- ❌ HTTP overhead (larger headers)
 
-**When to Use:** Simpler use cases (price ticker only)
+**When to Use:** Simpler use cases where client doesn't need to send messages (e.g., price ticker only).
 
 ---
 
-### Direct Exchange Integration (No Redis Cache)
+### 9.2 Direct Exchange Integration (No Redis Cache)
+
+**How It Works:**
+
+- WebSocket servers consume directly from Exchange FIX feed
+- Skip Redis caching layer entirely
 
 **Pros:**
 
 - ✅ Lower latency (one less hop)
+- ✅ Simpler architecture
 
 **Cons:**
 
-- ❌ Scales poorly (1000 duplicate feeds)
-- ❌ No fallback if connection drops
+- ❌ Scales poorly (each WebSocket server needs full Exchange feed = 1000 duplicate feeds)
+- ❌ No fallback if Exchange connection drops
+- ❌ Cannot serve historical quotes (only live stream)
 
-**When to Use:** Ultra-low latency HFT (<1000 users)
+**When to Use:** Ultra-low latency HFT systems with small user base (<1000 users).
 
 ---
 
-### Cassandra for Ledger (NoSQL)
+### 9.3 Cassandra for Ledger (NoSQL)
+
+**How It Works:**
+
+- Store account balances and orders in Cassandra (eventual consistency)
 
 **Pros:**
 
 - ✅ Higher write throughput (100k+ TPS)
+- ✅ Better horizontal scalability
 
 **Cons:**
 
-- ❌ **Eventual consistency unacceptable for finance**
+- ❌ **Eventual consistency unacceptable for finance** (double spending risk)
 - ❌ No ACID transactions
+- ❌ Complex to implement financial constraints
 
-**When to Use:** Non-critical data only (logs, preferences). **Never for ledger.**
+**When to Use:** Non-critical data only (user preferences, activity logs). **Never for ledger.**
 
 ---
 
-## Monitoring and Observability
+## 10. Monitoring and Observability
 
 ### Key Metrics
 
-| Metric                         | Target    | Alert Threshold | Purpose                        |
-|--------------------------------|-----------|-----------------|--------------------------------|
-| **Quote Latency (End-to-End)** | <200ms    | >500ms          | User experience                |
-| **Order Placement Latency**    | <1 second | >3 seconds      | Trading execution speed        |
-| **WebSocket Connection Count** | 10M       | >12M            | Capacity planning              |
-| **Quote Update Rate**          | 100k/sec  | >150k/sec       | Detect unusual market activity |
-| **Order Success Rate**         | >99%      | <95%            | Detect connectivity issues     |
-| **Database Transaction Time**  | <200ms    | >1 second       | Ledger performance             |
-| **Kafka Consumer Lag**         | <1 second | >10 seconds     | Pipeline health                |
-| **Search Query Latency**       | <50ms     | >200ms          | Discovery experience           |
+| Metric                         | Target    | Alert Threshold | Purpose                             |
+|--------------------------------|-----------|-----------------|-------------------------------------|
+| **Quote Latency (End-to-End)** | <200ms    | >500ms          | User experience                     |
+| **Order Placement Latency**    | <1 second | >3 seconds      | Trading execution speed             |
+| **WebSocket Connection Count** | 10M       | >12M            | Capacity planning                   |
+| **Quote Update Rate**          | 100k/sec  | >150k/sec       | Detect unusual market activity      |
+| **Order Success Rate**         | >99%      | <95%            | Detect Exchange connectivity issues |
+| **Database Transaction Time**  | <200ms    | >1 second       | Ledger performance                  |
+| **Kafka Consumer Lag**         | <1 second | >10 seconds     | Real-time data pipeline health      |
+| **Search Query Latency**       | <50ms     | >200ms          | Discovery experience                |
+
+*See hld-diagram.md for Monitoring Dashboard architecture.*
 
 ---
 
-## Trade-offs Summary
+## 11. Trade-offs Summary
 
-| What We Gain                                | What We Sacrifice                              |
-|---------------------------------------------|------------------------------------------------|
-| ✅ **Low latency** (<200ms quotes)           | ❌ High infrastructure cost ($177k/month)       |
-| ✅ **Strong consistency** (ACID ledger)      | ❌ Lower write throughput (6k TPS vs 100k)      |
-| ✅ **Scalability** (10M users, 200M streams) | ❌ Complex architecture (Kafka, Event Sourcing) |
-| ✅ **Real-time** (WebSockets push)           | ❌ Stateful servers (harder to scale)           |
-| ✅ **Fast search** (Elasticsearch)           | ❌ Eventual consistency (search index lag)      |
-
----
-
-## Real-World Examples
-
-| Company                 | Use Case                       | Key Techniques                                            |
-|-------------------------|--------------------------------|-----------------------------------------------------------|
-| **Zerodha**             | Retail stock brokerage (India) | WebSockets for quotes, Redis cache, Event Sourcing        |
-| **Robinhood**           | Commission-free trading (US)   | Real-time quotes via WebSockets, PostgreSQL ledger, Kafka |
-| **ETRADE**              | Online brokerage (US)          | FIX protocol, multi-level pub/sub, ACID ledger            |
-| **Interactive Brokers** | Professional trading           | Low-latency order routing, TWS API, multi-asset support   |
-| **Groww**               | Mutual funds + stocks (India)  | Simplified UX, Redis caching, PostgreSQL transactions     |
+| What We Gain                                | What We Sacrifice                                                   |
+|---------------------------------------------|---------------------------------------------------------------------|
+| ✅ **Low latency** (<200ms quotes)           | ❌ High infrastructure cost (1000 WebSocket servers, Redis cluster)  |
+| ✅ **Strong consistency** (ACID ledger)      | ❌ Lower write throughput (6k TPS vs NoSQL 100k TPS)                 |
+| ✅ **Scalability** (10M users, 200M streams) | ❌ Complex architecture (Kafka, Event Sourcing, multi-level pub/sub) |
+| ✅ **Real-time** (WebSockets push)           | ❌ Stateful servers (harder to scale, failover complexity)           |
+| ✅ **Fast search** (Elasticsearch)           | ❌ Eventual consistency (search index lags behind by seconds)        |
 
 ---
 
-## Cost Analysis
+## 12. Real-World Examples
 
-### Monthly Infrastructure Cost
-
-| Component                | Configuration                   | Monthly Cost |
-|--------------------------|---------------------------------|--------------|
-| **WebSocket Servers**    | 1,000 instances (c5.xlarge)     | $72,000      |
-| **Redis Quote Cache**    | 10-node cluster (r6g.2xlarge)   | $18,000      |
-| **PostgreSQL Ledger**    | 5 shards × 3 nodes (r5.2xlarge) | $27,000      |
-| **Kafka Cluster**        | 20 brokers (m5.2xlarge)         | $14,400      |
-| **Elasticsearch Search** | 5-node cluster (r5.xlarge)      | $9,000       |
-| **FIX Engine Servers**   | 10 instances (c5.2xlarge)       | $3,456       |
-| **Order Entry API**      | 50 instances (c5.large)         | $3,600       |
-| **Load Balancers**       | 5 ALBs                          | $1,500       |
-| **Data Transfer**        | 100 TB/month                    | $9,000       |
-| **ClickHouse (Audit)**   | 3-node cluster (i3.2xlarge)     | $7,200       |
-| **Monitoring**           | 3 instances (m5.xlarge)         | $1,800       |
-| **Backup Storage (S3)**  | 500 TB (7 years compliance)     | $11,500      |
-| **Total**                | -                               | **$177,456** |
-
-**Cost per User:** $0.018/month (10M users)
-
-### Cost Optimization
-
-1. **Reserved Instances (1-year):** Save $40k/month
-2. **Spot Instances:** Save $30k/month
-3. **Compression:** Save $5k/month
-4. **Off-Peak Scaling:** Save $15k/month
-5. **S3 Glacier (Old Logs):** Save $8k/month
-
-**Total Savings:** $98k/month (55% reduction) → **$79k/month**
+| Company                 | Use Case                       | Key Techniques                                                      |
+|-------------------------|--------------------------------|---------------------------------------------------------------------|
+| **Zerodha**             | Retail stock brokerage (India) | WebSockets for quotes, Redis cache, Event Sourcing for ledger       |
+| **Robinhood**           | Commission-free trading (US)   | Real-time quotes via WebSockets, PostgreSQL ledger, Kafka event bus |
+| **ETRADE**              | Online brokerage (US)          | FIX protocol integration, multi-level pub/sub, ACID ledger          |
+| **Interactive Brokers** | Professional trading platform  | Low-latency order routing, TWS API, multi-asset support             |
+| **Groww**               | Mutual funds + stocks (India)  | Simplified UX, Redis for caching, PostgreSQL for transactions       |
 
 ---
 
-## References
+## 13. References
 
-### Technical Documentation
+### Related System Design Components
 
-- **[FIX Protocol Specification](https://www.fixtrading.org/)** - Order routing protocol
-- **[WebSockets RFC 6455](https://tools.ietf.org/html/rfc6455)** - WebSocket protocol
-- **[Event Sourcing Pattern](https://martinfowler.com/eaaDev/EventSourcing.html)** - Martin Fowler
-- **[Redis Pub/Sub](https://redis.io/topics/pubsub)** - Redis documentation
-
-### Related Chapters
-
-- **[3.4.1 Stock Exchange Matching Engine](../3.4.1-stock-exchange/)** - Order matching
 - **[2.0.3 Real-Time Communication](../../02-components/2.0-communication/2.0.3-real-time-communication.md)** -
-  WebSockets
+  WebSockets deep dive, broadcast patterns
 - **[2.1.7 PostgreSQL Deep Dive](../../02-components/2.1-databases/2.1.7-postgresql-deep-dive.md)** - ACID transactions
-- **[2.1.11 Redis Deep Dive](../../02-components/2.1-databases/2.1.11-redis-deep-dive.md)** - In-memory caching
+  for ledger
+- **[2.1.11 Redis Deep Dive](../../02-components/2.1-databases/2.1.11-redis-deep-dive.md)** - In-memory caching for
+  quotes
 - **[2.3.2 Kafka Deep Dive](../../02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)** - Event streaming
-- **[2.1.13 Elasticsearch Deep Dive](../../02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)** - Search
-
----
-
-## Key Takeaways and Design Principles
-
-### Critical Success Factors
-
-**1. Broadcast Fanout is the Primary Bottleneck**
-
-- Naive approach: 100k updates × 2,000 subscribers = 200M messages/sec (impossible)
-- Solution: Multi-level pub/sub with selective fanout at edge (WebSocket servers)
-- **Key insight:** Don't push all updates to all users. Push only what each user subscribed to.
-
-**2. Financial Data Requires ACID**
-
-- PostgreSQL for ledger, orders, holdings (strong consistency)
-- Event Sourcing for audit trail (regulatory requirement)
-- **Never compromise:** Use Cassandra/NoSQL for logs, NOT for money.
-
-**3. Latency Optimization Techniques**
-
-- In-memory cache (Redis) for hot data (quotes)
-- Connection pooling and sticky sessions (WebSocket)
-- Compression (WebSocket messages, Kafka batches)
-- Pipelining (Redis, Kafka)
-- CDN for static data (historical charts)
-
-**4. Risk Management is Non-Negotiable**
-
-- Real-time margin monitoring (every 1 minute)
-- Circuit breakers (exchange-wide and per-stock)
-- Position limits (max 25% in single stock)
-- Fraud detection (wash trading, pump-and-dump)
-
-**5. Compliance is Complex**
-
-- Audit logs (7 years retention, immutable)
-- Data residency (Indian users in India, EU users in EU)
-- GDPR (pseudonymization for right to be forgotten)
-- Tax reporting (capital gains, dividends)
-
----
-
-### Architecture Decisions Summary
-
-| Decision                  | Choice                     | Rationale                                                        | Trade-off                                     |
-|---------------------------|----------------------------|------------------------------------------------------------------|-----------------------------------------------|
-| **Market Data Transport** | WebSockets (Push)          | Lowest latency for real-time updates (2000x better than polling) | Stateful servers (harder to scale)            |
-| **Quote Storage**         | Redis (In-Memory)          | Sub-ms reads for 200M concurrent streams                         | Expensive (10-node cluster = $18k/month)      |
-| **Ledger Database**       | PostgreSQL (Sharded)       | ACID guarantees for financial integrity                          | Lower throughput (6k TPS vs NoSQL 100k TPS)   |
-| **Event Bus**             | Kafka                      | High throughput (100k msg/sec), durable, replayable              | Operational complexity, eventual consistency  |
-| **Search Engine**         | Elasticsearch              | Fast prefix search (<50ms), relevance ranking                    | Eventual consistency (lag behind real-time)   |
-| **Order Protocol**        | FIX Protocol               | Industry standard, exchange compatibility                        | Complex (sequence numbers, heartbeats, gaps)  |
-| **Event Sourcing**        | Hybrid (Events + Snapshot) | Audit trail + fast reads                                         | Complexity (event replay, materialized views) |
-| **Authentication**        | Password + TOTP (2FA)      | Strong security, prevents account takeover                       | User friction (extra step at login)           |
-
----
-
-### Scaling Strategy
-
-**Current Capacity:**
-
-- 10M concurrent users
-- 100k quote updates/sec (in)
-- 200M WebSocket streams (out)
-- 1,000 orders/sec
-
-**10x Growth (100M users):**
-
-**1. WebSocket Servers**
-
-```
-Current: 1,000 servers
-Future: 10,000 servers (10x)
-Cost: $720k/month (up from $72k)
-
-Alternative: Managed service (AWS IoT Core, Pusher)
-  Cost: $2M/month (but zero operational burden)
-```
-
-**2. Redis Quote Cache**
-
-```
-Current: 10-node cluster
-Future: 50-node cluster (5x, sharded by symbol hash)
-Cost: $90k/month (up from $18k)
-```
-
-**3. PostgreSQL Ledger**
-
-```
-Current: 5 shards
-Future: 50 shards (10x)
-Sharding key: user_id mod 50
-Cost: $270k/month (up from $27k)
-```
-
-**4. Kafka Cluster**
-
-```
-Current: 20 brokers, 100 partitions
-Future: 100 brokers, 500 partitions
-Cost: $72k/month (up from $14k)
-```
-
-**Total Infrastructure Cost (100M users):**
-
-- Current (10M users): $177k/month
-- Future (100M users): ~$1.5M/month (8.5x, not 10x due to economies of scale)
-- **Cost per user:** Decreases from $0.018 to $0.015 (16% reduction)
-
----
-
-### Technical Debt and Future Improvements
-
-**1. Full Event Sourcing Migration**
-
-- **Current:** Hybrid (events + materialized snapshot)
-- **Future:** Pure event sourcing with Kafka Streams
-- **Benefit:** Eliminates PostgreSQL write contention, scales to 1M+ TPS
-- **Effort:** 6 months (high complexity, requires careful migration)
-
-**2. Real-Time Search Index Updates**
-
-- **Current:** Batch update (daily)
-- **Future:** Real-time Kafka consumer → Elasticsearch
-- **Benefit:** New stocks searchable within 1 minute
-- **Effort:** 2 weeks
-
-**3. Machine Learning for Fraud Detection**
-
-- **Current:** Rule-based (wash trading, pump-and-dump)
-- **Future:** ML model (anomaly detection, behavior patterns)
-- **Benefit:** Detect sophisticated fraud (account takeover, insider trading)
-- **Effort:** 3 months (data pipeline + model training)
-
-**4. Multi-Asset Support (Options, Futures, Forex)**
-
-- **Current:** Equities only
-- **Future:** Multi-asset platform
-- **Challenges:**
-    - Options: Complex pricing (Black-Scholes), Greeks calculation
-    - Futures: Mark-to-market (daily settlement)
-    - Forex: 24/5 trading (requires global infrastructure)
-- **Effort:** 12 months
-
-**5. Algorithmic Trading API**
-
-- **Current:** Manual trading via UI
-- **Future:** REST/WebSocket API for algo trading
-- **Features:**
-    - Streaming market data (WebSocket)
-    - Order placement API (REST/gRPC)
-    - Backtesting environment (historical data)
-    - Paper trading (sandbox)
-- **Effort:** 6 months
-
----
-
-### Lessons Learned (Post-Mortems)
-
-**Incident 1: WebSocket Server Memory Leak (2023-08-15)**
-
-**Problem:**
-
-- WebSocket servers gradually consuming memory over 48 hours
-- Eventually crashed when memory exceeded 16 GB
-- 500k users disconnected simultaneously
-
-**Root Cause:**
-
-- Subscription map not cleaned up when users disconnected
-- Memory leak: Dead connections accumulated
-
-**Fix:**
-
-```javascript
-// Before (buggy)
-ws.on('close', () => {
-  console.log('Connection closed');
-  // Bug: Subscription map not updated!
-});
-
-// After (fixed)
-ws.on('close', () => {
-  // Remove user from ALL subscription lists
-  for (const symbol in subscriptionMap) {
-    subscriptionMap[symbol] = subscriptionMap[symbol].filter(u => u !== userId);
-    
-    // Clean up empty symbol lists
-    if (subscriptionMap[symbol].length === 0) {
-      delete subscriptionMap[symbol];
-    }
-  }
-});
-```
-
-**Prevention:**
-
-- Added memory monitoring (alert if >12 GB)
-- Implemented periodic cleanup job (every 5 minutes)
-- Load testing with realistic connection churn
-
----
-
-**Incident 2: PostgreSQL Lock Contention (2023-09-22)**
-
-**Problem:**
-
-- High-volume trading hour (9:15-9:30 AM)
-- Order placement latency spiked to 5-10 seconds
-- Database CPU at 100%
-
-**Root Cause:**
-
-- Many users placing orders on same popular stock (RELIANCE)
-- `SELECT ... FOR UPDATE` locked entire account row
-- Serialized all concurrent orders from same user
-
-**Fix:**
-
-- Migrated to Event Sourcing (Kafka)
-- Eliminated locks entirely (append-only log)
-- Latency dropped from 5s to <500ms
-
-**Prevention:**
-
-- Load testing with realistic order patterns (skewed toward popular stocks)
-- Circuit breaker: Reject orders if DB latency >1s (graceful degradation)
-
----
-
-**Incident 3: Kafka Consumer Lag During Market Crash (2023-10-19)**
-
-**Problem:**
-
-- Market crashed 15% (circuit breaker Level 2)
-- Quote update rate spiked to 300k/sec (3x normal)
-- Kafka consumer lag increased to 2 minutes
-- Users saw stale quotes
-
-**Root Cause:**
-
-- WebSocket servers couldn't keep up with 3x message rate
-- Single-threaded consumers (1 thread per server)
-
-**Fix:**
-
-- Increased consumer parallelism (5 threads per server)
-- Added rate limiting (coalescing): Batch updates every 100ms
-- Reduced update rate from 300k/sec → 30k/sec (10x reduction)
-
-**Prevention:**
-
-- Load testing with 5x normal peak rate
-- Auto-scaling (add WebSocket servers when Kafka lag >10 seconds)
-
----
-
-### Cost vs Performance Trade-offs
-
-**Scenario 1: Startup (1M Users, Limited Budget)**
-
-**Cost-Optimized Architecture:**
-
-```
-WebSocket Servers: 100 servers (c5.large) = $7,200/month
-Redis: 1 cluster (r6g.xlarge) = $1,800/month
-PostgreSQL: 1 shard (r5.xlarge) = $1,800/month
-Kafka: 5 brokers (m5.large) = $1,800/month
-Elasticsearch: 1 node (r5.large) = $900/month
-
-Total: $13,500/month ($0.014/user)
-```
-
-**Trade-offs:**
-
-- Higher latency (p99: 500ms vs 200ms)
-- Lower availability (single shard = SPOF)
-- Manual scaling (no auto-scaling)
-
-**When to Use:** Pre-revenue startup, MVP phase
-
----
-
-**Scenario 2: Mid-Stage (10M Users, Growth Focus)**
-
-**Balanced Architecture (Current Design):**
-
-```
-Total: $177,456/month ($0.018/user)
-```
-
-**Optimizations:**
-
-- Reserved instances (40% discount)
-- Spot instances for non-critical workloads
-- Off-peak scaling (reduce capacity 11 PM - 8 AM)
-
-**Optimized Cost:** $79,000/month ($0.008/user)
-
-**When to Use:** Post-PMF, revenue-generating, scaling fast
-
----
-
-**Scenario 3: Enterprise (100M Users, Premium Performance)**
-
-**Performance-Optimized Architecture:**
-
-```
-WebSocket Servers: 10,000 servers (c5.2xlarge) = $1.4M/month
-Redis: 100-node cluster = $360k/month
-PostgreSQL: 100 shards = $540k/month
-Kafka: 200 brokers = $144k/month
-Managed WebSocket (AWS IoT Core): $2M/month (alternative)
-
-Total: $2.5M-4M/month ($0.025-0.040/user)
-```
-
-**Benefits:**
-
-- Ultra-low latency (p99: <100ms)
-- 99.99% availability (multi-region)
-- Auto-scaling, managed services
-
-**When to Use:** Mature company, premium product (like Interactive Brokers, ETRADE)
-
----
-
-### Summary: What Makes This Design Special?
-
-**1. Multi-Level Pub/Sub (Solves Broadcast Fanout)**
-
-- Most elegant solution to the 200M stream problem
-- Kafka as middle layer (1 → many)
-- WebSocket servers as edge layer (many → millions)
-
-**2. Hybrid Event Sourcing (Balances Audit + Performance)**
-
-- Event log for compliance (immutable, replayable)
-- Materialized view for fast reads
-- Best of both worlds
-
-**3. Risk Management Built-In (Not Afterthought)**
-
-- Real-time margin monitoring
-- Circuit breakers (market-wide + per-stock)
-- Fraud detection (wash trading, pump-and-dump)
-
-**4. FIX Protocol Integration (Industry Standard)**
-
-- Direct exchange connectivity
-- Sub-100ms order execution
-- Production-grade (used by all major brokers)
-
-**5. Regulatory Compliance First-Class (Not Bolted-On)**
-
-- Audit logs (7 years, immutable, ClickHouse)
-- Data residency (SEBI, GDPR)
-- TOTP authentication (account security)
-
-**6. Performance Optimization at Every Layer**
-
-- WebSocket compression (55% bandwidth reduction)
-- Redis pipelining (20x faster)
-- Kafka batching (100x fewer network calls)
-- CDN for static data (99.9999% cache hit)
+  for market data
+- **[2.1.13 Elasticsearch Deep Dive](../../02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)** - Search and
+  discovery
+- **[2.1.4 Database Scaling](../../02-components/2.1.4-database-scaling.md)** - PostgreSQL sharding strategies
+- **[2.2.1 Caching Deep Dive](../../02-components/2.2.1-caching-deep-dive.md)** - Redis caching patterns
+
+### Related Design Challenges
+
+- **[3.4.1 Stock Exchange Matching Engine](../3.4.1-stock-exchange/)** - Order matching and execution
+- **[3.3.1 Live Chat System](../3.3.1-live-chat-system/)** - WebSocket broadcast patterns
+- **[3.2.1 Twitter Timeline](../3.2.1-twitter-timeline/)** - Fanout strategies
+
+### External Resources
+
+- **FIX Protocol:** [FIX Trading Community](https://www.fixtrading.org/) - Financial Information eXchange protocol for
+  order routing
+- **WebSockets:** [RFC 6455](https://tools.ietf.org/html/rfc6455) - WebSocket protocol specification
+- **Event Sourcing:** [Martin Fowler's Event Sourcing Pattern](https://martinfowler.com/eaaDev/EventSourcing.html) -
+  Event-driven architecture
+- **Redis Pub/Sub:** [Redis Documentation](https://redis.io/topics/pubsub) - Publish/subscribe messaging
+
+### Books
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann - Event sourcing, WebSocket patterns, financial systems
+- *Building Microservices* by Sam Newman - Event-driven architecture patterns

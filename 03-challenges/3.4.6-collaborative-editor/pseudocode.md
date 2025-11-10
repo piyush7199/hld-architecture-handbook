@@ -1,6 +1,7 @@
 # Collaborative Editor - Pseudocode Implementations
 
-This document contains detailed algorithm implementations for the Collaborative Editor system. The main challenge document references these functions.
+This document contains detailed algorithm implementations for the Collaborative Editor system. The main challenge
+document references these functions.
 
 ---
 
@@ -26,10 +27,12 @@ This document contains detailed algorithm implementations for the Collaborative 
 **Purpose:** Transforms an operation against another operation to resolve conflicts.
 
 **Parameters:**
+
 - op1 (Operation): First operation (already applied to document)
 - op2 (Operation): Second operation (needs transformation)
 
 **Returns:**
+
 - Operation: Transformed op2 that accounts for op1
 
 **Algorithm:**
@@ -116,10 +119,12 @@ transformed_op2 = transform(op1, op2)
 **Purpose:** Applies an operation to a document state.
 
 **Parameters:**
+
 - document (Document): Current document state
 - operation (Operation): Operation to apply
 
 **Returns:**
+
 - Document: Updated document state
 
 **Algorithm:**
@@ -154,7 +159,8 @@ function apply_operation(document, operation):
     return document
 ```
 
-**Time Complexity:** 
+**Time Complexity:**
+
 - Insert: O(n) where n is document length (string concatenation)
 - Delete: O(n)
 - Format: O(m) where m is range length
@@ -188,10 +194,12 @@ class CRDTDocument:
 **Purpose:** Generates a globally unique ID for a character.
 
 **Parameters:**
+
 - siteId (string): Unique site identifier (user_id)
 - logicalClock (int): Monotonically increasing counter
 
 **Returns:**
+
 - dict: CRDT ID {siteId, logicalClock}
 
 **Algorithm:**
@@ -211,11 +219,13 @@ function generate_crdt_id(siteId, logicalClock):
 **Purpose:** Inserts a character into CRDT document.
 
 **Parameters:**
+
 - document (CRDTDocument): CRDT document
 - position (int): Position to insert
 - content (string): Content to insert
 
 **Returns:**
+
 - Operation: CRDT insert operation
 
 **Algorithm:**
@@ -266,10 +276,12 @@ function crdt_insert(document, position, content):
 **Purpose:** Deletes a character from CRDT document (tombstone).
 
 **Parameters:**
+
 - document (CRDTDocument): CRDT document
 - position (int): Position to delete
 
 **Returns:**
+
 - Operation: CRDT delete operation
 
 **Algorithm:**
@@ -295,10 +307,12 @@ function crdt_delete(document, position):
 **Purpose:** Merges two CRDT document states.
 
 **Parameters:**
+
 - doc1 (CRDTDocument): First document state
 - doc2 (CRDTDocument): Second document state
 
 **Returns:**
+
 - CRDTDocument: Merged document
 
 **Algorithm:**
@@ -376,10 +390,12 @@ class ClientDocument:
 **Purpose:** Applies an operation optimistically on client.
 
 **Parameters:**
+
 - document (ClientDocument): Client document
 - operation (Operation): Operation to apply
 
 **Returns:**
+
 - void (modifies document in place)
 
 **Algorithm:**
@@ -405,10 +421,12 @@ function apply_optimistic(document, operation):
 **Purpose:** Reconciles local state with server acknowledgment.
 
 **Parameters:**
+
 - document (ClientDocument): Client document
 - server_operation (Operation): Operation acknowledged by server
 
 **Returns:**
+
 - void (modifies document in place)
 
 **Algorithm:**
@@ -462,11 +480,13 @@ class WebSocketServer:
 **Purpose:** Handles new WebSocket connection.
 
 **Parameters:**
+
 - connection (Connection): New WebSocket connection
 - doc_id (string): Document ID
 - user_id (string): User ID
 
 **Returns:**
+
 - void
 
 **Algorithm:**
@@ -500,10 +520,12 @@ function on_connect(connection, doc_id, user_id):
 **Purpose:** Handles incoming operation from client.
 
 **Parameters:**
+
 - connection (Connection): WebSocket connection
 - message (dict): Operation message
 
 **Returns:**
+
 - void
 
 **Algorithm:**
@@ -547,11 +569,13 @@ function on_message(connection, message):
 **Purpose:** Broadcasts operation to all collaborators on a document.
 
 **Parameters:**
+
 - doc_id (string): Document ID
 - operation (Operation): Operation to broadcast
 - exclude (Connection): Optional connection to exclude (sender)
 
 **Returns:**
+
 - void
 
 **Algorithm:**
@@ -582,11 +606,13 @@ function broadcast_to_document(doc_id, operation, exclude=null):
 **Purpose:** Handles heartbeat from client (keep presence alive).
 
 **Parameters:**
+
 - connection (Connection): WebSocket connection
 - doc_id (string): Document ID
 - user_id (string): User ID
 
 **Returns:**
+
 - void
 
 **Algorithm:**
@@ -625,11 +651,13 @@ class EventStore:
 **Purpose:** Appends an event to the event log.
 
 **Parameters:**
+
 - doc_id (string): Document ID
 - user_id (string): User ID
 - operation (Operation): Operation to persist
 
 **Returns:**
+
 - int: Event ID
 
 **Algorithm:**
@@ -665,10 +693,12 @@ function append_event(doc_id, user_id, operation):
 **Purpose:** Fetches events since a specific version (for replay).
 
 **Parameters:**
+
 - doc_id (string): Document ID
 - since_version (int): Event ID to fetch from
 
 **Returns:**
+
 - Array<Operation>: List of events
 
 **Algorithm:**
@@ -718,10 +748,12 @@ class SnapshotManager:
 **Purpose:** Checks if it's time to create a snapshot.
 
 **Parameters:**
+
 - doc_id (string): Document ID
 - current_version (int): Current event version
 
 **Returns:**
+
 - boolean: True if snapshot should be created
 
 **Algorithm:**
@@ -743,10 +775,12 @@ function should_create_snapshot(doc_id, current_version):
 **Purpose:** Creates a snapshot of current document state.
 
 **Parameters:**
+
 - doc_id (string): Document ID
 - document (Document): Current document state
 
 **Returns:**
+
 - void
 
 **Algorithm:**
@@ -803,9 +837,11 @@ function create_snapshot(doc_id, document):
 **Purpose:** Loads document from snapshot + events (fast read).
 
 **Parameters:**
+
 - doc_id (string): Document ID
 
 **Returns:**
+
 - Document: Reconstructed document
 
 **Algorithm:**
@@ -865,11 +901,13 @@ function load_document(doc_id):
 **Purpose:** Merges offline edits when client reconnects.
 
 **Parameters:**
+
 - doc_id (string): Document ID
 - client_last_version (int): Last server version client knew
 - offline_operations (Array<Operation>): Operations made offline
 
 **Returns:**
+
 - dict: Merged state and missing operations
 
 **Algorithm:**
@@ -951,10 +989,12 @@ class PresenceManager:
 **Purpose:** Updates user presence (online status).
 
 **Parameters:**
+
 - doc_id (string): Document ID
 - user_id (string): User ID
 
 **Returns:**
+
 - void
 
 **Algorithm:**
@@ -977,9 +1017,11 @@ function update_presence(doc_id, user_id):
 **Purpose:** Gets list of users currently online.
 
 **Parameters:**
+
 - doc_id (string): Document ID
 
 **Returns:**
+
 - Set<string>: Set of user IDs
 
 **Algorithm:**
@@ -999,12 +1041,14 @@ function get_presence(doc_id):
 **Purpose:** Updates user's cursor position (throttled).
 
 **Parameters:**
+
 - doc_id (string): Document ID
 - user_id (string): User ID
 - position (int): Cursor position
 - selection (Array<int>): Optional selection range
 
 **Returns:**
+
 - void
 
 **Algorithm:**
@@ -1043,10 +1087,12 @@ function update_cursor(doc_id, user_id, position, selection=null):
 **Purpose:** Checks if user has exceeded rate limit.
 
 **Parameters:**
+
 - user_id (string): User ID
 - limit (int): Max operations per second (default 100)
 
 **Returns:**
+
 - boolean: True if rate limited
 
 **Algorithm:**
@@ -1085,9 +1131,11 @@ function is_rate_limited(user_id, limit=100):
 **Purpose:** Handles OT worker failure and recovery.
 
 **Parameters:**
+
 - failed_worker_id (string): ID of failed worker
 
 **Returns:**
+
 - void
 
 **Algorithm:**
@@ -1116,11 +1164,13 @@ function handle_ot_worker_failure(failed_worker_id):
 **Purpose:** Handles WebSocket disconnection and reconnection.
 
 **Parameters:**
+
 - connection (Connection): Disconnected connection
 - doc_id (string): Document ID
 - user_id (string): User ID
 
 **Returns:**
+
 - void
 
 **Algorithm:**
@@ -1144,12 +1194,14 @@ function handle_websocket_disconnection(connection, doc_id, user_id):
 **Purpose:** Handles WebSocket reconnection after disconnection.
 
 **Parameters:**
+
 - connection (Connection): New connection
 - doc_id (string): Document ID
 - user_id (string): User ID
 - last_event_id (int): Last event client received
 
 **Returns:**
+
 - void
 
 **Algorithm:**

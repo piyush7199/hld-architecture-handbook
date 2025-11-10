@@ -560,71 +560,66 @@ graph TB
         WithdrawAPI[Withdrawal API]
     end
 
-subgraph "Kafka Event Log - Immutable Append-Only"
-KafkaTopic[Kafka Topic: ledger.events<br/>Partitioned by user_id<br/>Compacted - retain latest per key<br/>Retention: 7 years]
-end
+    subgraph "Kafka Event Log - Immutable Append-Only"
+        KafkaTopic[Kafka Topic: ledger.events<br/>Partitioned by user_id<br/>Compacted - retain latest per key<br/>Retention: 7 years]
+    end
 
-OrderAPI -->|Append ORDER_PLACED event|KafkaTopic
-OrderAPI -->|Append ORDER_FILLED event|KafkaTopic
-DepositAPI -->|Append DEPOSIT event|KafkaTopic
-WithdrawAPI -->|Append WITHDRAWAL event| KafkaTopic
+    OrderAPI -->|Append ORDER_PLACED event| KafkaTopic
+    OrderAPI -->|Append ORDER_FILLED event| KafkaTopic
+    DepositAPI -->|Append DEPOSIT event| KafkaTopic
+    WithdrawAPI -->|Append WITHDRAWAL event| KafkaTopic
 
-subgraph "Event Log Example (user_id=12345)"
-E1["Event 1 (t=1000):<br/>{user_id: 12345, type: DEPOSIT, amount: 10000}"]
-E2["Event 2 (t=1010):<br/>{user_id: 12345, type: ORDER_PLACED, amount: -1500, order_id: 888}"]
-E3["Event 3 (t=1015):<br/>{user_id: 12345, type: ORDER_FILLED, amount: 0, order_id: 888}"]
-E4["Event 4 (t=1020):<br/>{user_id: 12345, type: HOLDING_ADDED, symbol: RELIANCE, qty: 100}"]
-end
+    subgraph "Event Log Example (user_id=12345)"
+        E1["Event 1 (t=1000):<br/>{user_id: 12345, type: DEPOSIT, amount: 10000}"]
+        E2["Event 2 (t=1010):<br/>{user_id: 12345, type: ORDER_PLACED, amount: -1500, order_id: 888}"]
+        E3["Event 3 (t=1015):<br/>{user_id: 12345, type: ORDER_FILLED, amount: 0, order_id: 888}"]
+        E4["Event 4 (t=1020):<br/>{user_id: 12345, type: HOLDING_ADDED, symbol: RELIANCE, qty: 100}"]
+    end
 
-KafkaTopic --> E1
-E1 --> E2
-E2 --> E3
-E3 --> E4
+    KafkaTopic --> E1
+    E1 --> E2
+    E2 --> E3
+    E3 --> E4
 
-subgraph "Event Consumers"
-LedgerSvc[Ledger Service<br/>Kafka Consumer Group<br/>Replays events every 1 second]
-end
+    subgraph "Event Consumers"
+        LedgerSvc[Ledger Service<br/>Kafka Consumer Group<br/>Replays events every 1 second]
+    end
 
-KafkaTopic -->|Consume events<br/>Consumer offset tracking|LedgerSvc
+    KafkaTopic -->|Consume events<br/>Consumer offset tracking| LedgerSvc
 
-subgraph "Materialized View - PostgreSQL"
-PG[(PostgreSQL<br/>Read-Optimized Snapshot<br/>Updated every 1 second)]
+    subgraph "Materialized View - PostgreSQL"
+        PG[(PostgreSQL<br/>Read-Optimized Snapshot<br/>Updated every 1 second)]
+        AcctTable["Table: accounts<br/>user_id | cash_balance | margin_used | updated_at<br/>12345 | 8500 | 0 | 2023-11-01 10:00:01"]
+        HoldingTable["Table: holdings<br/>user_id | symbol | quantity | avg_price<br/>12345 | RELIANCE | 100 | 1500"]
+    end
 
-AcctTable["Table: accounts<br/>user_id | cash_balance | margin_used | updated_at<br/>12345 | 8500 | 0 | 2023-11-01 10:00:01"]
+    LedgerSvc -->|UPDATE accounts| AcctTable
+    LedgerSvc -->|UPDATE holdings| HoldingTable
 
-HoldingTable["Table: holdings<br/>user_id | symbol | quantity | avg_price<br/>12345 | RELIANCE | 100 | 1500"]
-end
+    subgraph "Balance Calculation"
+        Calc["Current balance (derived from events):<br/><br/>SUM(all DEPOSIT/WITHDRAWAL events)<br/>- SUM(margin_used from pending orders)<br/><br/>Event 1: +10000<br/>Event 2: -1500 (margin blocked)<br/>Event 3: Release margin (order filled)<br/><br/>Balance = 10000 - 1500 = 8500"]
+    end
 
-LedgerSvc -->|UPDATE accounts|AcctTable
-LedgerSvc -->|UPDATE holdings|HoldingTable
+    LedgerSvc -.-> Calc
 
-subgraph "Balance Calculation"
-Calc["Current balance (derived from events):<br/><br/>SUM(all DEPOSIT/WITHDRAWAL events)<br/>- SUM(margin_used from pending orders)<br/><br/>Event 1: +10000<br/>Event 2: -1500 (margin blocked)<br/>Event 3: Release margin (order filled)<br/><br/>Balance = 10000 - 1500 = 8500"]
-end
+    subgraph "Read Path"
+        API[Portfolio API]
+        User[User requests balance]
+    end
 
-LedgerSvc -.-> Calc
-
-subgraph "Read Path"
-API[Portfolio API]
-User[User requests balance]
-end
-
-User -->|GET /portfolio|API
-API -->|SELECT cash_balance FROM accounts<br/>WHERE user_id = 12345|AcctTable
-AcctTable -->|8500| API
-API -->|Response| User
-
-Note1["✅ Write Path Fast:<br/>Append to Kafka = Lock-free<br/>Latency under 10ms"]
-Note2["✅ Read Path Fast:<br/>Query PostgreSQL snapshot<br/>Latency under 50ms"]
-Note3["⚠️ Trade-off:<br/>Eventual consistency<br/>Snapshot lags by 1 second"]
-
-OrderAPI -.-> Note1
-API -.-> Note2
-LedgerSvc -.-> Note3
-
-style KafkaTopic fill: #99ff99
-style PG fill: #ffcc99
-style LedgerSvc fill: #99ccff
+    User -->|GET /portfolio| API
+    API -->|SELECT cash_balance FROM accounts<br/>WHERE user_id = 12345| AcctTable
+    AcctTable -->|8500| API
+    API -->|Response| User
+    Note1["✅ Write Path Fast:<br/>Append to Kafka = Lock-free<br/>Latency under 10ms"]
+    Note2["✅ Read Path Fast:<br/>Query PostgreSQL snapshot<br/>Latency under 50ms"]
+    Note3["⚠️ Trade-off:<br/>Eventual consistency<br/>Snapshot lags by 1 second"]
+    OrderAPI -.-> Note1
+    API -.-> Note2
+    LedgerSvc -.-> Note3
+    style KafkaTopic fill: #99ff99
+    style PG fill: #ffcc99
+    style LedgerSvc fill: #99ccff
 ```
 
 ---
@@ -820,22 +815,21 @@ graph TB
     CB4 -->|Yes| Halt1[Halt Level 1<br/>Trading halted for 45min]
     CB4 -->|No| Normal[Normal Trading]
 
-subgraph "Halt Actions"
-HA1[Reject all new orders<br/>with error message]
-HA2[Display banner:<br/>Trading halted due to circuit breaker]
-HA3[Send push notification<br/>to all users]
-end
+    subgraph "Halt Actions"
+        HA1[Reject all new orders<br/>with error message]
+        HA2[Display banner:<br/>Trading halted due to circuit breaker]
+        HA3[Send push notification<br/>to all users]
+    end
 
-Halt1 --> HA1
-Halt2 --> HA1
-Halt3 --> HA1
-HA1 --> HA2
-HA2 --> HA3
-
-style Monitor fill: #ff9999
-style Trigger fill: #ffcc99
-style Liquidate fill: #ff6666
-style Halt3 fill: #cc0000
+    Halt1 --> HA1
+    Halt2 --> HA1
+    Halt3 --> HA1
+    HA1 --> HA2
+    HA2 --> HA3
+    style Monitor fill: #ff9999
+    style Trigger fill: #ffcc99
+    style Liquidate fill: #ff6666
+    style Halt3 fill: #cc0000
 ```
 
 ---
@@ -1076,80 +1070,75 @@ graph TB
         AdminAPI[Admin API<br/>Account freezes]
     end
 
-subgraph "Event Bus"
-Kafka[Kafka Topic: audit.events<br/>Retention: 7 days<br/>Buffer before ClickHouse]
-end
+    subgraph "Event Bus"
+        Kafka[Kafka Topic: audit.events<br/>Retention: 7 days<br/>Buffer before ClickHouse]
+    end
 
-OrderAPI -->|ORDER_PLACED<br/>ORDER_FILLED<br/>ORDER_CANCELLED|Kafka
-DepositAPI -->|DEPOSIT<br/>WITHDRAWAL| Kafka
-LoginAPI -->|LOGIN<br/>LOGOUT<br/>LOGIN_FAILED|Kafka
-AdminAPI -->|ACCOUNT_FROZEN<br/>MARGIN_CALL<br/>LIQUIDATION|Kafka
+    OrderAPI -->|ORDER_PLACED<br/>ORDER_FILLED<br/>ORDER_CANCELLED| Kafka
+    DepositAPI -->|DEPOSIT<br/>WITHDRAWAL| Kafka
+    LoginAPI -->|LOGIN<br/>LOGOUT<br/>LOGIN_FAILED| Kafka
+    AdminAPI -->|ACCOUNT_FROZEN<br/>MARGIN_CALL<br/>LIQUIDATION| Kafka
 
-subgraph "Snapshot Services"
-QuoteSnap[Quote Snapshot Service<br/>Captures market state<br/>at time of event]
-RiskSnap[Risk Snapshot Service<br/>Captures margin levels<br/>position limits]
-end
+    subgraph "Snapshot Services"
+        QuoteSnap[Quote Snapshot Service<br/>Captures market state<br/>at time of event]
+        RiskSnap[Risk Snapshot Service<br/>Captures margin levels<br/>position limits]
+    end
 
-Kafka --> QuoteSnap
-Kafka --> RiskSnap
+    Kafka --> QuoteSnap
+    Kafka --> RiskSnap
 
-subgraph "Audit Database - ClickHouse"
-CH[(ClickHouse<br/>3-node cluster<br/>OLAP optimized<br/>Time-series partitioning)]
-end
+    subgraph "Audit Database - ClickHouse"
+        CH[(ClickHouse<br/>3-node cluster<br/>OLAP optimized<br/>Time-series partitioning)]
+    end
 
-subgraph "ClickHouse Consumer"
-Consumer[Kafka Consumer<br/>Batch insert every 10 seconds<br/>Buffer: 10,000 events]
-end
+    subgraph "ClickHouse Consumer"
+        Consumer[Kafka Consumer<br/>Batch insert every 10 seconds<br/>Buffer: 10,000 events]
+    end
 
-Kafka -->|Consume|Consumer
-QuoteSnap -->|Enrich events<br/>with market snapshot|Consumer
-RiskSnap -->|Enrich events<br/>with risk metrics|Consumer
-Consumer -->|Batch INSERT|CH
+    Kafka -->|Consume| Consumer
+    QuoteSnap -->|Enrich events<br/>with market snapshot| Consumer
+    RiskSnap -->|Enrich events<br/>with risk metrics| Consumer
+    Consumer -->|Batch INSERT| CH
 
-subgraph "Tiered Storage Strategy"
-Hot["Hot Storage (6 months)<br/>SSD storage<br/>Query latency: <100ms<br/>Used for: Real-time compliance checks"]
+    subgraph "Tiered Storage Strategy"
+        Hot["Hot Storage (6 months)<br/>SSD storage<br/>Query latency: <100ms<br/>Used for: Real-time compliance checks"]
+        Warm["Warm Storage (2 years)<br/>HDD storage<br/>Query latency: ~1 second<br/>Used for: Monthly reports"]
+        Cold["Cold Storage (7 years)<br/>S3 Glacier<br/>Query latency: ~hours<br/>Used for: Regulatory audits"]
+    end
 
-Warm["Warm Storage (2 years)<br/>HDD storage<br/>Query latency: ~1 second<br/>Used for: Monthly reports"]
+    CH --> Hot
+    Hot -->|Move after 6 months| Warm
+    Warm -->|Move after 2 years| Cold
 
-Cold["Cold Storage (7 years)<br/>S3 Glacier<br/>Query latency: ~hours<br/>Used for: Regulatory audits"]
-end
+    subgraph "Compliance Queries"
+        Q1[Query 1: Trading History<br/>SELECT * FROM audit_log<br/>WHERE user_id=12345<br/>AND timestamp BETWEEN ...]
+        Q2[Query 2: Wash Sales<br/>Detect buy/sell within 30 days<br/>JOIN trades on user+symbol]
+        Q3[Query 3: Best Execution<br/>Compare execution price<br/>vs market price slippage]
+    end
 
-CH --> Hot
-Hot -->|Move after 6 months| Warm
-Warm -->|Move after 2 years| Cold
+    Hot --> Q1
+    Hot --> Q2
+    Hot --> Q3
 
-subgraph "Compliance Queries"
-Q1[Query 1: Trading History<br/>SELECT * FROM audit_log<br/>WHERE user_id=12345<br/>AND timestamp BETWEEN ...]
+    subgraph "GDPR Compliance"
+        GDPR["Right to be Forgotten:<br/><br/>1. Replace user_id with SHA256(user_id + salt)<br/>2. Store mapping: hash → user_id (encrypted)<br/>3. Audit log retains pseudonymized records<br/>4. Delete mapping after statute expires<br/><br/>Audit log remains immutable (regulatory)<br/>but cannot identify user (GDPR compliant)"]
+    end
 
-Q2[Query 2: Wash Sales<br/>Detect buy/sell within 30 days<br/>JOIN trades on user+symbol]
+    CH -.->|Pseudonymization| GDPR
 
-Q3[Query 3: Best Execution<br/>Compare execution price<br/>vs market price slippage]
-end
+    subgraph "Monitoring"
+        M1[Alert: ClickHouse lag > 1 minute]
+        M2[Alert: Disk usage > 80 percent]
+        M3[Alert: Query latency > 5 seconds]
+    end
 
-Hot --> Q1
-Hot --> Q2
-Hot --> Q3
-
-subgraph "GDPR Compliance"
-GDPR["Right to be Forgotten:<br/><br/>1. Replace user_id with SHA256(user_id + salt)<br/>2. Store mapping: hash → user_id (encrypted)<br/>3. Audit log retains pseudonymized records<br/>4. Delete mapping after statute expires<br/><br/>Audit log remains immutable (regulatory)<br/>but cannot identify user (GDPR compliant)"]
-end
-
-CH -.->|Pseudonymization|GDPR
-
-subgraph "Monitoring"
-M1[Alert: ClickHouse lag > 1 minute]
-M2[Alert: Disk usage > 80 percent]
-M3[Alert: Query latency > 5 seconds]
-end
-
-CH -.-> M1
-Hot -.-> M2
-Q1 -.-> M3
-
-style Kafka fill: #99ff99
-style CH fill: #cc99ff
-style Cold fill: #ffcc99
-style GDPR fill:#ff9999
+    CH -.-> M1
+    Hot -.-> M2
+    Q1 -.-> M3
+    style Kafka fill: #99ff99
+    style CH fill: #cc99ff
+    style Cold fill: #ffcc99
+    style GDPR fill: #ff9999
 ```
 
 ---
@@ -1369,4 +1358,3 @@ graph TB
     style Dashboard1 fill: #99ff99
     style PagerDuty fill: #ff6666
 ```
-
