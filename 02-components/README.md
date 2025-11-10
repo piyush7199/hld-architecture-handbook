@@ -7,10 +7,10 @@ systems design.
 
 Components are organized into **7 logical categories** for easier navigation:
 
-### 🌐 [2.0-communication](./2.0-communication/) — Communication Protocols & APIs (6 files)
+### 🌐 [2.0-communication](./2.0-communication/) — Communication Protocols & APIs (7 files)
 
 Foundational communication concepts, API design styles, real-time communication patterns, load balancing, API gateways,
-and service mesh.
+service mesh, and DNS.
 
 - **[2.0.1 Foundational Communication Protocols](./2.0-communication/2.0.1-foundational-communication-protocols.md)** —
   TCP/UDP, HTTP/S, WebSockets, WebRTC
@@ -24,12 +24,11 @@ and service mesh.
   authentication, rate limiting, protocol translation, BFF pattern
 - **[2.0.6 Service Mesh Deep Dive](./2.0-communication/2.0.6-service-mesh-deep-dive.md)** — Sidecar pattern, mTLS,
   retries, circuit breakers, traffic management
+- **[2.0.7 DNS Deep Dive](./2.0-communication/2.0.7-dns-deep-dive.md)** — DNS resolution, record types, caching, load balancing, geographic routing, failover
 
-### 🗄️ [2.1-databases](./2.1-databases/) — Database Systems (18 files)
+### 🗄️ [2.1-databases](./2.1-databases/) — Database Systems (19 files)
 
-Comprehensive coverage of SQL, NoSQL, specialized databases, object storage, time series databases, and vector databases
-with practical
-design challenges.
+Comprehensive coverage of SQL, NoSQL, specialized databases, object storage, time series databases, vector databases, and distributed SQL databases with practical design challenges.
 
 #### Core Concepts (6 files)
 
@@ -53,7 +52,7 @@ design challenges.
 - **[2.1.11 Redis Deep Dive](./2.1-databases/2.1.11-redis-deep-dive.md)** — In-memory, Data structures
 - **[2.1.12 DynamoDB Deep Dive](./2.1-databases/2.1.12-dynamodb-deep-dive.md)** — Serverless, GSI/LSI
 
-#### Specialized Databases (6 files)
+#### Specialized Databases (7 files)
 
 - **[2.1.13 Elasticsearch Deep Dive](./2.1-databases/2.1.13-elasticsearch-deep-dive.md)** — Full-text search,
   Aggregations
@@ -65,6 +64,7 @@ design challenges.
   TimescaleDB, Prometheus, compression, retention
 - **[2.1.18 Vector Databases Deep Dive](./2.1-databases/2.1.18-vector-databases-deep-dive.md)** — Pinecone, Weaviate,
   Milvus, FAISS, semantic search, embeddings
+- **[2.1.19 Distributed SQL Databases Deep Dive](./2.1-databases/2.1.19-distributed-sql-databases-deep-dive.md)** — CockroachDB, TiDB, Google Spanner, YugabyteDB, Raft consensus, multi-region
 
 ### ⚡ [2.2-caching](./2.2-caching/) — Caching Systems (4 files)
 
@@ -94,12 +94,15 @@ Message queues, event streaming, and big data processing frameworks.
   engine
 - **[2.3.8 Apache Flink Deep Dive](./2.3-messaging-streaming/2.3.8-apache-flink-deep-dive.md)** — True streaming, CEP
 
-### 🔒 [2.4-security-observability](./2.4-security-observability/) — Security & Monitoring (2 files)
+### 🔒 [2.4-security-observability](./2.4-security-observability/) — Security & Monitoring (5 files)
 
-Security fundamentals and system observability.
+Security fundamentals, authentication, monitoring, and logging.
 
 - **[2.4.1 Security Fundamentals](./2.4-security-observability/2.4.1-security-fundamentals.md)** — Auth, TLS, XSS/CSRF
 - **[2.4.2 Observability](./2.4-security-observability/2.4.2-observability.md)** — Logging, Metrics, Tracing
+- **[2.4.3 Prometheus & Grafana Deep Dive](./2.4-security-observability/2.4.3-prometheus-grafana-deep-dive.md)** — Metrics collection, time-series storage, PromQL, dashboards, alerting
+- **[2.4.4 OAuth 2.0 & JWT Deep Dive](./2.4-security-observability/2.4.4-oauth-jwt-deep-dive.md)** — OAuth 2.0 flows, JWT structure, token management, refresh tokens, OIDC
+- **[2.4.5 ELK Stack & Logging Deep Dive](./2.4-security-observability/2.4.5-elk-stack-logging-deep-dive.md)** — Elasticsearch, Logstash, Kibana, Beats, log parsing, retention, correlation
 
 ### 🧮 [2.5-algorithms](./2.5-algorithms/) — Distributed Algorithms (4 files)
 
@@ -138,8 +141,7 @@ Container orchestration, configuration management, and infrastructure automation
 
 ### For Interview Prep:
 
-- **Must-read:** 2.1.1 (RDBMS), 2.1.2 (NoSQL), 2.2.1 (Caching), 2.2.4 (CDN), 2.3.2 (Kafka), 2.5.1 (Rate Limiting),
-  2.6.1 (Kubernetes)
+- **Must-read:** 2.1.1 (RDBMS), 2.1.2 (NoSQL), 2.2.1 (Caching), 2.2.4 (CDN), 2.3.2 (Kafka), 2.5.1 (Rate Limiting), 2.0.5 (API Gateway), 2.0.7 (DNS), 2.4.3 (Prometheus/Grafana), 2.4.4 (OAuth/JWT), 2.6.1 (Kubernetes)
 - **Database comparisons:** Read "When to Use" sections in each DB deep dive
 - **Design challenges:** Every deep dive has a practical design challenge at the end
 

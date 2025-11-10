@@ -77,11 +77,11 @@ We will cover the following topics in sequence before moving to the Design Chall
 ## Category 2: Components Deep Dive (Folder: [02-components](./02-components))
 
 > **📁 Organized into 7 logical categories for easier navigation:**
-> - 🌐 **Communication** (Protocols, APIs, Real-time, Load Balancers, API Gateway, Service Mesh)
-> - 🗄️ **Databases** (18 database deep dives including Object Storage, Time Series & Vector DBs!)
+> - 🌐 **Communication** (Protocols, APIs, Real-time, Load Balancers, API Gateway, Service Mesh, DNS)
+> - 🗄️ **Databases** (19 database deep dives including Object Storage, Time Series, Vector DBs & Distributed SQL!)
 > - ⚡ **Caching** (Redis, Memcached, Consistent Hashing, CDN)
 > - 📨 **Messaging & Streaming** (Kafka, Spark, Flink, Message Queues)
-> - 🔒 **Security & Observability** (Auth, Monitoring, Tracing)
+> - 🔒 **Security & Observability** (Auth, OAuth/JWT, Monitoring, Prometheus/Grafana, Logging, ELK Stack)
 > - 🧮 **Algorithms** (Rate Limiting, Consensus, Locking, Bloom Filters)
 > - 🏗️ **Infrastructure** (Kubernetes, Docker, Configuration Management, Infrastructure as Code)
 
@@ -95,8 +95,9 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 2.0.4    | [Load Balancers Deep Dive](02-components/2.0-communication/2.0.4-load-balancers-deep-dive.md)                         | Layer 4 vs Layer 7, algorithms, health checks, SSL termination, sticky sessions.                          |
 | 2.0.5    | [API Gateway Deep Dive](02-components/2.0-communication/2.0.5-api-gateway-deep-dive.md)                               | Request routing, authentication, rate limiting, protocol translation, BFF pattern, service aggregation.   |
 | 2.0.6    | [Service Mesh Deep Dive](02-components/2.0-communication/2.0.6-service-mesh-deep-dive.md)                             | Sidecar pattern, mTLS, retries, circuit breakers, traffic management, distributed tracing.                |
+| 2.0.7    | [DNS Deep Dive](02-components/2.0-communication/2.0.7-dns-deep-dive.md)                                               | DNS resolution, record types, caching, load balancing, geographic routing, failover, DNSSEC.              |
 
-### 2.1 Databases (Folder: [2.1-databases](./02-components/2.1-databases)) — 18 Deep Dives
+### 2.1 Databases (Folder: [2.1-databases](./02-components/2.1-databases)) — 19 Deep Dives
 
 #### Core Database Concepts
 
@@ -135,6 +136,7 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 2.1.16   | [Object Storage Deep Dive](02-components/2.1-databases/2.1.16-object-storage-deep-dive.md)               | S3, GCS, Azure Blob, multipart uploads, lifecycle policies, storage classes, CDN integration.        |
 | 2.1.17   | [Time Series Databases Deep Dive](02-components/2.1-databases/2.1.17-time-series-databases-deep-dive.md) | InfluxDB, TimescaleDB, Prometheus, compression, retention policies, downsampling, IoT data.          |
 | 2.1.18   | [Vector Databases Deep Dive](02-components/2.1-databases/2.1.18-vector-databases-deep-dive.md)           | Pinecone, Weaviate, Milvus, FAISS, semantic search, embeddings, k-NN algorithms, AI/ML applications. |
+| 2.1.19   | [Distributed SQL Databases Deep Dive](02-components/2.1-databases/2.1.19-distributed-sql-databases-deep-dive.md) | CockroachDB, TiDB, Google Spanner, YugabyteDB, Raft consensus, multi-region, ACID at scale.              |
 
 ### 2.2 Caching (Folder: [2.2-caching](./02-components/2.2-caching))
 
@@ -164,6 +166,9 @@ We will cover the following topics in sequence before moving to the Design Chall
 |----------|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
 | 2.4.1    | [Security Fundamentals](02-components/2.4-security-observability/2.4.1-security-fundamentals.md) | Authn/Authz (JWT), TLS/Encryption, Cross-Site Scripting (XSS) & CSRF.         |
 | 2.4.2    | [Observability](02-components/2.4-security-observability/2.4.2-observability.md)                 | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting. |
+| 2.4.3    | [Prometheus & Grafana Deep Dive](02-components/2.4-security-observability/2.4.3-prometheus-grafana-deep-dive.md) | Metrics collection, time-series storage, PromQL, dashboards, alerting, service discovery. |
+| 2.4.4    | [OAuth 2.0 & JWT Deep Dive](02-components/2.4-security-observability/2.4.4-oauth-jwt-deep-dive.md) | OAuth 2.0 flows, JWT structure, token management, refresh tokens, OIDC, security best practices. |
+| 2.4.5    | [ELK Stack & Logging Deep Dive](02-components/2.4-security-observability/2.4.5-elk-stack-logging-deep-dive.md) | Elasticsearch, Logstash, Kibana, Beats, log parsing, retention, correlation, full-text search. |
 
 ### 2.5 Distributed Algorithms (Folder: [2.5-algorithms](./02-components/2.5-algorithms))
 
