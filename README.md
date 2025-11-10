@@ -64,10 +64,15 @@ We will cover the following topics in sequence before moving to the Design Chall
 | 1.1.4    | [Data Consistency Models](01-principles/1.1.4-data-consistency-models.md)                 |
 | 1.1.5    | [Back-of-the-Envelope Calculations](01-principles/1.1.5-back-of-envelope-calculations.md) |
 | 1.1.6    | [Failure Modes and Fault Tolerance](01-principles/1.1.6-failure-modes-fault-tolerance.md) |
+| 1.1.7    | [Idempotency](01-principles/1.1.7-idempotency.md)                                         |
+| 1.1.8    | [Data Partitioning and Sharding](01-principles/1.1.8-data-partitioning-sharding.md)        |
+| 1.1.9    | [Replication Strategies](01-principles/1.1.9-replication-strategies.md)                  |
+| 1.1.10   | [Message Delivery Guarantees](01-principles/1.1.10-message-delivery-guarantees.md)       |
 | 1.2.1    | [System Architecture Styles](01-principles/1.2.1-system-architecture-styles.md)           |
 | 1.2.2    | [Networking Components](01-principles/1.2.2-networking-components.md)                     |
 | 1.2.3    | [API Gateway and Service Mesh](01-principles/1.2.3-api-gateway-servicemesh.md)            |
 | 1.2.4    | [Domain-Driven Design (DDD) Basics](01-principles/1.2.4-domain-driven-design.md)          |
+| 1.2.5    | [Service Discovery](01-principles/1.2.5-service-discovery.md)                           |
 
 ## Category 2: Components Deep Dive (Folder: [02-components](./02-components))
 
