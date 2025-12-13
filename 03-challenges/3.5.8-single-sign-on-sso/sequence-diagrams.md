@@ -506,7 +506,7 @@ sequenceDiagram
     App1->>App1: Invalidate Local Session<br/>DELETE session from Redis
     App2->>App2: Invalidate Local Session<br/>DELETE session from Redis
     Note over App1,App2: t=100ms
-    SSO->>User: Clear HttpOnly Cookies<br/>Set-Cookie: access_token=; Max-Age=0
+    SSO->>User: Clear HttpOnly Cookies<br/>Set-Cookie access_token= Max-Age=0
     Note over SSO: t=150ms
     SSO->>User: Redirect to Login Page
     Note over SSO: t=200ms

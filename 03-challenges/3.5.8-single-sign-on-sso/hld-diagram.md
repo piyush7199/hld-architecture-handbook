@@ -583,10 +583,10 @@ graph TB
     
     API --> Router
     
-    Router -->|hash(A) % 64 = 1| Shard1
-    Router -->|hash(B) % 64 = 2| Shard2
-    Router -->|hash(C) % 64 = 3| Shard3
-    Router -->|hash(...) % 64 = 64| ShardN
+    Router -->|Shard 1| Shard1
+    Router -->|Shard 2| Shard2
+    Router -->|Shard 3| Shard3
+    Router -->|Shard 64| ShardN
     
     style Router fill:#e1f5ff
     style Shard1 fill:#fff4e1
