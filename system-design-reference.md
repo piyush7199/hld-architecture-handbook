@@ -428,20 +428,40 @@ For cloud databases: 100-500 connections typical
 
 ---
 
-## 💡 Common Pitfalls to Avoid
+---
 
-| Pitfall                       | Why It's Wrong                     | Better Approach                      |
-|-------------------------------|------------------------------------|--------------------------------------|
-| **Single database**           | SPOF, doesn't scale                | Replication, sharding                |
-| **No caching**                | Expensive DB queries               | Multi-layer caching                  |
-| **Synchronous everything**    | Tight coupling, cascading failures | Async messaging, queues              |
-| **Ignoring security**         | Data breaches, attacks             | HTTPS, authentication, rate limiting |
-| **No monitoring**             | Can't detect/debug issues          | Logging, metrics, tracing            |
-| **Premature optimization**    | Wasted time, complexity            | Start simple, measure, optimize      |
-| **Ignoring data consistency** | Bugs, data corruption              | Choose consistency model carefully   |
+## 🤖 Generative AI, LLM & Vector Search Reference Numbers
+
+### 1. Model VRAM Memory Sizing (Rule of Thumb)
+- **FP16 (16-bit Precision):** $\sim 2 \text{ GB VRAM}$ per 1 Billion parameters.
+- **INT8 (8-bit Quantized AWQ):** $\sim 1 \text{ GB VRAM}$ per 1 Billion parameters.
+- **INT4 (4-bit Quantized AWQ):** $\sim 0.5 \text{ GB VRAM}$ per 1 Billion parameters.
+- *Example:* Llama-3-70B in FP16 requires $\sim 140 \text{ GB VRAM}$ for weights alone ($2\text{x}$ NVIDIA H100 80GB GPUs). Adding KV Cache overhead requires $4\text{x}$ or $8\text{x}$ H100s.
+
+### 2. GenAI Latency SLAs
+- **Semantic Redis Cache Hit:** $< 15\text{ms}$.
+- **Vector Search (100M HNSW Index):** $15\text{--}40\text{ms}$.
+- **Cross-Encoder Re-ranker (Top 50 Docs):** $30\text{--}80\text{ms}$.
+- **LLM Time-To-First-Token (TTFT):** $< 400\text{ms}$.
+- **Inter-Token Latency (ITL):** $15\text{--}30\text{ms}$ per token.
 
 ---
 
-This reference guide should serve as a quick lookup during system design discussions, interviews, and real-world
-architecture decisions.
+## 💡 Common Pitfalls to Avoid
+
+| Pitfall | Why It's Wrong | Better Approach |
+|---|---|---|
+| **Single database** | SPOF, doesn't scale | Replication, sharding |
+| **No caching** | Expensive DB queries | Multi-layer caching |
+| **Synchronous everything** | Tight coupling, cascading failures | Async messaging, queues |
+| **Ignoring security** | Data breaches, attacks | HTTPS, authentication, rate limiting |
+| **No monitoring** | Can't detect/debug issues | Logging, metrics, tracing |
+| **Premature optimization** | Wasted time, complexity | Start simple, measure, optimize |
+| **Ignoring data consistency** | Bugs, data corruption | Choose consistency model carefully |
+| **Vector ACL post-filtering** | Rejects Top-K matches after search | Pre-filter payload constraints in HNSW query |
+
+---
+
+This reference guide serves as a quick lookup during system design discussions, interviews, and real-world architecture decisions.
+
 

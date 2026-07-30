@@ -52,205 +52,220 @@ Each completed design challenge now includes **6 comprehensive files** for compl
 
 ## 🗺️ Learning Roadmap: Core Concepts
 
-We will cover the following topics in sequence before moving to the Design Challenges.
-
 ### Category 1: Core Principles (Folder: [01-principles](./01-principles))
 
-| Topic ID | Concept                                                                                   |
-|----------|-------------------------------------------------------------------------------------------|
-| 1.1.1    | [CAP Theorem](01-principles/1.1.1-cap-theorem.md)                                         |
-| 1.1.2    | [Latency, Throughput, and Scaling](01-principles/1.1.2-latency-throughput-scale.md)       |
-| 1.1.3    | [Availability and Reliability](01-principles/1.1.3-availability-reliability.md)           |
-| 1.1.4    | [Data Consistency Models](01-principles/1.1.4-data-consistency-models.md)                 |
-| 1.1.5    | [Back-of-the-Envelope Calculations](01-principles/1.1.5-back-of-envelope-calculations.md) |
-| 1.1.6    | [Failure Modes and Fault Tolerance](01-principles/1.1.6-failure-modes-fault-tolerance.md) |
-| 1.1.7    | [Idempotency](01-principles/1.1.7-idempotency.md)                                         |
-| 1.1.8    | [Data Partitioning and Sharding](01-principles/1.1.8-data-partitioning-sharding.md)       |
-| 1.1.9    | [Replication Strategies](01-principles/1.1.9-replication-strategies.md)                   |
-| 1.1.10   | [Message Delivery Guarantees](01-principles/1.1.10-message-delivery-guarantees.md)        |
-| 1.2.1    | [System Architecture Styles](01-principles/1.2.1-system-architecture-styles.md)           |
-| 1.2.2    | [Networking Components](01-principles/1.2.2-networking-components.md)                     |
-| 1.2.3    | [API Gateway and Service Mesh](01-principles/1.2.3-api-gateway-servicemesh.md)            |
-| 1.2.4    | [Domain-Driven Design (DDD) Basics](01-principles/1.2.4-domain-driven-design.md)          |
-| 1.2.5    | [Service Discovery](01-principles/1.2.5-service-discovery.md)                             |
+| Topic ID | Concept |
+|---|---|
+| 1.1.1 | [CAP Theorem](01-principles/1.1.1-cap-theorem.md) |
+| 1.1.2 | [Latency, Throughput, and Scaling](01-principles/1.1.2-latency-throughput-scale.md) |
+| 1.1.3 | [Availability and Reliability](01-principles/1.1.3-availability-reliability.md) |
+| 1.1.4 | [Data Consistency Models](01-principles/1.1.4-data-consistency-models.md) |
+| 1.1.5 | [Back-of-the-Envelope Calculations](01-principles/1.1.5-back-of-envelope-calculations.md) |
+| 1.1.6 | [Failure Modes and Fault Tolerance](01-principles/1.1.6-failure-modes-fault-tolerance.md) |
+| 1.1.7 | [Idempotency](01-principles/1.1.7-idempotency.md) |
+| 1.1.8 | [Data Partitioning and Sharding](01-principles/1.1.8-data-partitioning-sharding.md) |
+| 1.1.9 | [Replication Strategies](01-principles/1.1.9-replication-strategies.md) |
+| 1.1.10 | [Message Delivery Guarantees](01-principles/1.1.10-message-delivery-guarantees.md) |
+| 1.1.11 | [PACELC Theorem & Consensus Mechanics](01-principles/1.1.11-pacelc-theorem-consensus.md) |
+| 1.2.1 | [System Architecture Styles](01-principles/1.2.1-system-architecture-styles.md) |
+| 1.2.2 | [Networking Components](01-principles/1.2.2-networking-components.md) |
+| 1.2.3 | [API Gateway and Service Mesh](01-principles/1.2.3-api-gateway-servicemesh.md) |
+| 1.2.4 | [Domain-Driven Design (DDD) Basics](01-principles/1.2.4-domain-driven-design.md) |
+| 1.2.5 | [Service Discovery](01-principles/1.2.5-service-discovery.md) |
+| 1.2.6 | [Multi-Region Active-Active Systems](01-principles/1.2.6-multi-region-active-active.md) |
+| 1.2.7 | [The Master HLD System Design Interview Framework](01-principles/1.2.7-hld-interview-playbook.md) |
 
 ## Category 2: Components Deep Dive (Folder: [02-components](./02-components))
 
-> **📁 Organized into 7 logical categories for easier navigation:**
+> **📁 Organized into 10 logical categories for easier navigation:**
 > - 🌐 **Communication** (Protocols, APIs, Real-time, Load Balancers, API Gateway, Service Mesh, DNS)
 > - 🗄️ **Databases** (20 database deep dives including Object Storage, Time Series, Vector DBs, Distributed SQL & CQRS!)
 > - ⚡ **Caching** (Redis, Memcached, Consistent Hashing, CDN)
 > - 📨 **Messaging & Streaming** (Kafka, Spark, Flink, Message Queues, Event Sourcing)
-> - 🔒 **Security & Observability** (Auth, OAuth/JWT, Monitoring, Prometheus/Grafana, Logging, ELK Stack, Distributed
-    Tracing)
+> - 🔒 **Security & Observability** (Auth, OAuth/JWT, Monitoring, Prometheus/Grafana, Logging, ELK Stack, Distributed Tracing)
 > - 🧮 **Algorithms** (Rate Limiting, Consensus, Locking, Bloom Filters)
 > - 🏗️ **Infrastructure** (Kubernetes, Docker, Configuration Management, Infrastructure as Code)
+> - 🤖 **AI & Generative ML Systems** (LLM Serving, PagedAttention, RAG Architecture, Feature Stores)
+> - 🛡️ **Resilience Engineering** (Chaos Engineering, Circuit Breakers, Bulkhead, Cascading Failures)
+> - 📐 **API & Schema Evolution** (Protobuf/Avro Schema Registries, Backward/Forward Compatibility)
 
 ### 2.0 Communication (Folder: [2.0-communication](./02-components/2.0-communication))
 
-| Topic ID | Concept                                                                                                               | Focus                                                                                                     |
-|----------|-----------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| 2.0.1    | [Foundational Communication Protocols](02-components/2.0-communication/2.0.1-foundational-communication-protocols.md) | TCP vs. UDP, HTTP/S, WebSockets, WebRTC, DASH.                                                            |
-| 2.0.2    | [API Communication Styles](02-components/2.0-communication/2.0.2-api-communication-styles.md)                         | REST, gRPC, SOAP, GraphQL (Pros, Cons, and Use Cases).                                                    |
-| 2.0.3    | [Real-Time Communication](02-components/2.0-communication/2.0.3-real-time-communication.md)                           | Comparison of techniques for maintaining persistent or near-persistent connections for real-time updates. |
-| 2.0.4    | [Load Balancers Deep Dive](02-components/2.0-communication/2.0.4-load-balancers-deep-dive.md)                         | Layer 4 vs Layer 7, algorithms, health checks, SSL termination, sticky sessions.                          |
-| 2.0.5    | [API Gateway Deep Dive](02-components/2.0-communication/2.0.5-api-gateway-deep-dive.md)                               | Request routing, authentication, rate limiting, protocol translation, BFF pattern, service aggregation.   |
-| 2.0.6    | [Service Mesh Deep Dive](02-components/2.0-communication/2.0.6-service-mesh-deep-dive.md)                             | Sidecar pattern, mTLS, retries, circuit breakers, traffic management, distributed tracing.                |
-| 2.0.7    | [DNS Deep Dive](02-components/2.0-communication/2.0.7-dns-deep-dive.md)                                               | DNS resolution, record types, caching, load balancing, geographic routing, failover, DNSSEC.              |
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.0.1 | [Foundational Communication Protocols](02-components/2.0-communication/2.0.1-foundational-communication-protocols.md) | TCP vs. UDP, HTTP/S, WebSockets, WebRTC, DASH. |
+| 2.0.2 | [API Communication Styles](02-components/2.0-communication/2.0.2-api-communication-styles.md) | REST, gRPC, SOAP, GraphQL (Pros, Cons, and Use Cases). |
+| 2.0.3 | [Real-Time Communication](02-components/2.0-communication/2.0.3-real-time-communication.md) | Comparison of techniques for maintaining persistent connections. |
+| 2.0.4 | [Load Balancers Deep Dive](02-components/2.0-communication/2.0.4-load-balancers-deep-dive.md) | Layer 4 vs Layer 7, algorithms, health checks, SSL termination. |
+| 2.0.5 | [API Gateway Deep Dive](02-components/2.0-communication/2.0.5-api-gateway-deep-dive.md) | Request routing, authentication, rate limiting, BFF pattern. |
+| 2.0.6 | [Service Mesh Deep Dive](02-components/2.0-communication/2.0.6-service-mesh-deep-dive.md) | Sidecar pattern, mTLS, retries, circuit breakers, distributed tracing. |
+| 2.0.7 | [DNS Deep Dive](02-components/2.0-communication/2.0.7-dns-deep-dive.md) | DNS resolution, record types, caching, load balancing, geographic routing. |
 
 ### 2.1 Databases (Folder: [2.1-databases](./02-components/2.1-databases)) — 20 Deep Dives
 
 #### Core Database Concepts
 
-| Topic ID | Concept                                                                                                 | Focus                                                                                 |
-|----------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
-| 2.1.1    | [RDBMS Deep Dive: SQL & ACID](02-components/2.1-databases/2.1.1-rdbms-deep-dive.md)                     | Transactions, Isolation Levels, ACID vs. BASE.                                        |
-| 2.1.2    | [NoSQL Deep Dive: The BASE Principle](02-components/2.1-databases/2.1.2-no-sql-deep-dive.md)            | Document Stores, Key-Value Stores, Column-Family.                                     |
-| 2.1.3    | [Specialized Databases](02-components/2.1-databases/2.1.3-specialized-databases.md)                     | Time-Series, Graph, Geospatial DBs (e.g., Redis Streams, Neo4j).                      |
-| 2.1.4    | [Database Scaling](02-components/2.1-databases/2.1.4-database-scaling.md)                               | Replication (Master-Slave), Federation, Sharding Strategies.                          |
-| 2.1.5    | [Indexing and Query Optimization](02-components/2.1-databases/2.1.5-indexing-and-query-optimization.md) | B-Trees, LSM-Trees, Denormalization Trade-offs.                                       |
-| 2.1.6    | [Data Modeling for Scale (CQRS)](02-components/2.1-databases/2.1.6-data-modeling-for-scale.md)          | Denormalization, Data Decomposition, Command-Query Responsibility Segregation (CQRS). |
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.1.1 | [RDBMS Deep Dive: SQL & ACID](02-components/2.1-databases/2.1.1-rdbms-deep-dive.md) | Transactions, Isolation Levels, ACID vs. BASE. |
+| 2.1.2 | [NoSQL Deep Dive: The BASE Principle](02-components/2.1-databases/2.1.2-no-sql-deep-dive.md) | Document Stores, Key-Value Stores, Column-Family. |
+| 2.1.3 | [Specialized Databases](02-components/2.1-databases/2.1.3-specialized-databases.md) | Time-Series, Graph, Geospatial DBs. |
+| 2.1.4 | [Database Scaling](02-components/2.1-databases/2.1.4-database-scaling.md) | Replication, Federation, Sharding Strategies. |
+| 2.1.5 | [Indexing and Query Optimization](02-components/2.1-databases/2.1.5-indexing-and-query-optimization.md) | B-Trees, LSM-Trees, Denormalization Trade-offs. |
+| 2.1.6 | [Data Modeling for Scale (CQRS)](02-components/2.1-databases/2.1.6-data-modeling-for-scale.md) | Data Decomposition, CQRS patterns. |
 
 #### SQL Databases
 
-| Topic ID | Concept                                                                           | Focus                                                                                            |
-|----------|-----------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| 2.1.7    | [PostgreSQL Deep Dive](02-components/2.1-databases/2.1.7-postgresql-deep-dive.md) | MVCC, JSONB, Full-Text Search, PostGIS, Advanced Indexing (GIN, BRIN), Replication, Extensions.  |
-| 2.1.8    | [MySQL Deep Dive](02-components/2.1-databases/2.1.8-mysql-deep-dive.md)           | InnoDB Storage Engine, MVCC, Replication (Async, Semi-Sync, Group), Indexing (B+Tree), ProxySQL. |
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.1.7 | [PostgreSQL Deep Dive](02-components/2.1-databases/2.1.7-postgresql-deep-dive.md) | MVCC, JSONB, Full-Text Search, PostGIS, Extensions. |
+| 2.1.8 | [MySQL Deep Dive](02-components/2.1-databases/2.1.8-mysql-deep-dive.md) | InnoDB Engine, MVCC, Replication, ProxySQL. |
 
 #### NoSQL Databases
 
-| Topic ID | Concept                                                                         | Focus                                                                                              |
-|----------|---------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| 2.1.9    | [Cassandra Deep Dive](02-components/2.1-databases/2.1.9-cassandra-deep-dive.md) | Masterless Architecture, Wide-Column Store, Tunable Consistency, Write Path, Compaction, Multi-DC. |
-| 2.1.10   | [MongoDB Deep Dive](02-components/2.1-databases/2.1.10-mongodb-deep-dive.md)    | Document Model (BSON), Embedded vs. Referenced, Aggregation Framework, Sharding, Change Streams.   |
-| 2.1.11   | [Redis Deep Dive](02-components/2.1-databases/2.1.11-redis-deep-dive.md)        | In-Memory Data Structures (Strings, Lists, Sets, Sorted Sets), Persistence (RDB/AOF), Cluster.     |
-| 2.1.12   | [DynamoDB Deep Dive](02-components/2.1-databases/2.1.12-dynamodb-deep-dive.md)  | Serverless NoSQL, Partition/Sort Keys, GSI/LSI, On-Demand vs. Provisioned, Global Tables, Streams. |
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.1.9 | [Cassandra Deep Dive](02-components/2.1-databases/2.1.9-cassandra-deep-dive.md) | Masterless Architecture, Wide-Column Store, Tunable Consistency. |
+| 2.1.10 | [MongoDB Deep Dive](02-components/2.1-databases/2.1.10-mongodb-deep-dive.md) | Document Model, Aggregation Framework, Sharding. |
+| 2.1.11 | [Redis Deep Dive](02-components/2.1-databases/2.1.11-redis-deep-dive.md) | In-Memory Data Structures, Persistence, Cluster. |
+| 2.1.12 | [DynamoDB Deep Dive](02-components/2.1-databases/2.1.12-dynamodb-deep-dive.md) | Serverless NoSQL, Partition/Sort Keys, Global Tables. |
 
 #### Specialized Databases
 
-| Topic ID | Concept                                                                                                          | Focus                                                                                                                                    |
-|----------|------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| 2.1.13   | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md)                         | Inverted Indexes, Full-Text Search, Aggregations, Integration with RDBMS (CDC), Sharding, ILM.                                           |
-| 2.1.14   | [Neo4j Deep Dive (Graph Databases)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md)                       | Property Graph Model, Cypher Query Language, Index-Free Adjacency, Graph Algorithms.                                                     |
-| 2.1.15   | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md)                    | Columnar Storage, MergeTree Engine, Vectorized Query Execution, OLAP Workloads.                                                          |
-| 2.1.16   | [Object Storage Deep Dive](02-components/2.1-databases/2.1.16-object-storage-deep-dive.md)                       | S3, GCS, Azure Blob, multipart uploads, lifecycle policies, storage classes, CDN integration.                                            |
-| 2.1.17   | [Time Series Databases Deep Dive](02-components/2.1-databases/2.1.17-time-series-databases-deep-dive.md)         | InfluxDB, TimescaleDB, Prometheus, compression, retention policies, downsampling, IoT data.                                              |
-| 2.1.18   | [Vector Databases Deep Dive](02-components/2.1-databases/2.1.18-vector-databases-deep-dive.md)                   | Pinecone, Weaviate, Milvus, FAISS, semantic search, embeddings, k-NN algorithms, AI/ML applications.                                     |
-| 2.1.19   | [Distributed SQL Databases Deep Dive](02-components/2.1-databases/2.1.19-distributed-sql-databases-deep-dive.md) | CockroachDB, TiDB, Google Spanner, YugabyteDB, Raft consensus, multi-region, ACID at scale.                                              |
-| 2.1.20   | [CQRS Deep Dive](02-components/2.1-databases/2.1.20-cqrs-deep-dive.md)                                           | Command-Query Responsibility Segregation, read/write separation, eventual consistency, multiple read models, synchronization strategies. |
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.1.13 | [Elasticsearch Deep Dive](02-components/2.1-databases/2.1.13-elasticsearch-deep-dive.md) | Inverted Indexes, Full-Text Search, Aggregations. |
+| 2.1.14 | [Neo4j Deep Dive (Graph)](02-components/2.1-databases/2.1.14-neo4j-deep-dive.md) | Property Graph Model, Cypher Query Language. |
+| 2.1.15 | [ClickHouse Deep Dive (Columnar)](02-components/2.1-databases/2.1.15-clickhouse-deep-dive.md) | Columnar Storage, MergeTree Engine, Vectorized Execution. |
+| 2.1.16 | [Object Storage Deep Dive](02-components/2.1-databases/2.1.16-object-storage-deep-dive.md) | S3, GCS, Azure Blob, multipart uploads, lifecycle policies. |
+| 2.1.17 | [Time Series Databases Deep Dive](02-components/2.1-databases/2.1.17-time-series-databases-deep-dive.md) | InfluxDB, TimescaleDB, Prometheus, downsampling. |
+| 2.1.18 | [Vector Databases Deep Dive](02-components/2.1-databases/2.1.18-vector-databases-deep-dive.md) | Pinecone, Weaviate, Milvus, FAISS, semantic search. |
+| 2.1.19 | [Distributed SQL Databases Deep Dive](02-components/2.1-databases/2.1.19-distributed-sql-databases-deep-dive.md) | CockroachDB, TiDB, Google Spanner, Raft consensus. |
+| 2.1.20 | [CQRS Deep Dive](02-components/2.1-databases/2.1.20-cqrs-deep-dive.md) | Command-Query Responsibility Segregation, read/write models. |
 
 ### 2.2 Caching (Folder: [2.2-caching](./02-components/2.2-caching))
 
-| Topic ID | Concept                                                                       | Focus                                                                                           |
-|----------|-------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
-| 2.2.1    | [Caching Deep Dive](02-components/2.2-caching/2.2.1-caching-deep-dive.md)     | Cache-Aside, Write-Through, CDN vs. App-Level Cache.                                            |
-| 2.2.2    | [Consistent Hashing](02-components/2.2-caching/2.2.2-consistent-hashing.md)   | Algorithm mechanics, Ring implementation, how it minimizes data movement.                       |
-| 2.2.3    | [Memcached Deep Dive](02-components/2.2-caching/2.2.3-memcached-deep-dive.md) | In-Memory Key-Value Cache, Slab Allocation, LRU Eviction, Multi-Threading.                      |
-| 2.2.4    | [CDN Deep Dive](02-components/2.2-caching/2.2.4-cdn-deep-dive.md)             | Content Delivery Networks, edge caching, cache invalidation, push vs pull, global distribution. |
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.2.1 | [Caching Deep Dive](02-components/2.2-caching/2.2.1-caching-deep-dive.md) | Cache-Aside, Write-Through, CDN vs. App Cache. |
+| 2.2.2 | [Consistent Hashing](02-components/2.2-caching/2.2.2-consistent-hashing.md) | Algorithm mechanics, Ring implementation. |
+| 2.2.3 | [Memcached Deep Dive](02-components/2.2-caching/2.2.3-memcached-deep-dive.md) | Slab Allocation, LRU Eviction, Multi-Threading. |
+| 2.2.4 | [CDN Deep Dive](02-components/2.2-caching/2.2.4-cdn-deep-dive.md) | Content Delivery Networks, edge caching, invalidation. |
 
 ### 2.3 Messaging & Streaming (Folder: [2.3-messaging-streaming](./02-components/2.3-messaging-streaming))
 
-| Topic ID | Concept                                                                                                                           | Focus                                                                                                |
-|----------|-----------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
-| 2.3.1    | [Asynchronous Communication](02-components/2.3-messaging-streaming/2.3.1-asynchronous-communication.md)                           | Queues vs. Streams, Pub/Sub Models, Backpressure.                                                    |
-| 2.3.2    | [Kafka Deep Dive](02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md)                                                 | Broker, Producer, Consumer Group, Partitions, Offset Management, Log Compaction.                     |
-| 2.3.3    | [Advanced Message Queues (RabbitMQ, SQS, SNS)](02-components/2.3-messaging-streaming/2.3.3-advanced-message-queues.md)            | Comparison of broker-based vs. managed queues, Dead-Letter Queues (DLQs).                            |
-| 2.3.4    | [Distributed Transactions & Idempotency](02-components/2.3-messaging-streaming/2.3.4-distributed-transactions-and-idempotency.md) | Two-Phase Commit (2PC), Sagas, ensuring atomic operations.                                           |
-| 2.3.5    | [Batch vs Stream Processing](02-components/2.3-messaging-streaming/2.3.5-batch-vs-stream-processing.md)                           | Detailed look at the Lambda and Kappa Architectures, latency vs. completeness trade-offs.            |
-| 2.3.6    | [Push vs Pull Data Flow](02-components/2.3-messaging-streaming/2.3.6-push-vs-pull-data-flow.md)                                   | Architectural choices in messaging systems (e.g., Kafka (Pull) vs. RabbitMQ (Push)).                 |
-| 2.3.7    | [Apache Spark Deep Dive](02-components/2.3-messaging-streaming/2.3.7-apache-spark-deep-dive.md)                                   | Unified Analytics Engine, RDD/DataFrame API, In-Memory Computing, MLlib, Batch & Stream.             |
-| 2.3.8    | [Apache Flink Deep Dive](02-components/2.3-messaging-streaming/2.3.8-apache-flink-deep-dive.md)                                   | True Stream Processing, Event-by-Event, Stateful Operators, Exactly-Once, CEP, Ultra-Low Latency.    |
-| 2.3.9    | [Event Sourcing Deep Dive](02-components/2.3-messaging-streaming/2.3.9-event-sourcing-deep-dive.md)                               | Immutable event logs, state reconstruction, snapshots, event store design, time travel, audit trail. |
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.3.1 | [Asynchronous Communication](02-components/2.3-messaging-streaming/2.3.1-asynchronous-communication.md) | Queues vs. Streams, Pub/Sub Models. |
+| 2.3.2 | [Kafka Deep Dive](02-components/2.3-messaging-streaming/2.3.2-kafka-deep-dive.md) | Broker, Producer, Consumer Group, Log Compaction. |
+| 2.3.3 | [Advanced Message Queues](02-components/2.3-messaging-streaming/2.3.3-advanced-message-queues.md) | RabbitMQ, SQS, SNS, Dead-Letter Queues. |
+| 2.3.4 | [Distributed Transactions & Idempotency](02-components/2.3-messaging-streaming/2.3.4-distributed-transactions-and-idempotency.md) | Two-Phase Commit (2PC), Sagas. |
+| 2.3.5 | [Batch vs Stream Processing](02-components/2.3-messaging-streaming/2.3.5-batch-vs-stream-processing.md) | Lambda & Kappa Architectures. |
+| 2.3.6 | [Push vs Pull Data Flow](02-components/2.3-messaging-streaming/2.3.6-push-vs-pull-data-flow.md) | Kafka (Pull) vs. RabbitMQ (Push). |
+| 2.3.7 | [Apache Spark Deep Dive](02-components/2.3-messaging-streaming/2.3.7-apache-spark-deep-dive.md) | Unified Analytics Engine, RDD/DataFrame. |
+| 2.3.8 | [Apache Flink Deep Dive](02-components/2.3-messaging-streaming/2.3.8-apache-flink-deep-dive.md) | True Stream Processing, Stateful Operators. |
+| 2.3.9 | [Event Sourcing Deep Dive](02-components/2.3-messaging-streaming/2.3.9-event-sourcing-deep-dive.md) | Immutable event logs, state reconstruction. |
 
 ### 2.4 Security & Observability (Folder: [2.4-security-observability](./02-components/2.4-security-observability))
 
-| Topic ID | Concept                                                                                                          | Focus                                                                                                              |
-|----------|------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
-| 2.4.1    | [Security Fundamentals](02-components/2.4-security-observability/2.4.1-security-fundamentals.md)                 | Authn/Authz (JWT), TLS/Encryption, Cross-Site Scripting (XSS) & CSRF.                                              |
-| 2.4.2    | [Observability](02-components/2.4-security-observability/2.4.2-observability.md)                                 | Logging, Metrics (Prometheus), Distributed Tracing (Jaeger/Zipkin), Alerting.                                      |
-| 2.4.3    | [Prometheus & Grafana Deep Dive](02-components/2.4-security-observability/2.4.3-prometheus-grafana-deep-dive.md) | Metrics collection, time-series storage, PromQL, dashboards, alerting, service discovery.                          |
-| 2.4.4    | [OAuth 2.0 & JWT Deep Dive](02-components/2.4-security-observability/2.4.4-oauth-jwt-deep-dive.md)               | OAuth 2.0 flows, JWT structure, token management, refresh tokens, OIDC, security best practices.                   |
-| 2.4.5    | [ELK Stack & Logging Deep Dive](02-components/2.4-security-observability/2.4.5-elk-stack-logging-deep-dive.md)   | Elasticsearch, Logstash, Kibana, Beats, log parsing, retention, correlation, full-text search.                     |
-| 2.4.6    | [Distributed Tracing Deep Dive](02-components/2.4-security-observability/2.4.6-distributed-tracing-deep-dive.md) | Jaeger, Zipkin, OpenTelemetry, span propagation, sampling strategies, trace correlation, performance optimization. |
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.4.1 | [Security Fundamentals](02-components/2.4-security-observability/2.4.1-security-fundamentals.md) | Authn/Authz, TLS, XSS/CSRF. |
+| 2.4.2 | [Observability](02-components/2.4-security-observability/2.4.2-observability.md) | Logging, Metrics, Tracing. |
+| 2.4.3 | [Prometheus & Grafana Deep Dive](02-components/2.4-security-observability/2.4.3-prometheus-grafana-deep-dive.md) | Time-series metrics, PromQL, alerting. |
+| 2.4.4 | [OAuth 2.0 & JWT Deep Dive](02-components/2.4-security-observability/2.4.4-oauth-jwt-deep-dive.md) | OAuth 2.0 flows, JWT structure, OIDC. |
+| 2.4.5 | [ELK Stack & Logging Deep Dive](02-components/2.4-security-observability/2.4.5-elk-stack-logging-deep-dive.md) | Elasticsearch, Logstash, Kibana, Beats. |
+| 2.4.6 | [Distributed Tracing Deep Dive](02-components/2.4-security-observability/2.4.6-distributed-tracing-deep-dive.md) | Jaeger, Zipkin, OpenTelemetry. |
 
 ### 2.5 Distributed Algorithms (Folder: [2.5-algorithms](./02-components/2.5-algorithms))
 
-| Topic ID | Concept                                                                                    | Focus                                                                              |
-|----------|--------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
-| 2.5.1    | [Rate Limiting Algorithms](02-components/2.5-algorithms/2.5.1-rate-limiting-algorithms.md) | Token Bucket, Leaky Bucket, Fixed Window counter mechanisms.                       |
-| 2.5.2    | [Consensus Algorithms](02-components/2.5-algorithms/2.5.2-consensus-algorithms.md)         | Paxos / Raft, Distributed Locks (ZooKeeper/etcd), solving the concurrency problem. |
-| 2.5.3    | [Distributed Locking](02-components/2.5-algorithms/2.5.3-distributed-locking.md)           | $\text{Redis}$ locks, $\text{TTL}$, Fencing Tokens, ensuring mutual exclusion.     |
-| 2.5.4    | [Bloom Filters](02-components/2.5-algorithms/2.5.4-bloom-filters.md)                       | Intuition, Hash Functions, False Positives, use cases (e.g., CDN cache lookups).   |
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.5.1 | [Rate Limiting Algorithms](02-components/2.5-algorithms/2.5.1-rate-limiting-algorithms.md) | Token Bucket, Leaky Bucket mechanisms. |
+| 2.5.2 | [Consensus Algorithms](02-components/2.5-algorithms/2.5.2-consensus-algorithms.md) | Paxos / Raft, Distributed Locks. |
+| 2.5.3 | [Distributed Locking](02-components/2.5-algorithms/2.5.3-distributed-locking.md) | Redis locks, TTL, Fencing Tokens. |
+| 2.5.4 | [Bloom Filters](02-components/2.5-algorithms/2.5.4-bloom-filters.md) | Hash Functions, False Positives. |
 
 ### 2.6 Infrastructure (Folder: [2.6-infrastructure](./02-components/2.6-infrastructure))
 
-| Topic ID | Concept                                                                                                            | Focus                                                                                   |
-|----------|--------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
-| 2.6.1    | [Kubernetes and Docker Deep Dive](02-components/2.6-infrastructure/2.6.1-kubernetes-docker-deep-dive.md)           | Container orchestration, pods, services, deployments, auto-scaling, service discovery.  |
-| 2.6.2    | [Configuration Management Deep Dive](02-components/2.6-infrastructure/2.6.2-configuration-management-deep-dive.md) | etcd, Consul, Vault, service discovery, leader election, secrets management, watch API. |
-| 2.6.3    | [Infrastructure as Code Deep Dive](02-components/2.6-infrastructure/2.6.3-infrastructure-as-code-deep-dive.md)     | Terraform, CloudFormation, Pulumi, state management, modules, multi-environment, CI/CD. |
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.6.1 | [Kubernetes and Docker Deep Dive](02-components/2.6-infrastructure/2.6.1-kubernetes-docker-deep-dive.md) | Container orchestration, pods, deployments. |
+| 2.6.2 | [Configuration Management Deep Dive](02-components/2.6-infrastructure/2.6.2-configuration-management-deep-dive.md) | etcd, Consul, Vault, secrets management. |
+| 2.6.3 | [Infrastructure as Code Deep Dive](02-components/2.6-infrastructure/2.6.3-infrastructure-as-code-deep-dive.md) | Terraform, CloudFormation, Pulumi. |
+
+### 2.7 AI & Generative ML Systems (Folder: [2.7-ai-ml-systems](./02-components/2.7-ai-ml-systems))
+
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.7.1 | [Generative AI & LLM Inference RAG Architecture](02-components/2.7-ai-ml-systems/2.7.1-llm-inference-rag-architecture.md) | LLM serving, PagedAttention, KV Cache, RAG hybrid search, streaming tokens. |
+| 2.7.2 | [Machine Learning Feature Store](02-components/2.7-ai-ml-systems/2.7.2-machine-learning-feature-store.md) | Point-in-time joins, online/offline feature sync, Feast/Tecton. |
+
+### 2.8 Resilience Engineering (Folder: [2.8-resilience-engineering](./02-components/2.8-resilience-engineering))
+
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.8.1 | [Chaos Engineering & Resilience](02-components/2.8-resilience-engineering/2.8.1-chaos-engineering-resilience.md) | Circuit breakers, bulkhead, load shedding, cascading failure prevention, RPO/RTO. |
+
+### 2.9 API & Schema Evolution (Folder: [2.9-api-schema-design](./02-components/2.9-api-schema-design))
+
+| Topic ID | Concept | Focus |
+|---|---|---|
+| 2.9.1 | [API Design & Schema Evolution](02-components/2.9-api-schema-design/2.9.1-api-design-schema-evolution.md) | Backward/forward compatibility, Protobuf/Avro schema registries, versioning strategies. |
 
 ## 🗺️ Design Challenges Roadmap (Category 3)
 
 **📊 Each challenge folder contains 6 comprehensive files:**
 
-- **[README.md]** - Complete comprehensive guide with all content (primary document, replaces main design file)
-- **[quick-overview.md]** - Quick revision guide with core concepts, architecture flows, and key takeaways
-- **[hld-diagram.md]** - 10-15 system architecture diagrams with detailed flow explanations
-- **[sequence-diagrams.md]** - 10-15 interaction flows with step-by-step explanations
-- **[this-over-that.md]** - In-depth analysis of 5-10 major design decisions and trade-offs
-- **[pseudocode.md]** - 10-20 detailed algorithm implementations with complexity analysis
-
-> 📊 **Each challenge includes comprehensive visual diagrams (Mermaid) for system architecture and sequence flows!**
+- **[README.md]** - Complete comprehensive guide with all content
+- **[quick-overview.md]** - Quick revision guide with core concepts and key takeaways
+- **[hld-diagram.md]** - System architecture diagrams
+- **[sequence-diagrams.md]** - Detailed interaction flows
+- **[this-over-that.md]** - Design decisions & trade-offs
+- **[pseudocode.md]** - Detailed algorithm implementations
 
 ### Easy Challenges (Focus: Core Components, Caching, Databases)
 
-These problems require solid application of scaling fundamentals, hashing, and database choices.
-
-| Problem ID | System Name                                                                                                    | Key Concepts Applied                                                                                                 |
-|------------|----------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
-| 3.1.1      | **[Design a URL Shortener](03-challenges/3.1.1-url-shortener/)** ($\text{TinyURL}$)                            | Hashing, Base62 Encoding, Read-Heavy Scaling, Sharding Key, $\text{Cache}$ $\text{Aside}$, Multi-region deployment   |
-| 3.1.2      | **[Design a Distributed Cache](03-challenges/3.1.2-distributed-cache/)** ($\text{Redis}$ / $\text{Memcached}$) | Consistent Hashing, Eviction Policies ($\text{LRU}$), Replication, Failover, $\text{TTL}$, Cache Stampede Prevention |
-| 3.1.3      | **[Design a Distributed ID Generator](03-challenges/3.1.3-distributed-id-generator/)** ($\text{Snowflake}$)    | 64-bit ID Structure, Worker ID Assignment, Clock Drift Handling, Sequence Management, $\text{etcd}$ Coordination     |
+| Problem ID | System Name | Key Concepts Applied |
+|---|---|---|
+| 3.1.1 | **[Design a URL Shortener](03-challenges/3.1.1-url-shortener/)** (TinyURL) | Hashing, Base62 Encoding, Read-Heavy Scaling, Sharding Key, Cache Aside |
+| 3.1.2 | **[Design a Distributed Cache](03-challenges/3.1.2-distributed-cache/)** (Redis / Memcached) | Consistent Hashing, Eviction Policies (LRU), Replication, Failover, TTL |
+| 3.1.3 | **[Design a Distributed ID Generator](03-challenges/3.1.3-distributed-id-generator/)** (Snowflake) | 64-bit ID Structure, Worker ID Assignment, Clock Drift, etcd |
 
 ### Medium Challenges (Focus: Asynchrony, Feeds, Microservices, Geo-Spatial)
 
-These problems involve decoupling services, handling fan-out, and managing complex data models.
+| Problem ID | System Name | Key Concepts Applied |
+|---|---|---|
+| 3.2.1 | [**Design a Twitter/X Timeline**](03-challenges/3.2.1-twitter-timeline/) | Fanout on Write vs. Fanout on Read, Caching Hierarchy, Kafka |
+| 3.2.2 | [**Design a Notification Service**](03-challenges/3.2.2-notification-service/) | Multi-Channel, WebSockets, Kafka Streams, Circuit Breakers, Rate Limiting |
+| 3.2.3 | [**Design a Distributed Web Crawler**](03-challenges/3.2.3-web-crawler/) | URL Frontier, Bloom Filter, Duplicate Detection, Politeness, Rate Limiting |
+| 3.2.4 | [**Design a Global Rate Limiter**](03-challenges/3.2.4-global-rate-limiter/) | Token Bucket, Sliding Window, Atomic INCR, Circuit Breakers |
 
-| Problem ID | System Name                                                                    | Key Concepts Applied                                                                                                                                                                                                               |
-|------------|--------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 3.2.1      | [**Design a Twitter/X Timeline**](03-challenges/3.2.1-twitter-timeline/)       | $\text{Fanout}$ $\text{on}$ $\text{Write}$ vs. $\text{Fanout}$ $\text{on}$ $\text{Read}$, $\text{Caching}$ $\text{Hierarchy}$, $\text{Queuing}$ ($\text{Kafka}$).                                                                  |
-| 3.2.2      | [**Design a Notification Service**](03-challenges/3.2.2-notification-service/) | $\text{Multi}$-$\text{Channel}$ ($\text{Email}$/$\text{SMS}$/$\text{Push}$/$\text{Web}$), $\text{WebSockets}$, $\text{Kafka}$ $\text{Streams}$, $\text{Circuit}$ $\text{Breakers}$, $\text{Rate}$ $\text{Limiting}$, $\text{DLQ}$. |
-| 3.2.3      | [**Design a Distributed Web Crawler**](03-challenges/3.2.3-web-crawler/)       | $\text{URL}$ $\text{Frontier}$, $\text{Bloom}$ $\text{Filter}$, $\text{Duplicate}$ $\text{Detection}$, $\text{Politeness}$, $\text{Rate}$ $\text{Limiting}$, $\text{robots}$.$\text{txt}$.                                         |
-| 3.2.4      | [**Design a Global Rate Limiter**](03-challenges/3.2.4-global-rate-limiter/)   | $\text{Token}$ $\text{Bucket}$, $\text{Sliding}$ $\text{Window}$, $\text{Atomic}$ $\text{INCR}$, $\text{Circuit}$ $\text{Breakers}$, $\text{Fail}$-$\text{Open}$, $\text{Hot}$ $\text{Key}$ $\text{Mitigation}$.                   |
+### Hard & Advanced Enterprise Challenges
 
-### Hard Challenges (Focus: Consistency, Low-Latency, Transactions, Consensus, Real-Time Geo)
-
-These problems require advanced pattern usage, strong consistency guarantees, and managing complex real-time state.
-
-| Problem ID | System Name                                                                                                                      | Key Concepts Applied                                                                                                                                                                                                                                                          |
-|------------|----------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 3.3.1      | [**Design a Live Chat System**](03-challenges/3.3.1-live-chat-system/) ($\text{WhatsApp}$ / $\text{Slack}$)                      | $\text{WebSockets}$, $\text{Kafka}$ $\text{Ordering}$, $\text{Presence}$ $\text{Service}$, $\text{Sequence}$ $\text{IDs}$, $\text{Read}$ $\text{Receipts}$, $\text{Group}$ $\text{Chat}$.                                                                                     |
-| 3.3.2      | [**Design Uber/Lyft Ride Matching**](03-challenges/3.3.2-uber-ride-matching/)                                                    | $\text{Redis}$ $\text{Geo}$, $\text{Geohash}$ $\text{Indexing}$, $\text{Kafka}$ $\text{Buffer}$, $\text{ETA}$ $\text{Calculation}$, $\text{Geographic}$ $\text{Sharding}$, $\text{750K}$ $\text{writes/sec}$.                                                                 |
-| 3.3.3      | [**Design an E-commerce Flash Sale**](03-challenges/3.3.3-flash-sale/)                                                           | $\text{Redis}$ $\text{Atomic}$ $\text{DECR}$, $\text{Saga}$ $\text{Pattern}$, $\text{Load}$ $\text{Shedding}$, $\text{Idempotency}$ $\text{Keys}$, $\text{Split}$ $\text{Counter}$, $\text{100K}$ $\text{QPS}$ $\text{hot}$ $\text{key}$.                                     |
-| 3.3.4      | [**Design a Distributed Database**](03-challenges/3.3.4-distributed-database/)                                                   | $\text{Raft}$ $\text{Consensus}$, $\text{2PC}$, $\text{Range}$ $\text{Sharding}$, $\text{LSM}$ $\text{Tree}$, $\text{MVCC}$, $\text{Timestamp}$ $\text{Oracle}$, $\text{Multi}$-$\text{Region}$, $\text{1M}$ $\text{QPS}$.                                                    |
-| 3.4.1      | [**Design a Stock Exchange Matching Engine**](03-challenges/3.4.1-stock-exchange/)                                               | $\text{LMAX}$ $\text{Disruptor}$, $\text{DPDK}$ $\text{Kernel}$ $\text{Bypass}$, $\text{Red}$-$\text{Black}$ $\text{Tree}$, $\text{Fixed}$-$\text{Point}$ $\text{Integers}$, $\text{WAL}$, $\text{<100μs}$ $\text{p99}$, $\text{1M}$ $\text{orders/sec}$.                     |
-| 3.4.2      | [**Design a Global News Feed**](03-challenges/3.4.2-news-feed/) ($\text{Google}$ $\text{News}$ / $\text{Aggregator}$)            | $\text{NLP}$ $\text{Pipelines}$, $\text{LSH}$ $\text{Deduplication}$, $\text{Elasticsearch}$, $\text{Kappa}$ $\text{Architecture}$, $\text{Real}$-$\text{Time}$ $\text{Feature}$ $\text{Store}$, $\text{Multi}$-$\text{Region}$, $\text{100M}$ $\text{articles/day}$.         |
-| 3.4.3      | [**Design a Distributed Monitoring System**](03-challenges/3.4.3-monitoring-system/) ($\text{Prometheus}$ / $\text{Datadog}$)    | $\text{M3DB}$ $\text{TSDB}$, $\text{Delta}$-$\text{of}$-$\text{Delta}$ $\text{Encoding}$, $\text{Rollup}$ $\text{Aggregations}$, $\text{Stream}$ $\text{Alerting}$, $\text{Cardinality}$ $\text{Control}$, $\text{100M}$ $\text{writes/sec}$, $\text{10PB}$ $\text{storage}$. |
-| 3.4.4      | [**Design a Recommendation System**](03-challenges/3.4.4-recommendation-system/) ($\text{Netflix}$ / $\text{Amazon}$)            | $\text{Lambda}$ $\text{Architecture}$, $\text{ALS}$ $\text{Collaborative}$ $\text{Filtering}$, $\text{FAISS}$ $\text{ANN}$, $\text{Redis}$ $\text{Feature}$ $\text{Store}$, $\text{TensorFlow}$ $\text{Serving}$, $\text{50ms}$ $\text{p99}$, $\text{100k}$ $\text{QPS}$.     |
-| 3.4.5      | [**Design a Stock Brokerage Platform**](03-challenges/3.4.5-stock-brokerage/) ($\text{Zerodha}$ / $\text{Robinhood}$)            | $\text{FIX}$ $\text{Protocol}$, $\text{WebSockets}$ $\text{Push}$, $\text{Event}$ $\text{Sourcing}$, $\text{Redis}$ $\text{Quotes}$, $\text{Elasticsearch}$ $\text{Search}$, $\text{Margin}$ $\text{Calls}$, $\text{10M}$ $\text{users}$, $\text{<200ms}$ $\text{latency}$.   |
-| 3.4.6      | [**Design a Collaborative Editor**](03-challenges/3.4.6-collaborative-editor/) ($\text{Google}$ $\text{Docs}$)                   | $\text{OT}$/$\text{CRDT}$, $\text{WebSockets}$, $\text{Event}$ $\text{Sourcing}$, $\text{CQRS}$.                                                                                                                                                                              |
-| 3.4.7      | [**Design an Online Code Editor / Judge**](03-challenges/3.4.7-online-code-judge/)                                               | $\text{Execution}$ $\text{Isolation}$ ($\text{Sandboxing}$), $\text{Queue}$ $\text{Priority}$, $\text{Resource}$ $\text{Throttling}$.                                                                                                                                         |
-| 3.4.8      | [**Design a Video Streaming System**](03-challenges/3.4.8-video-streaming-system/) ($\text{YouTube}$ / $\text{Netflix}$)         | $\text{CDN}$ $\text{Hierarchy}$, $\text{DASH}$/$\text{HLS}$, $\text{Encoding}$ $\text{Pipelines}$, $\text{DRM}$.                                                                                                                                                              |
-| 3.5.1      | [**Design a Payment Gateway**](03-challenges/3.5.1-payment-gateway) ($\text{Stripe}$)                                            | $\text{Idempotency}$, $\text{PCI}$ $\text{Compliance}$, $\text{Tokenization}$, $\text{Fraud}$ $\text{Detection}$.                                                                                                                                                             |
-| 3.5.2      | [**Design Ad Click Aggregator**](03-challenges/3.5.2-ad-click-aggregator/) ($\text{Google}$ $\text{Ads}$)                        | $\text{Kappa}$ $\text{Architecture}$, $\text{Low}$-$\text{Latency}$ $\text{Counters}$, $\text{Batch}$ $\text{Reconciliation}$.                                                                                                                                                |
-| 3.5.3      | [**Design** $\text{YouTube}$ $\text{Top}$ $\text{K}$ ($\text{Trending}$ $\text{Algorithm}$)](03-challenges/3.5.3-youtube-top-k/) | $\text{Redis}$ $\text{Sorted}$ $\text{Sets}$, $\text{Decay}$ $\text{Functions}$, $\text{Real}$-$\text{Time}$ $\text{Ranking}$ $\text{Pipeline}$.                                                                                                                              |
-| 3.5.4      | [**Design Instagram/Pinterest Feed**](03-challenges/3.5.4-instagram-pinterest-feed/)                                             | $\text{Media}$ $\text{Pipeline}$, $\text{Fanout}$ $\text{on}$ $\text{Write}$ $\text{vs.}$ $\text{Recommendation}$ $\text{Merge}$.                                                                                                                                             |
-| 3.5.5      | [**Design Live Commenting**](03-challenges/3.5.5-live-commenting/) ($\text{Facebook}$ $\text{Live}$ / $\text{Twitch}$)           | $\text{Massive}$ $\text{Fanout}$, $\text{WebSockets}$, $\text{Adaptive}$ $\text{Throttling}$, $\text{Asynchronous}$ $\text{Moderation}$.                                                                                                                                      |
-| 3.5.6      | [**Design Yelp/Google Maps**](03-challenges/3.5.6-yelp-google-maps/)                                                             | $\text{Geospatial}$ $\text{Search}$, $\text{Geohash}$ $\text{Partitioning}$, $\text{Hierarchical}$ $\text{Sharding}$, $\text{Multi}$-$\text{Cell}$ $\text{Query}$.                                                                                                            |
-| 3.5.7      | [**Design Authenticator App**](03-challenges/3.5.7-authenticator-app/) ($\text{Microsoft}$ $\text{Authenticator}$ / $\text{Google}$ $\text{Authenticator}$) | $\text{TOTP}$ $\text{Algorithm}$, $\text{Offline}$ $\text{Operation}$, $\text{Device}$ $\text{HSM}$, $\text{Cloud}$ $\text{Backup}$, $\text{Multi}$-$\text{Device}$ $\text{Sync}$, $\text{Push}$ $\text{Notifications}$.                                                          |
-| 3.5.8      | [**Design Single Sign-On (SSO) System**](03-challenges/3.5.8-single-sign-on-sso/) ($\text{Okta}$ / $\text{Auth0}$ / $\text{Azure}$ $\text{AD}$) | $\text{OAuth}$ $\text{2.0}$ / $\text{OIDC}$, $\text{SAML}$ $\text{2.0}$, $\text{JWT}$ $\text{Tokens}$, $\text{Token}$ $\text{Rotation}$, $\text{Identity}$ $\text{Federation}$, $\text{Multi}$-$\text{Tenancy}$.                                                               |
+| Problem ID | System Name | Key Concepts Applied |
+|---|---|---|
+| 3.3.1 | [**Design a Live Chat System**](03-challenges/3.3.1-live-chat-system/) (WhatsApp / Slack) | WebSockets, Kafka Ordering, Presence Service, Sequence IDs |
+| 3.3.2 | [**Design Uber/Lyft Ride Matching**](03-challenges/3.3.2-uber-ride-matching/) | Redis Geo, Geohash Indexing, Kafka Buffer, Geographic Sharding |
+| 3.3.3 | [**Design an E-commerce Flash Sale**](03-challenges/3.3.3-flash-sale/) | Redis Atomic DECR, Saga Pattern, Load Shedding, Idempotency Keys |
+| 3.3.4 | [**Design a Distributed Database**](03-challenges/3.3.4-distributed-database/) | Raft Consensus, 2PC, Range Sharding, LSM Tree, MVCC |
+| 3.4.1 | [**Design a Stock Exchange Matching Engine**](03-challenges/3.4.1-stock-exchange/) | LMAX Disruptor, DPDK Kernel Bypass, Red-Black Tree, WAL |
+| 3.4.2 | [**Design a Global News Feed**](03-challenges/3.4.2-news-feed/) (Google News) | NLP Pipelines, LSH Deduplication, Elasticsearch, Kappa Architecture |
+| 3.4.3 | [**Design a Distributed Monitoring System**](03-challenges/3.4.3-monitoring-system/) (Prometheus) | M3DB TSDB, Delta-of-Delta Encoding, Rollup Aggregations |
+| 3.4.4 | [**Design a Recommendation System**](03-challenges/3.4.4-recommendation-system/) (Netflix) | Lambda Architecture, ALS Collaborative Filtering, FAISS ANN |
+| 3.4.5 | [**Design a Stock Brokerage Platform**](03-challenges/3.4.5-stock-brokerage/) (Zerodha) | FIX Protocol, WebSockets Push, Event Sourcing, Redis Quotes |
+| 3.4.6 | [**Design a Collaborative Editor**](03-challenges/3.4.6-collaborative-editor/) (Google Docs) | OT/CRDT, WebSockets, Event Sourcing, CQRS |
+| 3.4.7 | [**Design an Online Code Editor / Judge**](03-challenges/3.4.7-online-code-judge/) | Execution Isolation (Sandboxing), Queue Priority, Throttling |
+| 3.4.8 | [**Design a Video Streaming System**](03-challenges/3.4.8-video-streaming-system/) (YouTube) | CDN Hierarchy, DASH/HLS, Encoding Pipelines, DRM |
+| 3.5.1 | [**Design a Payment Gateway**](03-challenges/3.5.1-payment-gateway) (Stripe) | Idempotency, PCI Compliance, Tokenization, Fraud Detection |
+| 3.5.2 | [**Design Ad Click Aggregator**](03-challenges/3.5.2-ad-click-aggregator/) (Google Ads) | Kappa Architecture, Low-Latency Counters, Reconciliation |
+| 3.5.3 | [**Design YouTube Top K**](03-challenges/3.5.3-youtube-top-k/) (Trending Algorithm) | Redis Sorted Sets, Decay Functions, Ranking Pipeline |
+| 3.5.4 | [**Design Instagram/Pinterest Feed**](03-challenges/3.5.4-instagram-pinterest-feed/) | Media Pipeline, Fanout on Write vs. Recommendation Merge |
+| 3.5.5 | [**Design Live Commenting**](03-challenges/3.5.5-live-commenting/) (Twitch) | Massive Fanout, WebSockets, Adaptive Throttling |
+| 3.5.6 | [**Design Yelp/Google Maps**](03-challenges/3.5.6-yelp-google-maps/) | Geospatial Search, Geohash Partitioning, Hierarchical Sharding |
+| 3.5.7 | [**Design Authenticator App**](03-challenges/3.5.7-authenticator-app/) | TOTP Algorithm, Offline Operation, Device HSM, Push Auth |
+| 3.5.8 | [**Design Single Sign-On (SSO) System**](03-challenges/3.5.8-single-sign-on-sso/) | OAuth 2.0 / OIDC, SAML 2.0, JWT Tokens, Token Rotation |
+| 3.6.1 | [**Design Enterprise LLM & RAG Copilot**](03-challenges/3.6.1-llm-rag-copilot-system/) (Enterprise ChatGPT) | vLLM Serving, PagedAttention, Hybrid HNSW+BM25 Search, RBAC ACL Vector Filtering, Token Streaming |
 
 --- 
 
