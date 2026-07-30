@@ -291,9 +291,37 @@ CREATE TABLE payment_events (
 
 *See pseudocode.md::write_to_ledger() for implementation*
 
+### 4.5 Webhook Delivery System & Out-of-Order Protection
+
+Merchants rely on webhooks to trigger order fulfillment (e.g. `payment_intent.succeeded`).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant EventBus as Kafka (payment-events)
+    participant WebhookSvc as Webhook Dispatch Worker
+    participant RetryQueue as Exponential Backoff Queue
+    participant Merchant as Merchant Server
+
+    EventBus->>WebhookSvc: Event: payment_intent.succeeded (Seq: 2)
+    WebhookSvc->>Merchant: POST /webhook (HMAC-SHA256 Signed)
+    
+    alt Success (200 OK)
+        Merchant-->>WebhookSvc: HTTP 200 OK
+    else Failure (500 Error / Timeout)
+        Merchant-->>WebhookSvc: HTTP 500 / Timeout
+        WebhookSvc->>RetryQueue: Schedule Retry (Backoff: 5s, 15s, 1m, 1h, 24h + Jitter)
+        RetryQueue->>Merchant: Retry Delivery (Includes Event Sequence ID)
+    end
+```
+
+- **Out-of-Order Webhook Protection:** Network retries can cause `payment_intent.succeeded` to arrive *after* `payment_intent.refunded`. Every webhook includes a monotonic `sequence_id` and `event_timestamp`. Merchants ignore events with `sequence_id < last_seen_sequence_id`.
+- **HMAC Signature Verification:** Sign every webhook payload with a shared secret using `HMAC-SHA256(payload, secret)` in the `Stripe-Signature` header to prevent spoofing.
+
 ---
 
 ## 5. Security and Compliance
+
 
 ### 5.1 PCI-DSS Compliance
 

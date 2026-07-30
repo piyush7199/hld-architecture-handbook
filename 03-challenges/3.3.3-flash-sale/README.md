@@ -197,7 +197,22 @@ else
 end
 ```
 
+#### Advanced Scaling: Split-Counter (Sub-Bucket Inventory Sharding)
+To scale beyond a single Redis core ($>100,000 \text{ QPS}$), split the total stock of 100 items into $N=10$ sub-keys:
+`iphone:stock:0` (10 items), `iphone:stock:1` (10 items), ..., `iphone:stock:9` (10 items).
+
+```mermaid
+flowchart TD
+    Client[100K Concurrent Clicks] --> Router[Random Sub-Bucket Router: user_id % 10]
+    Router --> B0[Bucket 0: iphone:stock:0 (10 items)]
+    Router --> B1[Bucket 1: iphone:stock:1 (10 items)]
+    Router --> B9[Bucket 9: iphone:stock:9 (10 items)]
+```
+
+- **Fallback Re-balancing:** If a user hits `Bucket 3` and finds it at `0`, the Lua script tries the next adjacent bucket (`Bucket 4`) before returning "Sold Out", ensuring zero inventory leakage while spreading write contention across 10 independent Redis cluster shards!
+
 *See [pseudocode.md::reserve_inventory()](pseudocode.md) for full implementation.*
+
 
 **Benefits:**
 
